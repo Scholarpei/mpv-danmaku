@@ -83,6 +83,7 @@ function M.match_bilibili_part(opts)
     end
 
     -- 锚点差值：p0 + (当前集 - 锚点集)。落点存在、集数不矛盾、非特殊篇、时长不离谱才收
+    -- 时长硬门 600s：容纳 BD/WEB 等不同剪辑的时长漂移，仍拦截 MAD/PV 类短分P
     local function delta_result()
         if anchor_page == nil or anchor_episode == nil then return nil end
         local p = anchor_page + (episode - anchor_episode)
@@ -92,7 +93,7 @@ function M.match_bilibili_part(opts)
         if pe ~= nil and pe ~= episode then return nil end
         if special then return nil end
         if duration and target.duration
-            and math.abs(target.duration - duration) > 300 then return nil end
+            and math.abs(target.duration - duration) > 600 then return nil end
         return { page = p, part = target.part, via = "delta" }
     end
 
@@ -129,9 +130,9 @@ function M.match_bilibili_part(opts)
 
     if #cands == 1 then
         local c = cands[1]
-        -- 唯一候选但时长严重矛盾（且非锚点重放）→ 拒绝
+        -- 唯一候选但时长严重矛盾（且非锚点重放）→ 交给锚点差值兜底判定
         if c.dd ~= nil and c.dd > 300 and c.page ~= anchor_page then
-            return nil
+            return delta_result()
         end
         return { page = c.page, part = c.part, via = "title" }
     end

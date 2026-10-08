@@ -142,10 +142,34 @@ do
     check("match 时长歧视 → 裸p9", m and m.page == 9)
 end
 
--- 9. 唯一候选但时长差 400 且非锚点页 → 拒绝
+-- 9. 唯一候选但时长差 400 且非锚点页 → 拒绝（无锚点可退）
 do
     local m = match(S3ONLY, { episode = 9, duration = 1835 })
     check("match 唯一候选时长矛盾 → nil", m == nil)
+end
+
+-- 9b. 唯一候选时长差 >300 但锚点 delta 可用 → 退回 delta 收下
+-- （裸数字投稿 vs 本地不同剪辑版本，时长漂移 ~570s 的场景）
+do
+    local parts = {
+        { page = 1, part = "1", duration = 2012 },
+        { page = 2, part = "2", duration = 2012 },
+        { page = 3, part = "3", duration = 2012 },
+    }
+    local m = match(parts, { episode = 2, duration = 1440,
+        anchor_page = 1, anchor_episode = 1 })
+    check("match 单候选时长矛盾退回delta → p2", m and m.page == 2 and m.via == "delta")
+end
+
+-- 9c. delta 落点为 MAD 类短分P（234s vs 本地 2012s）→ 时长硬门 600 拒绝
+do
+    local parts = {
+        { page = 19, part = "19", duration = 2012 },
+        { page = 20, part = "『MAD』双子星", duration = 234 },
+    }
+    local m = match(parts, { episode = 20, duration = 2012,
+        anchor_page = 19, anchor_episode = 19 })
+    check("match delta落点MAD被时长门拦截 → nil", m == nil)
 end
 
 -- 10. 全不可解析标题（上集/下集/…），锚 {5,5}，第 7 集 → 纯 delta → p7

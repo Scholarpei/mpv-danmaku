@@ -424,8 +424,11 @@ function maybe_record_bilibili_series(query)
             msg.warn("B站分P列表获取失败，未写入文件夹记忆：" .. vid)
             return
         end
-        -- 显式 ?p= 直接信任；否则对当前集做一次匹配（失败记 p=1 弱锚点）
+        -- 显式 ?p= 直接信任；无 ?p= 时对当前集做一次匹配。
+        -- 匹配失败按B站惯例记 p1 ↔ 第1集（裸链接语义即该投稿的第1个分P，
+        -- 不能锚到粘贴时的当前集——在第9集贴裸链会把锚点带偏）
         local page = explicit_p
+        local anchor_ep = episode and tonumber(episode) or nil
         if page == nil then
             local m = bmatch.match_bilibili_part({
                 parts = pages,
@@ -433,11 +436,15 @@ function maybe_record_bilibili_series(query)
                 episode = episode and tonumber(episode) or nil,
                 duration = mp.get_property_number("duration"),
             })
-            page = m and m.page or 1
+            if m then
+                page = m.page
+            else
+                page, anchor_ep = 1, 1
+            end
         end
         update_bilibili_series_record(dir, vid, {
             page = page,
-            episode = episode and tonumber(episode) or nil,
+            episode = anchor_ep,
             season = season and tonumber(season) or nil,
             ts = os.time(),
         })
