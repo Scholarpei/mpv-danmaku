@@ -556,6 +556,11 @@ function add_danmaku_source(query, from_menu)
     from_menu = from_menu or false
     if from_menu then
         add_source_to_history(query, DANMAKU.sources[query])
+        -- 手动粘贴B站源时写入文件夹记忆（from_menu 防止 addon_danmaku 重放时误记录；
+        -- 与取数走 extcomment 还是直连B站无关）
+        if type(query) == "string" and query:find("bilibili%.com") then
+            maybe_record_bilibili_series(query)
+        end
     end
 
     if is_protocol(query) then

@@ -253,6 +253,8 @@ local function set_danmaku_delay(dly, time, specific_source)
             source.delay = nil
             source.delay_segments = merge_delay_segments(source.delay_segments)
             add_source_to_history(specific_source, source)
+            -- B站文件夹记忆：镜像延迟设置，跨集继承偏移
+            sync_bilibili_series_source(specific_source, { delay_segments = source.delay_segments })
         end
     else
         for url, source in pairs(DANMAKU.sources) do
@@ -269,6 +271,7 @@ local function set_danmaku_delay(dly, time, specific_source)
                 source.delay = nil
                 source.delay_segments = merge_delay_segments(source.delay_segments)
                 add_source_to_history(url, source)
+                sync_bilibili_series_source(url, { delay_segments = source.delay_segments })
             end
         end
     end
@@ -362,6 +365,8 @@ function write_history(episodeid, api_server)
         if history_json ~= nil then
             history = utils.parse_json(history_json) or {}
         end
+        -- 记录整体重建，保留B站合集文件夹记忆
+        local preserved_bilibili = history[dir] and history[dir].bilibili or nil
         history[dir] = {}
         history[dir].fname = fname
         history[dir].source = DANMAKU.source
@@ -375,6 +380,9 @@ function write_history(episodeid, api_server)
         end
         if api_server then
             history[dir].api_server = api_server
+        end
+        if preserved_bilibili ~= nil then
+            history[dir].bilibili = preserved_bilibili
         end
         write_json_file(HISTORY_PATH, history)
     end
@@ -614,59 +622,75 @@ end
 
 -- 自动加载上次匹配的弹幕
 function auto_load_danmaku(path, dir, filename, number)
-    if dir ~= nil then
-        local history_json = read_file(HISTORY_PATH)
-        if history_json ~= nil then
-            local history = utils.parse_json(history_json) or {}
-            -- 1.判断父文件名是否存在
-            local history_dir = history[dir]
-            if history_dir ~= nil then
-                --2.如果存在，则获取number和id
-                DANMAKU.anime = history_dir.animeTitle
-                local episode_number = history_dir.episodeTitle and history_dir.episodeTitle:match("%d+")
-                local history_number = history_dir.episodeNumber
-                local history_id = history_dir.episodeId
-                local history_fname = history_dir.fname
-                local history_extra = history_dir.extra
-                local history_api_server = history_dir.api_server
-                local playing_number = nil
+    if dir == nil then return end
+    local history_json = read_file(HISTORY_PATH)
+    if history_json == nil then
+        get_danmaku_with_hash(filename, path)
+        return
+    end
+    local history = utils.parse_json(history_json) or {}
+    -- 1.判断父目录记录是否存在
+    local history_dir = history[dir]
+    if history_dir == nil then
+        get_danmaku_with_hash(filename, path)
+        return
+    end
 
-                if history_fname then
-                    if filename ~= history_fname then
-                        if number then
-                            playing_number = number
-                        else
-                            history_number, playing_number = get_episode_number(filename, history_fname)
-                        end
-                    else
-                        playing_number = history_number
-                    end
+    -- 2.如果存在，则获取number和id（弹弹play/extra 记忆流程，原逻辑提为闭包）
+    local function dandanplay_flow()
+        DANMAKU.anime = history_dir.animeTitle
+        local episode_number = history_dir.episodeTitle and history_dir.episodeTitle:match("%d+")
+        local history_number = history_dir.episodeNumber
+        local history_id = history_dir.episodeId
+        local history_fname = history_dir.fname
+        local history_extra = history_dir.extra
+        local history_api_server = history_dir.api_server
+        local playing_number = nil
+
+        if history_fname then
+            if filename ~= history_fname then
+                if number then
+                    playing_number = number
                 else
-                    playing_number = get_episode_number(filename)
-                end
-                if playing_number ~= nil then
-                    local x = playing_number - history_number --获取集数差值
-                    DANMAKU.episode = episode_number and string.format("第%s话", episode_number + x) or history_dir.episodeTitle
-                    DANMAKU.api_server = history_api_server or nil
-                    show_message("自动加载上次匹配的弹幕", 3)
-                    msg.verbose("自动加载上次匹配的弹幕")
-                    if history_id then
-                        local tmp_id = tostring(x + history_id)
-                        set_episode_id(tmp_id)
-                    elseif history_extra then
-                        local episodenum = history_extra.episodenum + x
-                        get_details(history_extra.class, history_extra.id, history_extra.site,
-                            history_extra.title, history_extra.year, history_extra.number, episodenum)
-                    end
-                else
-                    get_danmaku_with_hash(filename, path)
+                    history_number, playing_number = get_episode_number(filename, history_fname)
                 end
             else
+                playing_number = history_number
+            end
+        else
+            playing_number = get_episode_number(filename)
+        end
+        if playing_number ~= nil then
+            local x = playing_number - history_number --获取集数差值
+            DANMAKU.episode = episode_number and string.format("第%s话", episode_number + x) or history_dir.episodeTitle
+            DANMAKU.api_server = history_api_server or nil
+            if history_id then
+                show_message("自动加载上次匹配的弹幕", 3)
+                msg.verbose("自动加载上次匹配的弹幕")
+                local tmp_id = tostring(x + history_id)
+                set_episode_id(tmp_id)
+            elseif history_extra then
+                show_message("自动加载上次匹配的弹幕", 3)
+                msg.verbose("自动加载上次匹配的弹幕")
+                local episodenum = history_extra.episodenum + x
+                get_details(history_extra.class, history_extra.id, history_extra.site,
+                    history_extra.title, history_extra.year, history_extra.number, episodenum)
+            else
+                -- 记录无 episodeId/extra（如仅B站文件夹记忆）→ 走哈希匹配
                 get_danmaku_with_hash(filename, path)
             end
         else
             get_danmaku_with_hash(filename, path)
         end
+    end
+
+    -- 3.B站合集文件夹记忆：add 模式与弹弹play流程叠加，first 模式匹配成功则跳过
+    local bl_records = history_dir.bilibili
+    if bl_records ~= nil and next(bl_records) ~= nil
+        and options.bilibili_series_memory ~= "off" then
+        autoload_bilibili_series(path, dir, bl_records, dandanplay_flow)
+    else
+        dandanplay_flow()
     end
 end
 
@@ -797,6 +821,16 @@ end)
 
 mp.register_script_message("check-update", check_for_update)
 mp.register_script_message("clear-source", clear_source)
+mp.register_script_message("clear-bilibili-record", function()
+    local path = mp.get_property("path")
+    if not path or is_protocol(path) then return end
+    local dir = get_parent_directory(path)
+    if dir and clear_bilibili_series_record(dir) then
+        show_message("已清除本文件夹的B站弹幕记忆", 3)
+    else
+        show_message("本文件夹无B站弹幕记忆", 3)
+    end
+end)
 mp.register_script_message("immediately_save_danmaku", save_danmaku)
 mp.register_script_message("open_source_delay_menu", open_delay_menu)
 mp.register_script_message("open_search_danmaku_menu", open_input_menu)

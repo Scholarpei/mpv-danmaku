@@ -1761,6 +1761,10 @@ mp.register_script_message('setup-danmaku-source', function(json)
         if event.action == "delete" then
             DANMAKU.sources[event.value] = nil
             remove_source_from_history(event.value)
+            -- 同步删除文件夹级B站记忆（否则下一集又会自动复活）
+            if remove_bilibili_series_record_for_url(event.value) then
+                show_message("已清除本文件夹的B站弹幕记忆", 3)
+            end
             mp.commandv("script-message-to", "uosc", "close-menu", "menu_source")
             open_add_menu()
             load_danmaku(true)
@@ -1769,6 +1773,7 @@ mp.register_script_message('setup-danmaku-source', function(json)
         if event.action == "block" then
             DANMAKU.sources[event.value]["blocked"] = true
             add_source_to_history(event.value, DANMAKU.sources[event.value])
+            sync_bilibili_series_source(event.value, { blocked = true })
             mp.commandv("script-message-to", "uosc", "close-menu", "menu_source")
             open_add_menu()
             load_danmaku(true)
@@ -1777,6 +1782,7 @@ mp.register_script_message('setup-danmaku-source', function(json)
         if event.action == "unblock" then
             DANMAKU.sources[event.value]["blocked"] = false
             add_source_to_history(event.value, DANMAKU.sources[event.value])
+            sync_bilibili_series_source(event.value, { blocked = false })
             mp.commandv("script-message-to", "uosc", "close-menu", "menu_source")
             open_add_menu()
             load_danmaku(true)

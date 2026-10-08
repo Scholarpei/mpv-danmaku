@@ -21,6 +21,11 @@ options = {
     auto_fallback_search = false,
     -- 自动加载播放文件同目录下同名的 xml 格式的弹幕文件
     autoload_local_danmaku = false,
+    -- B站合集弹幕记忆：在文件夹内任一集手动添加过B站视频弹幕源后，同文件夹其他剧集
+    -- 播放时自动按分P标题/集数差/时长匹配对应分P并加载弹幕（每文件夹最多记忆 3 个视频）
+    -- off-关闭 / add-与自动填装叠加加载 / first-匹配成功时优先仅用B站源（失败回退自动填装）
+    -- 非法值回落 add
+    bilibili_series_memory = "add",
     -- 播放结束时自动保存弹幕为xml文件
     save_danmaku = false,
     -- 指定弹幕保存目录。为空时保存到视频同目录；目录需要用户提前创建
