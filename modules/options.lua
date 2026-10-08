@@ -75,8 +75,8 @@ options = {
     -- 自定义插件快捷键，若 mpv.conf 里设置 input-default-bindings=no 将禁用以下两个选项
     open_search_danmaku_menu_key = "Ctrl+d",
     show_danmaku_keyboard_key = "j",
-    -- 中文简繁转换。0-不转换，1-转换为简体，2-转换为繁体
-    chConvert = 0,
+    -- 中文简繁转换。0-不转换，1-转换为简体，2-转换为繁体（默认转简体，可在弹幕过滤菜单运行时切换）
+    chConvert = 1,
     --滚动弹幕的显示时间
     scrolltime = 15,
     --固定弹幕的显示时间

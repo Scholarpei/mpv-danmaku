@@ -991,6 +991,7 @@ end
 
 local filter_menu_keys = {
     "merge_enabled", "merge_tolerance", "merge_pinyin", "merge_similarity",
+    "chConvert",
     "convert_top_to_scroll", "convert_bottom_to_scroll", "scroll_threshold",
     "max_screen_danmaku", "density_control", "density_level", "blacklist_enabled",
     "reload_blacklist", "open_blacklist_location",
@@ -1006,6 +1007,7 @@ local filter_menu_presets = {
     convert_top_to_scroll = { false, true, "auto" },
     convert_bottom_to_scroll = { false, true, "auto" },
     scroll_threshold = { 800, 1200, 1600, 2000, 2400 },
+    chConvert = { 0, 1, 2 },
     density_control = { "off", "simple", "smart" },
     density_level = { "loose", "medium", "strict" },
 }
@@ -1037,6 +1039,10 @@ local function filter_menu_item(key)
         local labels = { off = "禁用", light = "轻微", medium = "中等", strong = "强力" }
         local v = tostring(options.merge_similarity or "medium"):lower()
         title, hint = "相似度强度", labels[v] or "中等"
+    elseif key == "chConvert" then
+        local labels = { [0] = "关", [1] = "简体", [2] = "繁体" }
+        local v = tonumber(options.chConvert) or 1
+        title, hint = "简繁转换", labels[v] or "简体"
     elseif key == "convert_top_to_scroll" then
         local th = tonumber(options.scroll_threshold) or 1200
         title, hint = "顶部弹幕转滚动",

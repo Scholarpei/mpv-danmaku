@@ -178,9 +178,10 @@ local function convert(text, dict)
 end
 
 local function ch_convert(str)
-    if options.chConvert == 1 then
+    local mode = tonumber(options.chConvert) or 0
+    if mode == 1 then
         return convert(str, t2s)
-    elseif options.chConvert == 2 then
+    elseif mode == 2 then
         return convert(str, s2t)
     end
     return str
@@ -189,9 +190,19 @@ end
 local ch_convert_cache = {}
 local ch_cache_keys = {}
 local ch_cache_max = 5000
+local ch_cache_mode = nil
 
 local function ch_convert_cached(text)
     if type(text) ~= "string" or text == "" then return text end
+    local mode = tonumber(options.chConvert) or 0
+    if mode ~= ch_cache_mode then
+        -- 转换模式切换后缓存全部失效（菜单循环 / script-opts 运行时更新都会改 mode），
+        -- 两张表必须一起清：只清 cache 会让 FIFO 索引指向已不存在的键
+        ch_convert_cache = {}
+        ch_cache_keys = {}
+        ch_cache_mode = mode
+    end
+    if mode == 0 then return text end -- 恒等映射不入缓存
     local cached = ch_convert_cache[text]
     if cached ~= nil then return cached end
 

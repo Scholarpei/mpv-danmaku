@@ -183,5 +183,42 @@ do
         DENSITY_STATS == nil and count_events(function(ev) return ev.font_size < 50 end) == 0)
 end
 
+-- K：简繁转换（默认 1 转简体）与模式切换缓存失效。
+-- 断言用 ev.clean_text（转换后、ASS 转义前）；Kb 的"还原原文"专抓缓存 mode-guard 缺失
+-- （无守卫时旧缓存返回转换后文本）。繁简两条弹幕原文互不相似，不触发合并。
+do
+    local function ch_events()
+        return count_events(function(ev)
+            return ev.clean_text and (
+                ev.clean_text:find("繁", 1, true) or ev.clean_text:find("简", 1, true)
+                    or ev.clean_text:find("簡", 1, true))
+        end)
+    end
+    local function has_text(needle)
+        return count_events(function(ev)
+            return ev.clean_text and ev.clean_text:find(needle, 1, true)
+        end) == 1
+    end
+    DANMAKU = { sources = { ["test://e2e5"] = { from = "user_local", data = {
+        dm(300.0, "這是繁體字彈幕"),
+        dm(301.0, "简体字弹幕"),
+    } } }, count = 1 }
+    convert_danmaku_to_ass_events(true) -- chConvert 默认 1：這→这 體→体 彈→弹
+    check("K 默认转简体",
+        ch_events() == 2 and has_text("这是繁体字弹幕") and has_text("简体字弹幕"))
+
+    options.chConvert = 0
+    convert_danmaku_to_ass_events(true)
+    check("Kb 切关还原原文（缓存失效）",
+        ch_events() == 2 and has_text("這是繁體字彈幕") and has_text("简体字弹幕"))
+
+    options.chConvert = 2
+    convert_danmaku_to_ass_events(true) -- 简→簡 体→體 弹→彈；繁体原文恒等
+    check("Kc 转繁体",
+        ch_events() == 2 and has_text("這是繁體字彈幕") and has_text("簡體字彈幕"))
+
+    options.chConvert = 1 -- 还原默认
+end
+
 print(failures == 0 and "ALL PASS" or (failures .. " FAILED"))
 mp.commandv("quit")

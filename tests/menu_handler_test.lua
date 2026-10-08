@@ -142,6 +142,26 @@ local steps = {
     end,
     function()
         check("12c 密度强度回绕 loose->medium", options.density_level == "medium")
+        stub.rebuilds_before = stub.rebuilds
+        activate("chConvert") -- 默认 1（简体）-> 2
+    end,
+    function()
+        check("13 简繁循环 简体->繁体", tonumber(options.chConvert) == 2)
+        activate("chConvert") -- 2 -> 0
+    end,
+    function()
+        check("13b 简繁循环 繁体->关", tonumber(options.chConvert) == 0)
+        activate("chConvert") -- 0 -> 1（回绕）
+    end,
+    function()
+        check("13c 简繁循环回绕 关->简体",
+            options.chConvert == 1 and stub.rebuilds == stub.rebuilds_before + 3)
+        options.chConvert = "1" -- 模拟 conf 字符串态的数值档
+        activate("chConvert") -- tonumber 归一 1 -> 2
+    end,
+    function()
+        check("13d conf 字符串数值档位匹配", tonumber(options.chConvert) == 2)
+        options.chConvert = 1 -- 还原默认
         open_filter_menu_uosc()
     end,
     function()
