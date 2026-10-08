@@ -263,19 +263,23 @@ end
 
 -- 距离通道判定：长度差门控 + pakku 短串按比例收紧（len_sum < 2*max_dist 时
 -- 要求 dist < max_dist * len_sum / (2*max_dist)，整数交叉相乘避免浮点）
-local function dist_pass(len_a, len_b, dist)
+local function dist_pass(len_a, len_b, dist, max_dist)
     local diff = len_a - len_b
     if diff < 0 then diff = -diff end
-    if diff > MAX_DIST then return false end
+    if diff > max_dist then return false end
     local len_sum = len_a + len_b
-    if len_sum < 2 * MAX_DIST then
-        return dist * 2 * MAX_DIST < MAX_DIST * len_sum
+    if len_sum < 2 * max_dist then
+        return dist * 2 * max_dist < max_dist * len_sum
     end
-    return dist <= MAX_DIST
+    return dist <= max_dist
 end
 
--- 相似判定（pakku 通道顺序：相同 → 多重集 → 拼音 → 余弦，首中即停）
+-- 相似判定（pakku 通道顺序：相同 → 多重集 → 拼音 → 余弦，首中即停）。
+-- cfg.max_dist / cfg.max_cosine 可覆盖模块默认阈值（相似度强度档位）；不传时行为与 pakku 默认一致
 local function similar(a, b, cfg)
+    cfg = cfg or {}
+    local max_dist = cfg.max_dist or MAX_DIST
+    local max_cosine = cfg.max_cosine or MAX_COSINE
     if a.len == 0 or b.len == 0 then return false end
     if not cfg.cross_mode and a.obj.type ~= b.obj.type then return false end
 
@@ -284,16 +288,16 @@ local function similar(a, b, cfg)
 
     -- 通道 2：字符多重集 L1 距离（pakku 的「编辑距离」实为字符袋距离，非 Levenshtein）
     local dist = hist_l1(a.h_char, b.h_char)
-    if dist_pass(a.len, b.len, dist) then return true end
+    if dist_pass(a.len, b.len, dist, max_dist) then return true end
 
     -- 通道 3：拼音多重集距离（谐音合并）
     if cfg.use_pinyin and pinyin_dict then
         local pa, la = py_hist(a)
         local pb, lb = py_hist(b)
-        if dist_pass(la, lb, hist_l1(pa, pb)) then return true end
+        if dist_pass(la, lb, hist_l1(pa, pb), max_dist) then return true end
     end
 
-    -- 通道 4：环形二元组 cos² ≥ MAX_COSINE；无公共字符（dist ≥ len_sum）时必为 0，跳过
+    -- 通道 4：环形二元组 cos² ≥ max_cosine；无公共字符（dist ≥ len_sum）时必为 0，跳过
     if dist >= a.len + b.len then return false end
     local ga, gb = gram_hist(a), gram_hist(b)
     local dot, na, nb = 0, 0, 0
@@ -304,7 +308,7 @@ local function similar(a, b, cfg)
     end
     for _, v in pairs(gb) do nb = nb + v * v end
     if dot == 0 or na == 0 or nb == 0 then return false end
-    return 100 * dot * dot >= MAX_COSINE * na * nb
+    return 100 * dot * dot >= max_cosine * na * nb
 end
 
 -- 主入口：danmakus 须按 time 升序（流水线上游的堆归并保证），返回新的升序列表
@@ -363,6 +367,7 @@ local function merge(danmakus, cfg)
         -- ×N 后缀沿用插件原合并器约定（count>2 或成员时间不全等时附加）
         if n > 2 or not cluster.same_time then
             out.text = text .. string.format("x%d", n)
+            out.merged_x_suffix = true -- 后缀由引擎生成，供 parse 侧样式化（避免误样式化用户原文的 x数字 结尾）
         end
         result[#result + 1] = out
     end

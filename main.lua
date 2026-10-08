@@ -113,13 +113,20 @@ function show_loaded(init)
         msg.error("comments无数据")
         return
     end
+    -- pakku popup 风格合并统计（实际发生合并时才显示；「共计」为密度限制后的最终条数，故两者可不同）
+    local merge_line = ""
+    if MERGE_STATS and MERGE_STATS.before > MERGE_STATS.after then
+        merge_line = ("已合并 %d 条相似弹幕（%d→%d）\\N"):format(
+            MERGE_STATS.before - MERGE_STATS.after, MERGE_STATS.before, MERGE_STATS.after)
+    end
     if DANMAKU.anime and DANMAKU.episode then
-        show_message("匹配内容：" .. DANMAKU.anime .. "-" .. DANMAKU.episode .. "\\N弹幕加载成功，共计" .. #COMMENTS .. "条弹幕", 3)
+        show_message("匹配内容：" .. DANMAKU.anime .. "-" .. DANMAKU.episode .. "\\N" .. merge_line
+            .. "弹幕加载成功，共计" .. #COMMENTS .. "条弹幕", 3)
         if init then
             msg.info(DANMAKU.anime .. "-" .. DANMAKU.episode .. " 弹幕加载成功，共计" .. #COMMENTS .. "条弹幕")
         end
     else
-        show_message("弹幕加载成功，共计" .. #COMMENTS .. "条弹幕", 3)
+        show_message(merge_line .. "弹幕加载成功，共计" .. #COMMENTS .. "条弹幕", 3)
     end
     mp.set_property_native(DANMAKU_COUNT, #COMMENTS)
 end

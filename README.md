@@ -54,7 +54,7 @@
 
 13. 保存当前弹幕到本地（详细功能说明见[save_danmaku配置项说明](#save_danmaku)）
 
-14. pakku 式弹幕相似度合并：默认开启，通过「完全相同 / 字符多重集距离 / 拼音谐音 / 二元组余弦」四通道把时间窗口内的大量重复、近似、谐音弹幕合并为一条并以 ×N 显示数量（算法参考 [pakku.js](https://github.com/xmcp/pakku.js)，详见[merge_tolerance配置项说明](#merge_tolerance)）；配套「弹幕过滤」菜单提供合并、模式转换、同屏上限、黑名单的运行时开关
+14. pakku 式弹幕相似度合并：默认开启，通过「完全相同 / 字符多重集距离 / 拼音谐音 / 二元组余弦」四通道把时间窗口内的大量重复、近似、谐音弹幕合并为一条并以 ×N 显示数量（算法参考 [pakku.js](https://github.com/xmcp/pakku.js)，详见[merge_tolerance配置项说明](#merge_tolerance)）；相似度强度分「禁用/轻微/中等/强力」四档可调（[merge_similarity](#merge_similarity)），加载完成时 OSD 提示合并统计「已合并 N 条相似弹幕（A→B）」；配套「弹幕过滤」菜单提供合并、模式转换、同屏上限、黑名单的运行时开关
 
 15. 弹幕简体字繁体字转换，解决弹幕简繁混杂问题（具体设置方法详见[chConvert配置项说明](#chConvert)）
 
@@ -307,8 +307,10 @@ key script-message open_danmaku_style_menu
 | 弹幕合并 | 开关 | 对应 `merge_enabled` |
 | 合并时间窗口 | 档位 | 对应 `merge_tolerance`（5/10/20/30/60/120 秒） |
 | 拼音谐音合并 | 开关 | 对应 `merge_pinyin` |
-| 顶部弹幕转滚动 | 开关 | 对应 `convert_top_to_scroll` |
-| 底部弹幕转滚动 | 开关 | 对应 `convert_bottom_to_scroll` |
+| 相似度强度 | 档位 | 对应 `merge_similarity`（禁用/轻微/中等/强力） |
+| 顶部弹幕转滚动 | 三态 | 对应 `convert_top_to_scroll`（关/全部/自动按宽度） |
+| 底部弹幕转滚动 | 三态 | 对应 `convert_bottom_to_scroll`（关/全部/自动按宽度） |
+| 转换宽度阈值 | 档位 | 对应 `scroll_threshold`（800/1200/1600/2000/2400 px，仅「自动」模式生效） |
 | 同屏弹幕上限 | 档位 | 对应 `max_screen_danmaku`（不限/20/40/60/80/100） |
 | 黑名单过滤 | 开关 | 对应 `blacklist_enabled` |
 | 重载黑名单文件 | 动作 | 重新读取 `blacklist_path` 指向的规则文件并立即生效 |
@@ -692,6 +694,8 @@ merge_enabled
 
 合并算法参考并行为复刻自 [pakku.js](https://github.com/xmcp/pakku.js)（GPLv3, by xmcp），本项目为独立 Lua 实现，未复制其源码或数据。
 
+加载完成后会以 OSD 提示合并统计「已合并 N 条相似弹幕（A→B）」（仅实际发生合并时显示；B 为合并后条数，「共计」显示的条数还经过同屏密度限制，故两者可能不同）。`xN` 标记的加粗斜体样式只作用于由合并引擎附加的后缀，用户原文天然以 x数字 结尾（如「666x3」）不受影响。
+
 #### 使用方法
 
 ```
@@ -785,6 +789,40 @@ merge_pinyin=yes
 
 <details>
 <summary>
+merge_similarity
+
+> 相似度合并强度四档
+
+</summary>
+
+### merge_similarity
+
+#### 功能说明
+
+指定相似度判定的激进程度，映射合并引擎内部的字符多重集距离阈值（`max_dist`）与二元组余弦阈值（`max_cosine`）。默认值: `medium`
+
+| 档位 | max_dist | max_cosine | 效果 |
+| --- | --- | --- | --- |
+| `off` | — | — | 禁用相似通道（完全相同的弹幕也不再合并，等同关闭合并） |
+| `light` | 2 | 60 | 轻微：只合并几乎相同的弹幕 |
+| `medium` | 5 | 45 | 中等：默认档，等于 pakku 官方默认阈值 |
+| `strong` | 10 | 35 | 强力：激进合并，弹幕总量明显减少，可能误伤内容不同的弹幕 |
+
+> [!NOTE]
+> 档位端点数值为自拟插值（弹弹play 式四档 UI 惯例；pakku 官方选项页为数字输入框），其中 `medium` 对齐 pakku 默认 `MAX_DIST=5` / `MAX_COSINE=45`。conf 中写入未知值时回落 `medium`。
+
+#### 使用方法
+
+```
+merge_similarity=medium
+```
+
+</details>
+
+---
+
+<details>
+<summary>
 merge_forcelist
 
 > 套路规则重写（合并前文本规范化）
@@ -827,13 +865,48 @@ convert_top_to_scroll / convert_bottom_to_scroll
 
 默认值: `no`（关闭），两个选项相互独立
 
-开启后，顶部（`convert_top_to_scroll`）或底部（`convert_bottom_to_scroll`）弹幕会被强制转换为滚动弹幕并加 `↑` / `↓` 前缀标记（pakku 惯例），避免固定弹幕长时间遮挡画面。
+三态选项，控制顶部（`convert_top_to_scroll`）或底部（`convert_bottom_to_scroll`）固定弹幕转换为滚动弹幕并加 `↑` / `↓` 前缀标记（pakku 惯例）的行为：
+
+| 取值 | 行为 |
+| --- | --- |
+| `no` | 不转换 |
+| `yes` | 全部强制转换为滚动，避免固定弹幕长时间遮挡画面 |
+| `auto` | 仅文本宽度超过 `scroll_threshold` 的才转换（pakku `SCROLL_THRESHOLD` 语义），短固定弹幕保留原样 |
+
+> [!NOTE]
+> 转换发生在合并之前：转换后的弹幕以滚动模式参与后续合并，pakku 的「底部 > 顶部 > 滚动」模式提升对其不再生效（`yes`/`auto` 下均为既有行为）。
 
 #### 使用方法
 
 ```
-convert_top_to_scroll=no
+convert_top_to_scroll=auto
 convert_bottom_to_scroll=no
+```
+
+</details>
+
+---
+
+<details>
+<summary>
+scroll_threshold
+
+> 「自动」转换模式的宽度阈值
+
+</summary>
+
+### scroll_threshold
+
+#### 功能说明
+
+默认值: `1200`（pakku 默认），仅当 `convert_top_to_scroll` / `convert_bottom_to_scroll` 为 `auto` 时生效。
+
+按当前 `fontsize` 估算弹幕文本宽度（一个汉字约等于一个字号像素），超过该阈值的顶部/底部弹幕被转换为滚动弹幕，短的保留原样。设为 `0` 或负数时禁用「自动」模式（等同 `no`）。
+
+#### 使用方法
+
+```
+scroll_threshold=1200
 ```
 
 </details>
@@ -1320,6 +1393,7 @@ displayarea=0.85
 outline=1
 #指定弹幕屏蔽词文件路径(black.txt)，支持绝对路径和相对路径。文件内容以换行分隔
 ##支持 lua 的正则表达式写法；修改文件后可在「弹幕过滤」菜单中热重载，blacklist_enabled 可运行时开关
+##相对路径先按 mpv 工作目录解析，找不到时自动回退按脚本所在目录解析（适合把 black.txt 放脚本目录、从任意位置启动 mpv 的场景）
 blacklist_path=
 ```
 

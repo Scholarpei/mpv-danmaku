@@ -119,5 +119,31 @@ do
     check("10 输出时间非降序", ok)
 end
 
+-- 11. merged_x_suffix 标记：仅引擎生成 ×N 后缀时置位（parse 侧据此样式化，避免误样式化用户原文）
+do
+    local a = run({ dm(10, "哈哈哈") })                                   -- n=1 单条无后缀
+    local b = run({ dm(10, "哈哈哈"), dm(10, "哈哈哈") })                 -- n=2 同刻无后缀
+    local c = run({ dm(10, "哈哈哈"), dm(10.5, "哈哈哈") })               -- n=2 非同刻有后缀
+    local d = run({ dm(10, "哈哈哈"), dm(10.1, "哈哈哈"), dm(10.2, "哈哈哈") }) -- n=3 有后缀
+    check("11 merged_x_suffix 标记",
+        a[1].merged_x_suffix == nil and b[1].merged_x_suffix == nil
+        and c[1].merged_x_suffix == true and d[1].merged_x_suffix == true)
+end
+
+-- 12. 相似度档位参数（cfg.max_dist / cfg.max_cosine）：
+-- L 对多重集距离 4、环形二元组 cos²=49；F 对多重集距离 8（gram 交集小、余弦兜不住）
+do
+    local L1, L2 = "abcdefghij", "abcdeXXhij"
+    local F1, F2 = "abcdefghij", "abcdXXXXij"
+    check("12a light 档不合并轻微差异",
+        #run({ dm(10, L1), dm(10.2, L2) }, { max_dist = 2, max_cosine = 60 }) == 2)
+    check("12b medium 档合并轻微差异",
+        #run({ dm(10, L1), dm(10.2, L2) }, { max_dist = 5, max_cosine = 45 }) == 1)
+    check("12c medium 档不合并大差异",
+        #run({ dm(10, F1), dm(10.2, F2) }, { max_dist = 5, max_cosine = 45 }) == 2)
+    check("12d strong 档合并大差异",
+        #run({ dm(10, F1), dm(10.2, F2) }, { max_dist = 10, max_cosine = 35 }) == 1)
+end
+
 print(failures == 0 and "ALL PASS" or (failures .. " FAILED"))
 mp.commandv("quit")

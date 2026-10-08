@@ -46,13 +46,19 @@ options = {
     merge_cross_mode = true,
     -- 拼音谐音合并（如「泪目/累目」），依赖 dicts/pinyin_chars.lua，字典缺失时自动禁用
     merge_pinyin = true,
+    -- 相似度强度四档：off-禁用 / light-轻微 / medium-中等 / strong-强力。
+    -- 映射合并引擎的 max_dist/max_cosine（自拟插值档，medium = pakku 默认 5/45）；非法值回落 medium
+    merge_similarity = "medium",
     -- 套路规则重写：合并比较前先按规则改写文本（如任意长「2333…」统一为「23333」）。
     -- 多条规则用 | 分隔，格式 pattern=>replacement，Lua pattern 语法
     merge_forcelist = "^2333+=>23333|^666+=>66666",
-    -- 顶部弹幕转为滚动弹幕（pakku 惯例：加 ↑ 前缀）
+    -- 顶部弹幕转为滚动弹幕：no-不转 / yes-全部转（pakku 惯例加 ↑ 前缀）/
+    -- auto-仅超宽的转（pakku SCROLL_THRESHOLD 语义，短固定弹幕保留原样）
     convert_top_to_scroll = false,
-    -- 底部弹幕转为滚动弹幕（pakku 惯例：加 ↓ 前缀）
+    -- 底部弹幕转为滚动弹幕：no-不转 / yes-全部转（加 ↓ 前缀）/ auto-仅超宽的转
     convert_bottom_to_scroll = false,
+    -- auto 模式的宽度阈值（像素，按 fontsize 估算文本宽度）。pakku 默认 1200；<=0 等同禁用 auto
+    scroll_threshold = 1200,
     -- 黑名单过滤开关（规则文件见 blacklist_path，可在菜单中热重载）
     blacklist_enabled = true,
     -- 合并弹幕字号的对数增长系数，必须为正整数

@@ -77,6 +77,45 @@ local steps = {
         check("6 未配置路径提示且不重跑",
             #stub.msgs == 1 and stub.rebuilds == stub.rebuilds_before
                 and stub.msgs[1]:find("blacklist_path", 1, true))
+        activate("merge_similarity") -- medium -> strong
+    end,
+    function()
+        check("8 相似度循环 medium->strong", options.merge_similarity == "strong")
+        activate("merge_similarity") -- strong -> off
+    end,
+    function()
+        check("8b 相似度循环 strong->off", options.merge_similarity == "off")
+        activate("merge_similarity") -- off -> light
+    end,
+    function()
+        check("8c 相似度循环 off->light", options.merge_similarity == "light")
+        activate("merge_similarity") -- light -> medium（回绕）
+    end,
+    function()
+        check("8d 相似度循环回绕 light->medium", options.merge_similarity == "medium")
+        activate("convert_top_to_scroll") -- false -> true
+    end,
+    function()
+        check("9 转滚动三态 关->全部", options.convert_top_to_scroll == true)
+        activate("convert_top_to_scroll") -- true -> auto
+    end,
+    function()
+        check("9b 转滚动三态 全部->自动", options.convert_top_to_scroll == "auto")
+        activate("convert_top_to_scroll") -- auto -> false（回绕）
+    end,
+    function()
+        check("9c 转滚动三态 自动->关", options.convert_top_to_scroll == false)
+        options.convert_top_to_scroll = "yes" -- conf 字符串写法
+        activate("convert_top_to_scroll") -- yes 归一为 true -> auto
+    end,
+    function()
+        check("9d conf yes 归一后循环到 auto", options.convert_top_to_scroll == "auto")
+        options.convert_top_to_scroll = false
+        options.merge_tolerance = "30" -- conf 字符串态的数值档
+        activate("merge_tolerance") -- "30" 须 tonumber 归一后取下一档 60
+    end,
+    function()
+        check("10 conf 字符串数值档位匹配", tonumber(options.merge_tolerance) == 60)
         open_filter_menu_uosc()
     end,
     function()

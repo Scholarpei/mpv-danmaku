@@ -35,6 +35,8 @@ for i, w in ipairs(fruits) do data[#data + 1] = dm(40.0 + i * 0.05, w) end
 data[#data + 1] = dm(50.0, "包含敏感词的弹幕测试")
 -- F. 正常单条
 data[#data + 1] = dm(60.0, "正常弹幕")
+-- G2. 用户原文以 x数字 结尾且未被合并（不应被 ×N 样式化）
+data[#data + 1] = dm(70.0, "太强了x3")
 
 table.sort(data, function(a, b) return a.time < b.time end)
 DANMAKU = { sources = { ["test://e2e"] = { from = "user_local", data = data } }, count = 1 }
@@ -110,7 +112,39 @@ do
     check("F 普通弹幕直通", #evs == 1 and evs[1].merge_count == 1)
 end
 
-check("G 总数 1+1+1+5+0+1=9", #COMMENTS == 9)
+check("G 总数 1+1+1+5+0+1+1=10", #COMMENTS == 10)
+
+-- G2：原文以 x数字 结尾的未合并弹幕不加粗斜体（merged_x_suffix 改造的回归）
+do
+    local evs = {}
+    for _, ev in ipairs(COMMENTS) do
+        if ev.text and ev.text:find("太强了x3", 1, true) then evs[#evs + 1] = ev end
+    end
+    check("G2 原文x数字结尾不样式化",
+        #evs == 1 and not evs[1].text:find("\\b1", 1, true))
+end
+
+-- H：合并统计全局（实际发生合并时 before > after）
+check("H 合并统计 MERGE_STATS",
+    MERGE_STATS ~= nil and MERGE_STATS.before > MERGE_STATS.after)
+
+-- I：auto 模式按宽度转换：超阈值的顶部弹幕转滚动，短的保留原样
+do
+    DANMAKU = { sources = { ["test://e2e2"] = { from = "user_local", data = {
+        dm(200.0, "这是一条非常长的顶部弹幕用于超过宽度阈值", 5),
+        dm(200.5, "短", 5),
+    } } }, count = 1 }
+    options.max_screen_danmaku = 0
+    options.convert_top_to_scroll = "auto"
+    options.scroll_threshold = 100
+    convert_danmaku_to_ass_events(true)
+    local n_r2l, n_top = 0, 0
+    for _, ev in ipairs(COMMENTS) do
+        if ev.style == "R2L" and ev.text:find("↑", 1, true) then n_r2l = n_r2l + 1 end
+        if ev.style == "TOP" then n_top = n_top + 1 end
+    end
+    check("I auto 模式按宽度转换", n_r2l == 1 and n_top == 1)
+end
 
 print(failures == 0 and "ALL PASS" or (failures .. " FAILED"))
 mp.commandv("quit")

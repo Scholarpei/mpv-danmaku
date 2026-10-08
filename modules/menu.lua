@@ -990,17 +990,31 @@ end
 -- ============ 弹幕过滤菜单（pakku 式合并 / 模式转换 / 密度 / 黑名单） ============
 
 local filter_menu_keys = {
-    "merge_enabled", "merge_tolerance", "merge_pinyin",
-    "convert_top_to_scroll", "convert_bottom_to_scroll",
+    "merge_enabled", "merge_tolerance", "merge_pinyin", "merge_similarity",
+    "convert_top_to_scroll", "convert_bottom_to_scroll", "scroll_threshold",
     "max_screen_danmaku", "blacklist_enabled",
     "reload_blacklist", "open_blacklist_location",
 }
 
--- 档位循环设置：取值为 nil 时不参与循环
+-- 档位循环设置：取值为 nil 时不参与循环。
+-- 数值档（conf 覆盖后为字符串）、布尔三态档（convert_*）与字符串档（相似度强度）混用，
+-- handler 侧按元素类型归一匹配
 local filter_menu_presets = {
     merge_tolerance = { 5, 10, 20, 30, 60, 120 },
     max_screen_danmaku = { 0, 20, 40, 60, 80, 100 },
+    merge_similarity = { "off", "light", "medium", "strong" },
+    convert_top_to_scroll = { false, true, "auto" },
+    convert_bottom_to_scroll = { false, true, "auto" },
+    scroll_threshold = { 800, 1200, 1600, 2000, 2400 },
 }
+
+-- 三态读取（convert_* 专用）：off / on / auto。filter_option_is_on 会把 "auto" 误判为开，不可复用
+local function filter_convert_mode(key)
+    local v = options[key]
+    if v == "auto" then return "auto"
+    elseif v == false or v == nil or v == "no" then return "off"
+    else return "on" end
+end
 
 -- 开关类选项读取：conf 未覆盖时保持 Lua 布尔默认值，被 conf 覆盖时为字符串
 local function filter_option_is_on(key)
@@ -1017,10 +1031,21 @@ local function filter_menu_item(key)
         title, hint = "合并时间窗口", v > 0 and (v .. " 秒") or "已禁用"
     elseif key == "merge_pinyin" then
         title, hint = "拼音谐音合并", filter_option_is_on(key) and "开" or "关"
+    elseif key == "merge_similarity" then
+        local labels = { off = "禁用", light = "轻微", medium = "中等", strong = "强力" }
+        local v = tostring(options.merge_similarity or "medium"):lower()
+        title, hint = "相似度强度", labels[v] or "中等"
     elseif key == "convert_top_to_scroll" then
-        title, hint = "顶部弹幕转滚动", filter_option_is_on(key) and "开" or "关"
+        local th = tonumber(options.scroll_threshold) or 1200
+        title, hint = "顶部弹幕转滚动",
+            ({ off = "关", on = "全部", auto = "自动(>" .. th .. "px)" })[filter_convert_mode(key)]
     elseif key == "convert_bottom_to_scroll" then
-        title, hint = "底部弹幕转滚动", filter_option_is_on(key) and "开" or "关"
+        local th = tonumber(options.scroll_threshold) or 1200
+        title, hint = "底部弹幕转滚动",
+            ({ off = "关", on = "全部", auto = "自动(>" .. th .. "px)" })[filter_convert_mode(key)]
+    elseif key == "scroll_threshold" then
+        local v = tonumber(options.scroll_threshold) or 1200
+        title, hint = "转换宽度阈值", v > 0 and (v .. " px") or "禁用"
     elseif key == "max_screen_danmaku" then
         local v = tonumber(options.max_screen_danmaku) or 0
         title, hint = "同屏弹幕上限", v > 0 and tostring(v) or "不限"
@@ -1124,17 +1149,21 @@ mp.register_script_message("setup-danmaku-filter", function(query)
         open_blacklist_location()
         need_rebuild = false
     elseif filter_menu_presets[key] then
-        -- 档位循环
+        -- 档位循环。conf 读入的值一律是字符串：数值档须 tonumber 归一后再匹配，
+        -- 否则 "30" ~= 30 永远找不到当前档（表现为第一次点击跳到首档而非下一档）
         local presets = filter_menu_presets[key]
-        local cur = tonumber(options[key]) or presets[1]
+        local cur = (type(presets[1]) == "number") and tonumber(options[key]) or options[key]
+        if type(presets[1]) == "boolean" then
+            -- 布尔三态档兼容 conf 的 yes/no 写法（否则 "yes" 匹配不上 true，点击会原地踏步）
+            if cur == "yes" then cur = true elseif cur == "no" then cur = false end
+        end
         local idx
         for i, v in ipairs(presets) do
             if v == cur then idx = i break end
         end
         idx = idx or 1
         options[key] = presets[idx % #presets + 1]
-    elseif key == "merge_enabled" or key == "merge_pinyin" or key == "blacklist_enabled"
-        or key == "convert_top_to_scroll" or key == "convert_bottom_to_scroll" then
+    elseif key == "merge_enabled" or key == "merge_pinyin" or key == "blacklist_enabled" then
         options[key] = not filter_option_is_on(key)
     else
         need_rebuild = false

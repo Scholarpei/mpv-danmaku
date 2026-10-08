@@ -122,7 +122,28 @@ local function load_blacklist_patterns(filepath)
     return patterns
 end
 
-local blacklist_file = mp.command_native({ "expand-path", options.blacklist_path })
+-- 黑名单路径解析：先按 mpv 工作目录（expand-path 原语义），相对路径找不到时回退按脚本目录。
+-- 空路径必须短路：绝不能把空值拼进脚本目录而误命中仓库自带的 black.txt
+local function resolve_blacklist_path(raw)
+    if not raw or raw == "" then return raw end
+    local expanded = mp.command_native({ "expand-path", raw })
+    local function is_abs(p)
+        return p:match("^%a:[/\\]") or p:match("^[/\\]")
+    end
+    if is_abs(expanded) or file_exists(expanded) then return expanded end
+    local script_dir = mp.get_script_directory()
+    if script_dir then
+        local fallback = utils.join_path(script_dir, expanded)
+        if file_exists(fallback) then
+            msg.warn("黑名单文件按 mpv 工作目录未找到，已回退到脚本目录: " .. fallback)
+            return fallback
+        end
+    end
+    msg.warn("黑名单文件不存在: " .. expanded)
+    return expanded
+end
+
+local blacklist_file = resolve_blacklist_path(options.blacklist_path)
 BLACKLIST_FILE = blacklist_file -- 供菜单「打开黑名单文件位置」使用
 local black_patterns = load_blacklist_patterns(blacklist_file)
 
@@ -528,7 +549,16 @@ function convert_danmaku_to_xml(danmaku_out)
     return true
 end
 
+-- pakku 相似度强度档位（max_dist, max_cosine），由 options.merge_similarity 选择。
+-- 数值为自拟插值档：medium = pakku 默认 MAX_DIST=5 / MAX_COSINE=45；dist 越大或 cosine 越小合并越激进
+local SIM_LEVELS = {
+    light = { 2, 60 },
+    medium = { 5, 45 },
+    strong = { 10, 35 },
+}
+
 function convert_danmaku_to_ass_events(force)
+    MERGE_STATS = nil -- 每次重建都重置合并统计（空弹幕提前 return / 未启用合并时防止旧值残留）
     local per_source_lists = {}
     for url, source in pairs(DANMAKU.sources) do
         if not source.blocked and source.data then
@@ -582,17 +612,43 @@ function convert_danmaku_to_ass_events(force)
         end
     end
 
-    -- 模式转换：顶部/底部弹幕转滚动（pakku 惯例：加 ↑/↓ 前缀保留原模式语义）
-    for _, d in ipairs(danmakus) do
-        if options.convert_top_to_scroll and d.type == 5 then
-            d.type, d.text = 1, "↑" .. (d.text or "")
-        elseif options.convert_bottom_to_scroll and d.type == 4 then
-            d.type, d.text = 1, "↓" .. (d.text or "")
+    -- 模式转换：顶部/底部弹幕转滚动（pakku 惯例：加 ↑/↓ 前缀保留原模式语义）。
+    -- 三态：no/off、yes/on（无差别全转）、auto（仅文本宽度超过 scroll_threshold 的转，
+    -- pakku SCROLL_THRESHOLD 语义；阈值 <=0 时 auto 等同 no）
+    local function scroll_convert_mode(v)
+        if v == "auto" then return "auto"
+        elseif v == false or v == nil or v == "no" then return "off"
+        else return "on" end -- true / "yes"（conf 布尔写法向后兼容）
+    end
+    local top_mode = scroll_convert_mode(options.convert_top_to_scroll)
+    local bottom_mode = scroll_convert_mode(options.convert_bottom_to_scroll)
+    local scroll_threshold = tonumber(options.scroll_threshold) or 1200
+    if scroll_threshold <= 0 then top_mode, bottom_mode = "off", "off" end
+    if top_mode ~= "off" or bottom_mode ~= "off" then
+        local base_fontsize = tonumber(options.fontsize) or 50
+        for _, d in ipairs(danmakus) do
+            if d.type == 5 and top_mode ~= "off" then
+                if top_mode == "on" or get_str_width(d.text or "", base_fontsize) > scroll_threshold then
+                    d.type, d.text = 1, "↑" .. (d.text or "") -- 宽度判定用加前缀前的原文
+                end
+            elseif d.type == 4 and bottom_mode ~= "off" then
+                if bottom_mode == "on" or get_str_width(d.text or "", base_fontsize) > scroll_threshold then
+                    d.type, d.text = 1, "↓" .. (d.text or "")
+                end
+            end
         end
     end
 
-    -- pakku 式相似度合并（merge_enabled 总开关；窗口 <=0 时禁用）
-    if options.merge_enabled ~= false and (tonumber(options.merge_tolerance) or 0) > 0 then
+    -- pakku 式相似度合并（merge_enabled 总开关；窗口 <=0 或相似度档位 = off 时禁用）
+    -- 非法档位值回落 medium，绝不静默禁用；off 显式跳过（不能被 or 兜底吞掉）
+    local sim_key = tostring(options.merge_similarity or "medium"):lower()
+    local sim_level = nil
+    if sim_key ~= "off" then
+        sim_level = SIM_LEVELS[sim_key] or SIM_LEVELS.medium
+    end
+    if options.merge_enabled ~= false
+        and sim_level
+        and (tonumber(options.merge_tolerance) or 0) > 0 then
         local t_merge = mp.get_time()
         local before = #danmakus
         danmakus = pakku_merge.merge(danmakus, {
@@ -600,9 +656,14 @@ function convert_danmaku_to_ass_events(force)
             cross_mode = options.merge_cross_mode ~= false,
             use_pinyin = options.merge_pinyin ~= false and pakku_merge.pinyin_available(),
             forcelist = pakku_merge.parse_forcelist(options.merge_forcelist),
+            max_dist = sim_level[1],
+            max_cosine = sim_level[2],
         })
         msg.verbose(("pakku 合并: %d -> %d, 耗时 %.0f ms")
             :format(before, #danmakus, (mp.get_time() - t_merge) * 1000))
+        if before > #danmakus then
+            MERGE_STATS = { before = before, after = #danmakus }
+        end
     end
 
     if #danmakus == 0 then
@@ -662,7 +723,11 @@ function convert_danmaku_to_ass_events(force)
         local danmaku_type = d.type
         local clean_text = ch_convert_cached(decode_html_entities(d.text))
         local text = ass_escape(clean_text)
-                    :gsub("x(%d+)$", "{\\b1\\i1}x%1")
+        -- 仅样式化合并引擎生成的 ×N 后缀（merged_x_suffix 标记），
+        -- 避免误样式化用户原文里天然的 x数字 结尾（如「666x3」）
+        if d.merged_x_suffix then
+            text = text:gsub("x(%d+)$", "{\\b1\\i1}x%1")
+        end
         local event_fontsize = DanmakuArray.get_merged_font_size(
             fontsize, d.merge_count or 1, fontsize_growth, fontsize_max
         )
