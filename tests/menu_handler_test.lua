@@ -116,6 +116,32 @@ local steps = {
     end,
     function()
         check("10 conf 字符串数值档位匹配", tonumber(options.merge_tolerance) == 60)
+        stub.rebuilds_before = stub.rebuilds
+        activate("density_control") -- smart -> off
+    end,
+    function()
+        check("11 密度控制 smart->off",
+            options.density_control == "off" and stub.rebuilds == stub.rebuilds_before + 1)
+        activate("density_control") -- off -> simple
+    end,
+    function()
+        check("11b 密度控制 off->simple", options.density_control == "simple")
+        activate("density_control") -- simple -> smart（回绕）
+    end,
+    function()
+        check("11c 密度控制回绕 simple->smart", options.density_control == "smart")
+        activate("density_level") -- medium -> strict
+    end,
+    function()
+        check("12 密度强度 medium->strict", options.density_level == "strict")
+        activate("density_level") -- strict -> loose
+    end,
+    function()
+        check("12b 密度强度 strict->loose", options.density_level == "loose")
+        activate("density_level") -- loose -> medium（回绕）
+    end,
+    function()
+        check("12c 密度强度回绕 loose->medium", options.density_level == "medium")
         open_filter_menu_uosc()
     end,
     function()

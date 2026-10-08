@@ -90,8 +90,15 @@ options = {
     displayarea = 0.85,
     --描边 0-4
     outline = 1.0,
-    -- 限制屏幕中同时显示的最大弹幕数量，0 表示不限制
+    -- 限制屏幕中同时显示的最大弹幕数量，0 表示不限制（仅 density_control=simple 简单模式时生效）
     max_screen_danmaku = 0,
+    -- 弹幕密度控制模式：off-不控制 / simple-简单模式（同屏条数上限随机丢弃，仅此模式读取
+    -- max_screen_danmaku）/ smart-智能模式（pakku 式：按视觉密度先等比缩小字号，超更硬阈值再
+    -- 按权重概率丢弃，未合并弹幕先死、xN 合并弹幕受保护）。默认 smart；非法值回落 smart
+    density_control = "smart",
+    -- 智能密度强度三档：loose-宽松 / medium-中等 / strict-严格，映射（收缩阈值, 丢弃阈值）
+    -- 两个 dispval 密度档位；非法值回落 medium。仅 density_control=smart 时生效
+    density_level = "medium",
     --指定弹幕屏蔽词文件路径(black.txt)，支持绝对路径和相对路径。文件内容以换行分隔
     --支持 lua 的正则表达式写法
     blacklist_path = "",

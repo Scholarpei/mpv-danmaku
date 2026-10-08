@@ -992,7 +992,7 @@ end
 local filter_menu_keys = {
     "merge_enabled", "merge_tolerance", "merge_pinyin", "merge_similarity",
     "convert_top_to_scroll", "convert_bottom_to_scroll", "scroll_threshold",
-    "max_screen_danmaku", "blacklist_enabled",
+    "max_screen_danmaku", "density_control", "density_level", "blacklist_enabled",
     "reload_blacklist", "open_blacklist_location",
 }
 
@@ -1006,6 +1006,8 @@ local filter_menu_presets = {
     convert_top_to_scroll = { false, true, "auto" },
     convert_bottom_to_scroll = { false, true, "auto" },
     scroll_threshold = { 800, 1200, 1600, 2000, 2400 },
+    density_control = { "off", "simple", "smart" },
+    density_level = { "loose", "medium", "strict" },
 }
 
 -- 三态读取（convert_* 专用）：off / on / auto。filter_option_is_on 会把 "auto" 误判为开，不可复用
@@ -1048,7 +1050,16 @@ local function filter_menu_item(key)
         title, hint = "转换宽度阈值", v > 0 and (v .. " px") or "禁用"
     elseif key == "max_screen_danmaku" then
         local v = tonumber(options.max_screen_danmaku) or 0
-        title, hint = "同屏弹幕上限", v > 0 and tostring(v) or "不限"
+        title, hint = "同屏弹幕上限",
+            (v > 0 and tostring(v) or "不限") .. "（仅简单模式）"
+    elseif key == "density_control" then
+        local labels = { off = "关闭", simple = "简单", smart = "智能" }
+        local v = tostring(options.density_control or "smart"):lower()
+        title, hint = "密度控制", labels[v] or "智能"
+    elseif key == "density_level" then
+        local labels = { loose = "宽松", medium = "中等", strict = "严格" }
+        local v = tostring(options.density_level or "medium"):lower()
+        title, hint = "智能密度强度", labels[v] or "中等"
     elseif key == "blacklist_enabled" then
         title, hint = "黑名单过滤", filter_option_is_on(key) and "开" or "关"
     elseif key == "reload_blacklist" then

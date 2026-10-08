@@ -3,6 +3,7 @@ local utils = require 'mp.utils'
 local s2t   = require("dicts/s2t_chars")
 local t2s   = require("dicts/t2s_chars")
 local pakku_merge = require("modules/pakku_merge")
+local pakku_density = require("modules/pakku_density")
 
 -- mpv 的 Lua 环境不自动播种随机数（弹幕超限随机丢弃用）
 math.randomseed(os.time() + os.clock())
@@ -557,8 +558,20 @@ local SIM_LEVELS = {
     strong = { 10, 35 },
 }
 
+-- pakku 式智能密度档位（shrink_threshold, drop_threshold，dispval 单位），
+-- 由 options.density_level 选择；任一值 <=0 表示禁用对应阶段（pakku 语义）。
+-- 标定：1080p/displayarea=0.85 ≈ 18 行 50px 弹幕带；一条 10 字弹幕 dv≈√10≈3.2；
+-- 舒适满屏 ≈ 18×3.2 ≈ 58 → medium=50 恰在舒适满屏触发收缩；每档 drop 恒为 shrink 的 2 倍。
+-- 档位对 fontsize 修改不敏感（基准同步缩放，clamp 以基准为锚，dv 至多 4×√长度）
+local DENSITY_LEVELS = {
+    loose  = { 80, 160 },
+    medium = { 50, 100 },
+    strict = { 30, 60 },
+}
+
 function convert_danmaku_to_ass_events(force)
     MERGE_STATS = nil -- 每次重建都重置合并统计（空弹幕提前 return / 未启用合并时防止旧值残留）
+    DENSITY_STATS = nil -- 同上，智能密度统计
     local per_source_lists = {}
     for url, source in pairs(DANMAKU.sources) do
         if not source.blocked and source.data then
@@ -712,8 +725,41 @@ function convert_danmaku_to_ass_events(force)
         end
     end
 
-    if options.max_screen_danmaku > 0 then
-        pre_events = limit_danmaku(pre_events, options.max_screen_danmaku)
+    -- 预计算合并放大后的字号：智能密度需要它算 dispval 并原位收缩；
+    -- 下方布局直接复用 danmaku.font_size
+    for _, ev in ipairs(pre_events) do
+        ev.danmaku.font_size = DanmakuArray.get_merged_font_size(
+            fontsize, ev.danmaku.merge_count or 1, fontsize_growth, fontsize_max)
+    end
+
+    -- 密度控制：off-不控制 / simple-同屏条数上限随机丢弃（B 站行为，仅此模式读 max_screen_danmaku）/
+    -- smart-pakku 式先等比收缩字号、超硬阈值再按权重概率丢弃（未合并先死，xN 合并弹幕受保护）
+    local density_mode = tostring(options.density_control or "smart"):lower()
+    if density_mode == "off" then
+        -- 显式不控制（不能被 or 兜底吞掉）
+    elseif density_mode == "simple" then
+        local limit = tonumber(options.max_screen_danmaku) or 0
+        if limit > 0 then
+            pre_events = limit_danmaku(pre_events, limit)
+        end
+    else -- smart（默认；非法档位值回落 smart，绝不静默禁用）
+        local level_key = tostring(options.density_level or "medium"):lower()
+        local level = DENSITY_LEVELS[level_key] or DENSITY_LEVELS.medium
+        if level[1] > 0 or level[2] > 0 then
+            local t_dense = mp.get_time()
+            local before = #pre_events
+            pre_events, DENSITY_STATS = pakku_density.process(pre_events, {
+                shrink_threshold = level[1],
+                drop_threshold = level[2],
+                base_fontsize = fontsize,
+            })
+            msg.verbose(("pakku 密度[%s]: %d -> %d, 缩小 %d, 丢弃 %d, 耗时 %.0f ms"):format(level_key,
+                before, DENSITY_STATS.after, DENSITY_STATS.shrunk, DENSITY_STATS.dropped,
+                (mp.get_time() - t_dense) * 1000))
+            if DENSITY_STATS.shrunk == 0 and DENSITY_STATS.dropped == 0 then
+                DENSITY_STATS = nil -- 实际无干预时不显示统计（镜像 MERGE_STATS 惯例）
+            end
+        end
     end
 
     local ass_events = {}
@@ -728,7 +774,8 @@ function convert_danmaku_to_ass_events(force)
         if d.merged_x_suffix then
             text = text:gsub("x(%d+)$", "{\\b1\\i1}x%1")
         end
-        local event_fontsize = DanmakuArray.get_merged_font_size(
+        -- 密度阶段已预计算 danmaku.font_size（智能模式还会原位收缩），此处仅兜底
+        local event_fontsize = d.font_size or DanmakuArray.get_merged_font_size(
             fontsize, d.merge_count or 1, fontsize_growth, fontsize_max
         )
 

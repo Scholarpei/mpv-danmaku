@@ -60,6 +60,8 @@
 
 16. 自定义插件相关提示的显示位置，可以自由调节距离画面左上角的两个维度的距离（具体设置方法详见[message_x配置项说明](#message_x)和[message_y配置项说明](#message_y)）
 
+17. pakku 式智能密度控制：**默认开启**。按视觉密度值（dispval，综合文本长度与字号）统计同屏弹幕密度，超过软阈值先等比缩小字号（上限 √3 倍），超过更硬的阈值再按权重概率丢弃——未合并的弹幕先死，`xN` 合并弹幕受 √N 与权重排名双重保护（算法参考 [pakku.js](https://github.com/xmcp/pakku.js) 的 SHRINK/DROP_THRESHOLD，详见[density_control配置项说明](#density_control)）；强度分「宽松/中等/严格」三档（[density_level](#density_level)），加载完成时 OSD 提示「智能密度：缩小 N 条，丢弃 M 条」；原同屏上限随机丢弃保留为「简单模式」
+
 无需亲自下载整合弹幕文件资源，无需亲自处理文件格式转换，在mpv播放器中一键加载包含了哔哩哔哩、巴哈姆特等弹幕网站弹幕的弹弹play的动画弹幕。
 
 插件本身支持Linux和Windows平台。项目依赖于[uosc UI框架](https://github.com/tomasklaen/uosc)。欲使用本插件强烈建议为mpv播放器中安装uosc。uosc的安装步骤可以参考其[官方安装教程](https://github.com/tomasklaen/uosc?tab=readme-ov-file#install)。当然，如果使用[MPV_lazy](https://github.com/hooke007/MPV_lazy)等内置了uosc的懒人包则只需安装本插件即可。
@@ -311,7 +313,9 @@ key script-message open_danmaku_style_menu
 | 顶部弹幕转滚动 | 三态 | 对应 `convert_top_to_scroll`（关/全部/自动按宽度） |
 | 底部弹幕转滚动 | 三态 | 对应 `convert_bottom_to_scroll`（关/全部/自动按宽度） |
 | 转换宽度阈值 | 档位 | 对应 `scroll_threshold`（800/1200/1600/2000/2400 px，仅「自动」模式生效） |
-| 同屏弹幕上限 | 档位 | 对应 `max_screen_danmaku`（不限/20/40/60/80/100） |
+| 同屏弹幕上限 | 档位 | 对应 `max_screen_danmaku`（不限/20/40/60/80/100，仅「简单」密度模式生效） |
+| 密度控制 | 档位 | 对应 `density_control`（关闭/简单/智能） |
+| 智能密度强度 | 档位 | 对应 `density_level`（宽松/中等/严格，仅「智能」模式生效） |
 | 黑名单过滤 | 开关 | 对应 `blacklist_enabled` |
 | 重载黑名单文件 | 动作 | 重新读取 `blacklist_path` 指向的规则文件并立即生效 |
 | 打开黑名单文件位置 | 动作 | 在系统文件管理器中定位黑名单文件 |
@@ -694,7 +698,7 @@ merge_enabled
 
 合并算法参考并行为复刻自 [pakku.js](https://github.com/xmcp/pakku.js)（GPLv3, by xmcp），本项目为独立 Lua 实现，未复制其源码或数据。
 
-加载完成后会以 OSD 提示合并统计「已合并 N 条相似弹幕（A→B）」（仅实际发生合并时显示；B 为合并后条数，「共计」显示的条数还经过同屏密度限制，故两者可能不同）。`xN` 标记的加粗斜体样式只作用于由合并引擎附加的后缀，用户原文天然以 x数字 结尾（如「666x3」）不受影响。
+加载完成后会以 OSD 提示合并统计「已合并 N 条相似弹幕（A→B）」（仅实际发生合并时显示；B 为合并后条数，「共计」显示的条数还经过密度控制，故两者可能不同）。`xN` 标记的加粗斜体样式只作用于由合并引擎附加的后缀，用户原文天然以 x数字 结尾（如「666x3」）不受影响。
 
 #### 使用方法
 
@@ -997,7 +1001,7 @@ merge_fontsize_max=100
 <summary>
 max_screen_danmaku
 
-> 限制屏幕中同时显示的弹幕数量
+> 限制屏幕中同时显示的弹幕数量（仅简单密度模式生效）
 
 </summary>
 
@@ -1007,12 +1011,91 @@ max_screen_danmaku
 
 当该值大于0时，脚本会在解析弹幕时丢弃部分弹幕，确保任意时刻屏幕中显示的弹幕不超过设定值。超出上限时采用**随机丢弃**策略（哔哩哔哩官方播放器行为）。该设置也可在「弹幕过滤」菜单中切换档位（不限/20/40/60/80/100）。
 
+> [!NOTE]
+> 自 `density_control` 引入后，本项**仅在 `density_control=simple`（简单模式）下生效**——简单模式即本项原本的随机丢弃行为，被降级为智能密度控制的备选方案。若你此前配置了该值并希望保持原随机丢弃行为，请同时设置 `density_control=simple`。
+
 #### 使用方法
 
 在 `script-opts` 目录下创建 `uosc_danmaku.conf` 并添加如下内容：
 
 ```
+density_control=simple
 max_screen_danmaku=60
+```
+
+</details>
+
+---
+
+<details>
+<summary>
+density_control
+
+> 弹幕密度控制模式（关闭/简单/智能）
+
+</summary>
+
+### density_control
+
+#### 功能说明
+
+指定密度控制策略。默认值: `smart`
+
+| 模式 | 效果 |
+| --- | --- |
+| `off` | 不做任何密度控制 |
+| `simple` | 简单模式：同屏条数上限 + **随机丢弃**（B 站播放器行为，读取 `max_screen_danmaku`） |
+| `smart` | 智能模式（默认）：pakku 式先等比缩小字号、超更硬阈值再按权重概率丢弃 |
+
+智能模式为 [pakku.js](https://github.com/xmcp/pakku.js) SHRINK/DROP_THRESHOLD 的行为复刻（独立 Lua 实现）：
+
+1. **视觉密度值 dispval** = √有效长度 × clamp(字号/基准字号, 0.7, 2.5)^1.5（半角字符记 0.5 个长度；基准字号为 `fontsize`）。滑动窗口按每条弹幕的**真实显示区间**累计同屏密度（滚动 `scrolltime` 秒、固定 `fixtime` 秒，比 pakku 固定 5 秒窗口更贴合本脚本的实际渲染时长）。
+2. **先缩小**：密度超过软阈值（`density_level` 的第一个值）时，按 `min((密度/阈值)^0.35, √3)` 等比缩小当条字号——弹幕越密字号越小，但最多缩到 1/√3；窗口中累计的密度值按缩小前字号计算（pakku 语义）。
+3. **再丢弃**：密度仍超过硬阈值（第二值，恒为软阈值的 2 倍）时按概率丢弃，死亡概率 = 超限比例 + 0.25 − 保护项。**未合并弹幕没有任何保护（先死）**；`xN` 合并弹幕受双重保护：`(√N−1)/5`（合并数保护）与「权重排名保护」——合并数在全片弹幕中排名越靠前，最多再减 0.25。
+
+pakku 原版还有 √点赞/8 保护项，因现有弹幕源（XML / dandanplay JSON）均不提供点赞数据而暂缺，代码中留有钩子。收缩作用于合并放大之后，因此高合并弹幕的字号也可能被压回基准以下（约束的是视觉面积，属预期行为）。
+
+加载完成时 OSD 提示「智能密度：缩小 N 条，丢弃 M 条」（仅实际发生干预时显示）。强度档位见 [density_level](#density_level)。conf 中写入未知值时回落 `smart`。
+
+#### 使用方法
+
+在 `script-opts` 目录下创建 `uosc_danmaku.conf` 并添加如下内容：
+
+```
+density_control=smart
+```
+
+</details>
+
+---
+
+<details>
+<summary>
+density_level
+
+> 智能密度强度三档
+
+</summary>
+
+### density_level
+
+#### 功能说明
+
+指定智能模式的密度档位，映射（收缩阈值, 丢弃阈值）两个 dispval 值。默认值: `medium`。仅 `density_control=smart` 时生效。
+
+| 档位 | 收缩阈值 | 丢弃阈值 | 效果 |
+| --- | --- | --- | --- |
+| `loose` | 80 | 160 | 宽松：仅极端弹幕墙干预 |
+| `medium` | 50 | 100 | 中等：默认档，舒适满屏即开始收缩 |
+| `strict` | 30 | 60 | 严格：约 2/3 满屏即干预，弹幕显著减少 |
+
+> [!NOTE]
+> 标定基准：1080p、`displayarea=0.85` 下约 18 行 50px 弹幕带，一条 10 字弹幕 dispval≈√10≈3.2，舒适满屏 ≈ 58 → `medium=50` 恰在舒适满屏触发收缩。档位对 `fontsize` 的修改不敏感（基准同步缩放、clamp 以基准为锚）。conf 中写入未知值时回落 `medium`。
+
+#### 使用方法
+
+```
+density_level=medium
 ```
 
 </details>

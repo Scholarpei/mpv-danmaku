@@ -1,4 +1,4 @@
--- 端到端管线测试：直接驱动 convert_danmaku_to_ass_events（黑名单门 → 模式转换 → pakku 合并 → 密度限制 → 布局）
+-- 端到端管线测试：直接驱动 convert_danmaku_to_ass_events（黑名单门 → 模式转换 → pakku 合并 → 密度控制 → 布局）
 -- 运行前写入 tests/black_e2e.txt（内容：敏感词）
 -- 运行：mpv.com --no-config --idle=once --script=<本文件> --script-opts=e2e_pipeline_test-blacklist_path=<black_e2e.txt 路径>
 
@@ -12,8 +12,10 @@ require("modules/options")
 require("modules/utils")
 require("modules/parse")
 
--- 运行时覆盖（管线读取 convert 时刻的实时值）
+-- 运行时覆盖（管线读取 convert 时刻的实时值）。
+-- density_control 必须显式声明 simple：默认已是 smart，D 节的随机丢弃断言依赖简单模式
 options.convert_top_to_scroll = true
+options.density_control = "simple"
 options.max_screen_danmaku = 5
 
 local function dm(t, text, dtype)
@@ -144,6 +146,41 @@ do
         if ev.style == "TOP" then n_top = n_top + 1 end
     end
     check("I auto 模式按宽度转换", n_r2l == 1 and n_top == 1)
+end
+
+-- J：智能密度（pakku 式收缩+丢弃）。60 条互不相似 6 字滚动弹幕挤进 [40,42) 窗口：
+-- 文本用连续码点生成、每条 6 个字符全不与其它条重复（规避合并四通道与套路/黑名单规则），
+-- 等长 ⇒ 等速 ⇒ 车道可复用，收缩后的弹幕仍能通过布局落到最终事件。
+-- strict={30,60}：第 ~13 条起 sum>30 触发收缩、~25 条起 sum>60 触发丢弃。
+-- 不做总条数等值断言（布局车道耗尽的丢弃与密度丢弃不可区分）
+do
+    local function cjk(cp)
+        return string.char(0xE0 + math.floor(cp / 4096),
+            0x80 + math.floor(cp / 64) % 64, 0x80 + cp % 64)
+    end
+    local function make_wall()
+        local list = {}
+        for i = 1, 60 do
+            local t = {}
+            for j = 1, 6 do t[j] = cjk(0x4E00 + (i - 1) * 6 + (j - 1)) end
+            list[i] = dm(40.0 + i * 0.02, table.concat(t))
+        end
+        return list
+    end
+    DANMAKU = { sources = { ["test://e2e3"] = { from = "user_local", data = make_wall() } }, count = 1 }
+    options.density_control = "smart"
+    options.density_level = "strict"
+    convert_danmaku_to_ass_events(true)
+    check("J 智能密度统计与收缩生效",
+        DENSITY_STATS ~= nil and DENSITY_STATS.dropped > 0 and DENSITY_STATS.shrunk > 0
+            and count_events(function(ev) return ev.font_size < 50 end) > 0)
+
+    -- 对照：off 模式同数据无任何干预（未合并弹幕字号恰为基准 50）
+    DANMAKU = { sources = { ["test://e2e4"] = { from = "user_local", data = make_wall() } }, count = 1 }
+    options.density_control = "off"
+    convert_danmaku_to_ass_events(true)
+    check("Jb 对照 off 模式无干预",
+        DENSITY_STATS == nil and count_events(function(ev) return ev.font_size < 50 end) == 0)
 end
 
 print(failures == 0 and "ALL PASS" or (failures .. " FAILED"))
