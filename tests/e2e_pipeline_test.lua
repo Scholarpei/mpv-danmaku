@@ -1,0 +1,116 @@
+-- 端到端管线测试：直接驱动 convert_danmaku_to_ass_events（黑名单门 → 模式转换 → pakku 合并 → 密度限制 → 布局）
+-- 运行前写入 tests/black_e2e.txt（内容：敏感词）
+-- 运行：mpv.com --no-config --idle=once --script=<本文件> --script-opts=e2e_pipeline_test-blacklist_path=<black_e2e.txt 路径>
+
+local ROOT = "D:/software/mpv-lazy/portable_config/scripts/uosc_danmaku"
+package.path = ROOT .. "/?.lua;" .. package.path
+
+-- parse.lua 会在空弹幕分支调用 render.lua 的 show_message，测试环境不渲染，打桩
+show_message = function() end
+
+require("modules/options")
+require("modules/utils")
+require("modules/parse")
+
+-- 运行时覆盖（管线读取 convert 时刻的实时值）
+options.convert_top_to_scroll = true
+options.max_screen_danmaku = 5
+
+local function dm(t, text, dtype)
+    return { time = t, type = dtype or 1, size = 25, color = 0xFFFFFF, text = text }
+end
+
+local data = {}
+-- A. 相似合并簇：4×哈哈哈哈 + 1×哈哈哈哈哈
+for _, t in ipairs({ 10.0, 10.2, 10.4, 10.6 }) do data[#data + 1] = dm(t, "哈哈哈哈") end
+data[#data + 1] = dm(10.3, "哈哈哈哈哈")
+-- B. 套路规则改写合并
+for _, t in ipairs({ 20.0, 20.1, 20.2 }) do data[#data + 1] = dm(t, "2333333") end
+-- C. 顶部弹幕转滚动（放远些：转滚动后显示 15s，避免落进 D 的密度窗口）
+data[#data + 1] = dm(100.0, "固顶弹幕", 5)
+-- D. 密度限制：12 条互不相似的弹幕挤进同一窗口，上限 5
+local fruits = { "苹果", "香蕉", "西瓜", "葡萄", "橘子", "菠萝", "荔枝", "芒果", "柠檬", "柚子", "樱桃", "草莓" }
+for i, w in ipairs(fruits) do data[#data + 1] = dm(40.0 + i * 0.05, w) end
+-- E. 黑名单命中
+data[#data + 1] = dm(50.0, "包含敏感词的弹幕测试")
+-- F. 正常单条
+data[#data + 1] = dm(60.0, "正常弹幕")
+
+table.sort(data, function(a, b) return a.time < b.time end)
+DANMAKU = { sources = { ["test://e2e"] = { from = "user_local", data = data } }, count = 1 }
+COMMENTS = {}
+
+convert_danmaku_to_ass_events(true)
+
+local failures = 0
+local function check(name, cond)
+    if cond then
+        print("PASS " .. name)
+    else
+        failures = failures + 1
+        print("FAIL " .. name)
+    end
+end
+
+local function count_events(pred)
+    local n = 0
+    for _, ev in ipairs(COMMENTS) do
+        if pred(ev) then n = n + 1 end
+    end
+    return n
+end
+
+-- A：合并为 1 条、x5 后缀、字号增长
+do
+    local evs = {}
+    for _, ev in ipairs(COMMENTS) do
+        if ev.text and ev.text:find("哈", 1, true) then evs[#evs + 1] = ev end
+    end
+    check("A 相似合并 x5",
+        #evs == 1 and evs[1].merge_count == 5 and evs[1].text:find("x5", 1, true)
+            and evs[1].font_size > 50)
+end
+
+-- B：套路规则改写后合并，文本统一为 23333
+do
+    local evs = {}
+    for _, ev in ipairs(COMMENTS) do
+        if ev.text and ev.text:find("23333", 1, true) then evs[#evs + 1] = ev end
+    end
+    check("B 套路规则合并",
+        #evs == 1 and evs[1].merge_count == 3 and evs[1].text:find("x3", 1, true))
+end
+
+-- C：顶部转滚动，↑ 前缀，R2L 样式
+do
+    local found = false
+    for _, ev in ipairs(COMMENTS) do
+        if ev.text and ev.text:find("↑固顶弹幕", 1, true) and ev.style == "R2L" then
+            found = true
+        end
+    end
+    check("C 顶部转滚动", found)
+end
+
+-- D：同屏上限 5，随机丢弃（滚动弹幕 start_time 会 floor(t+0.5) 取整，用 [40,42) 覆盖）
+check("D 密度限制为 5",
+    count_events(function(ev) return ev.start_time >= 40 and ev.start_time < 42 end) == 5)
+
+-- E：黑名单命中被过滤
+check("E 黑名单过滤", count_events(function(ev)
+    return ev.text and ev.text:find("敏感词", 1, true)
+end) == 0)
+
+-- F：普通弹幕原样保留
+do
+    local evs = {}
+    for _, ev in ipairs(COMMENTS) do
+        if ev.text and ev.text:find("正常弹幕", 1, true) then evs[#evs + 1] = ev end
+    end
+    check("F 普通弹幕直通", #evs == 1 and evs[1].merge_count == 1)
+end
+
+check("G 总数 1+1+1+5+0+1=9", #COMMENTS == 9)
+
+print(failures == 0 and "ALL PASS" or (failures .. " FAILED"))
+mp.commandv("quit")
