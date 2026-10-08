@@ -583,6 +583,7 @@ local DENSITY_LEVELS = {
 function convert_danmaku_to_ass_events(force)
     MERGE_STATS = nil -- 每次重建都重置合并统计（空弹幕提前 return / 未启用合并时防止旧值残留）
     DENSITY_STATS = nil -- 同上，智能密度统计
+    BLACKLIST_STATS = nil -- 同上，黑名单过滤统计
     local per_source_lists = {}
     for url, source in pairs(DANMAKU.sources) do
         if not source.blocked and source.data then
@@ -593,7 +594,7 @@ function convert_danmaku_to_ass_events(force)
                 local base_time = d.orig_time or d.time
                 if d.orig_time == nil then d.orig_time = base_time end
                 local adjusted_time = base_time + get_cached_delay(base_time)
-                local entry = {
+                table.insert(list, {
                     orig_time = d.orig_time,
                     time = adjusted_time,
                     type = d.type,
@@ -601,10 +602,7 @@ function convert_danmaku_to_ass_events(force)
                     color = d.color,
                     text = d.text,
                     source = url,
-                }
-                if options.blacklist_enabled ~= false and not is_blacklisted(d.text, black_patterns) then
-                    table.insert(list, entry)
-                end
+                })
             end
 
             if #list > 0 then
@@ -687,6 +685,33 @@ function convert_danmaku_to_ass_events(force)
             :format(before, #danmakus, (mp.get_time() - t_merge) * 1000))
         if before > #danmakus then
             MERGE_STATS = { before = before, after = #danmakus }
+        end
+    end
+
+    -- 黑名单过滤（合并后执行）：先聚类再过滤，簇的显示文本命中才整簇丢弃；
+    -- 个别成员命中但显示文本干净时簇保留完整 xN 计数（x99 不因屏蔽词缩水）。
+    -- 匹配对象为合并引擎的归一化显示文本（剥离引擎追加的 xN 后缀）。
+    -- 开关语义与菜单 filter_option_is_on 一致（false / "no" 均视为关）
+    if options.blacklist_enabled ~= false and options.blacklist_enabled ~= "no" then
+        local t_bl = mp.get_time()
+        local dropped = 0
+        local kept = {}
+        for _, d in ipairs(danmakus) do
+            local text = d.text or ""
+            if d.merged_x_suffix then
+                text = text:gsub("x%d+$", "")
+            end
+            if not is_blacklisted(text, black_patterns) then
+                kept[#kept + 1] = d
+            else
+                dropped = dropped + 1
+            end
+        end
+        if dropped > 0 then
+            BLACKLIST_STATS = { dropped = dropped }
+            danmakus = kept
+            msg.verbose(("黑名单过滤: %d -> %d, 丢弃 %d, 耗时 %.0f ms"):format(
+                #danmakus + dropped, #danmakus, dropped, (mp.get_time() - t_bl) * 1000))
         end
     end
 

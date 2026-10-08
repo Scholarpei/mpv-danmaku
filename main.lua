@@ -125,15 +125,21 @@ function show_loaded(init)
         density_line = ("智能密度：缩小 %d 条，丢弃 %d 条\\N"):format(
             DENSITY_STATS.shrunk, DENSITY_STATS.dropped)
     end
+    -- 黑名单统计（合并后过滤，实际丢弃时才显示）
+    local blacklist_line = ""
+    if BLACKLIST_STATS and BLACKLIST_STATS.dropped > 0 then
+        blacklist_line = ("黑名单：过滤 %d 条\\N"):format(BLACKLIST_STATS.dropped)
+    end
     if DANMAKU.anime and DANMAKU.episode then
         show_message("匹配内容：" .. DANMAKU.anime .. "-" .. DANMAKU.episode .. "\\N" .. merge_line
-            .. density_line
+            .. blacklist_line .. density_line
             .. "弹幕加载成功，共计" .. #COMMENTS .. "条弹幕", 3)
         if init then
             msg.info(DANMAKU.anime .. "-" .. DANMAKU.episode .. " 弹幕加载成功，共计" .. #COMMENTS .. "条弹幕")
         end
     else
-        show_message(merge_line .. density_line .. "弹幕加载成功，共计" .. #COMMENTS .. "条弹幕", 3)
+        show_message(merge_line .. blacklist_line .. density_line
+            .. "弹幕加载成功，共计" .. #COMMENTS .. "条弹幕", 3)
     end
     mp.set_property_native(DANMAKU_COUNT, #COMMENTS)
 end

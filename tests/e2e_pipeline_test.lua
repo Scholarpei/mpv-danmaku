@@ -1,5 +1,5 @@
--- 端到端管线测试：直接驱动 convert_danmaku_to_ass_events（黑名单门 → 模式转换 → pakku 合并 → 密度控制 → 布局）
--- 运行前写入 tests/black_e2e.txt（内容：敏感词）
+-- 端到端管线测试：直接驱动 convert_danmaku_to_ass_events（模式转换 → pakku 合并 → 黑名单过滤 → 密度控制 → 布局）
+-- 运行前写入 tests/black_e2e.txt（内容：敏感词 与 ^AAAAA$ 两行）
 -- 运行：mpv.com --no-config --idle=once --script=<本文件> --script-opts=e2e_pipeline_test-blacklist_path=<black_e2e.txt 路径>
 
 local ROOT = "D:/software/mpv-lazy/portable_config/scripts/uosc_danmaku"
@@ -39,6 +39,10 @@ data[#data + 1] = dm(50.0, "包含敏感词的弹幕测试")
 data[#data + 1] = dm(60.0, "正常弹幕")
 -- G2. 用户原文以 x数字 结尾且未被合并（不应被 ×N 样式化）
 data[#data + 1] = dm(70.0, "太强了x3")
+-- L. 混合簇黑名单：4×AAAA + 1×AAAAA 合并为一簇（显示文本 AAAA），
+--    规则 ^AAAAA$ 只命中变体成员——合并后过滤应保留整簇完整 x5 计数
+for _, t in ipairs({ 80.0, 80.1, 80.2, 80.3 }) do data[#data + 1] = dm(t, "AAAA") end
+data[#data + 1] = dm(80.15, "AAAAA")
 
 table.sort(data, function(a, b) return a.time < b.time end)
 DANMAKU = { sources = { ["test://e2e"] = { from = "user_local", data = data } }, count = 1 }
@@ -100,7 +104,7 @@ end
 check("D 密度限制为 5",
     count_events(function(ev) return ev.start_time >= 40 and ev.start_time < 42 end) == 5)
 
--- E：黑名单命中被过滤
+-- E：黑名单命中被过滤（合并后过滤，单条簇显示文本命中即丢弃）
 check("E 黑名单过滤", count_events(function(ev)
     return ev.text and ev.text:find("敏感词", 1, true)
 end) == 0)
@@ -114,7 +118,17 @@ do
     check("F 普通弹幕直通", #evs == 1 and evs[1].merge_count == 1)
 end
 
-check("G 总数 1+1+1+5+0+1+1=10", #COMMENTS == 10)
+check("G 总数 1+1+1+5+0+1+1+1=11", #COMMENTS == 11)
+
+-- L：混合簇保留完整 xN（成员命中黑名单但显示文本干净时簇不缩水）
+do
+    local evs = {}
+    for _, ev in ipairs(COMMENTS) do
+        if ev.clean_text and ev.clean_text:find("AAAA", 1, true) then evs[#evs + 1] = ev end
+    end
+    check("L 混合簇黑名单不缩水",
+        #evs == 1 and evs[1].merge_count == 5 and evs[1].clean_text:find("^AAAAx5$", 1, false) ~= nil)
+end
 
 -- G2：原文以 x数字 结尾的未合并弹幕不加粗斜体（merged_x_suffix 改造的回归）
 do
@@ -129,6 +143,10 @@ end
 -- H：合并统计全局（实际发生合并时 before > after）
 check("H 合并统计 MERGE_STATS",
     MERGE_STATS ~= nil and MERGE_STATS.before > MERGE_STATS.after)
+
+-- H2：黑名单统计（首个数据集仅敏感词 1 条被丢；L 混合簇成员命中但整簇保留）
+check("H2 黑名单统计 BLACKLIST_STATS",
+    BLACKLIST_STATS ~= nil and BLACKLIST_STATS.dropped == 1)
 
 -- I：auto 模式按宽度转换：超阈值的顶部弹幕转滚动，短的保留原样
 do
