@@ -65,6 +65,19 @@ do
     end
 end
 
+-- 3b/3c. 补充表拼音谐音：凪了 vs 指了（凪=zhǐ 来自 GBK 扩展补充表，缺失时 SKIP）
+do
+    local ok, ext = pcall(require, "dicts/pinyin_chars_ext")
+    if pakku.pinyin_available() and ok and ext["凪"] then
+        local out = run({ dm(10, "凪了"), dm(10.2, "指了") }, { use_pinyin = true })
+        check("3b 补充表拼音谐音合并", #out == 1 and out[1].merge_count == 2)
+        local out2 = run({ dm(10, "凪了"), dm(10.2, "指了") }, { use_pinyin = false })
+        check("3c 关闭拼音通道时补充表谐音不合并", #out2 == 2)
+    else
+        print("SKIP 3b/3c 补充表拼音谐音合并（无补充表）")
+    end
+end
+
 -- 4. 套路规则：2333 刷屏统一改写后合并，文本 23333、x3 后缀
 do
     local out = run({ dm(10, "2333333"), dm(10.1, "23333"), dm(10.2, "233333") })

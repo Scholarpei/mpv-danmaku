@@ -2,3 +2,4 @@ danmaku/*
 *.toml
 .*
 !.gitattributes
+tools/pinyin.txt

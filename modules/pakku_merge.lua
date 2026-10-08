@@ -164,7 +164,9 @@ local function normalize(text, forcelist)
     return norm
 end
 
--- 拼音字典（dicts/pinyin_chars.lua 由 tools/gen_pinyin_dict.py 生成，缺失时自动禁用）
+-- 拼音字典（dicts/pinyin_chars.lua 由 tools/gen_pinyin_dict.py 生成，缺失时自动禁用；
+-- dicts/pinyin_chars_ext.lua 为 GBK 扩展字补充表（咲、凪、雫等，约 14k 字），
+-- 存在时叠加进主表，缺失仅收窄覆盖面不影响主表）
 local pinyin_dict = nil
 local pinyin_checked = false
 local function pinyin_available()
@@ -173,6 +175,12 @@ local function pinyin_available()
         local ok, dict = pcall(require, "dicts/pinyin_chars")
         if ok and type(dict) == "table" then
             pinyin_dict = dict
+            local ok_ext, ext = pcall(require, "dicts/pinyin_chars_ext")
+            if ok_ext and type(ext) == "table" then
+                for ch, readings in pairs(ext) do
+                    if pinyin_dict[ch] == nil then pinyin_dict[ch] = readings end
+                end
+            end
         else
             msg.warn("未找到 dicts/pinyin_chars.lua，拼音谐音合并自动禁用")
         end

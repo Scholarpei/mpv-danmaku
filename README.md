@@ -65,7 +65,7 @@
 - 「2333」「6666」类刷屏可由 [`merge_forcelist`](#merge_forcelist) 规则归一后再合并
 - 合并发生在黑名单与密度控制**之前**，×N 计数基于原始弹幕量，屏蔽词不缩水计数
 - 加载完成 OSD 提示合并统计：「已合并 N 条相似弹幕（A→B）」
-- 拼音谐音通道依赖 `dicts/pinyin_chars.lua`（GB2312 共 6763 字，由 [pinyin-data](https://github.com/mozillazg/pinyin-data) 生成）；字典缺失时该通道自动禁用，其余通道不受影响
+- 拼音谐音通道依赖 `dicts/pinyin_chars.lua`（GB2312 共 6763 字）与补充表 `dicts/pinyin_chars_ext.lua`（GBK 扩展共 14131 字，覆盖咲、凪、雫等日式汉字与繁体字），均由 [pinyin-data](https://github.com/mozillazg/pinyin-data) 生成（`tools/gen_pinyin_dict.py`）；主字典缺失时该通道自动禁用，补充表删除仅收窄覆盖面，其余通道不受影响
 
 ### 智能密度控制
 
