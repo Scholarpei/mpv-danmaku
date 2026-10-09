@@ -212,16 +212,10 @@ do
 end
 
 -- K：简繁转换（默认 1 转简体）与模式切换缓存失效。
--- 断言用 ev.clean_text（转换后、ASS 转义前）；Kb 的"还原原文"专抓缓存 mode-guard 缺失
--- （无守卫时旧缓存返回转换后文本）。繁简两条弹幕原文互不相似，不触发合并。
+-- 断言用 ev.clean_text（收集阶段已转换、ASS 转义前）；Kb 的"还原原文"专抓缓存 mode-guard 缺失
+-- （无守卫时旧缓存返回转换后文本）。两条文本转换后也无共享字符，不触发合并
+-- （旧用例第二条「简体字弹幕」与繁体句转换后共享 4 字符合并通道阈值，已被特性改变行为）
 do
-    local function ch_events()
-        return count_events(function(ev)
-            return ev.clean_text and (
-                ev.clean_text:find("繁", 1, true) or ev.clean_text:find("简", 1, true)
-                    or ev.clean_text:find("簡", 1, true))
-        end)
-    end
     local function has_text(needle)
         return count_events(function(ev)
             return ev.clean_text and ev.clean_text:find(needle, 1, true)
@@ -229,23 +223,56 @@ do
     end
     DANMAKU = { sources = { ["test://e2e5"] = { from = "user_local", data = {
         dm(300.0, "這是繁體字彈幕"),
-        dm(301.0, "简体字弹幕"),
+        dm(301.0, "小白兔白又白"),
     } } }, count = 1 }
     convert_danmaku_to_ass_events(true) -- chConvert 默认 1：這→这 體→体 彈→弹
     check("K 默认转简体",
-        ch_events() == 2 and has_text("这是繁体字弹幕") and has_text("简体字弹幕"))
+        has_text("这是繁体字弹幕") and has_text("小白兔白又白"))
 
     options.chConvert = 0
     convert_danmaku_to_ass_events(true)
     check("Kb 切关还原原文（缓存失效）",
-        ch_events() == 2 and has_text("這是繁體字彈幕") and has_text("简体字弹幕"))
+        has_text("這是繁體字彈幕") and has_text("小白兔白又白"))
 
     options.chConvert = 2
-    convert_danmaku_to_ass_events(true) -- 简→簡 体→體 弹→彈；繁体原文恒等
+    convert_danmaku_to_ass_events(true) -- 繁体原文恒等；小白兔句各字简繁同形
     check("Kc 转繁体",
-        ch_events() == 2 and has_text("這是繁體字彈幕") and has_text("簡體字彈幕"))
+        has_text("這是繁體字彈幕") and has_text("小白兔白又白"))
 
     options.chConvert = 1 -- 还原默认
+end
+
+-- M：简繁转换在合并之前——繁简变体转换后同文可合并（关拼音通道隔离新能力，
+-- 证明合并来自转换而非拼音字典恰好覆盖两种字形）；黑名单规则按转换后（显示）文本命中
+do
+    options.merge_pinyin = false
+    DANMAKU = { sources = { ["test://e2e6"] = { from = "user_local", data = {
+        dm(320.0, "這裡是繁體"),
+        dm(320.2, "这里是繁体"),
+        dm(330.0, "這是敏感詞彈幕"), -- 转换后为「这是敏感词弹幕」，命中规则 敏感词
+    } } }, count = 1 }
+    convert_danmaku_to_ass_events(true) -- chConvert=1：這裡是繁體 → 这里是繁体，与简体条精确合并
+    local ev_m = nil
+    for _, ev in ipairs(COMMENTS) do
+        if ev.clean_text and ev.clean_text:find("这里是繁体", 1, true) then ev_m = ev end
+    end
+    check("M 繁简变体转换后合并",
+        count_events(function(ev) return ev.clean_text and ev.clean_text:find("这里是繁体", 1, true) end) == 1
+            and ev_m ~= nil and ev_m.merge_count == 2)
+    check("M2 黑名单按转换后文本命中",
+        count_events(function(ev) return ev.clean_text and ev.clean_text:find("敏感", 1, true) end) == 0)
+
+    -- Mb 对照：不转换（chConvert=0）且拼音关闭时，归一化后不同、不合并
+    DANMAKU = { sources = { ["test://e2e6b"] = { from = "user_local", data = {
+        dm(320.0, "這裡是繁體"),
+        dm(320.2, "这里是繁体"),
+    } } }, count = 1 }
+    options.chConvert = 0
+    convert_danmaku_to_ass_events(true)
+    check("Mb 不转换时繁简不合并（对照）",
+        count_events(function(ev) return ev.clean_text and ev.clean_text:find("繁", 1, true) end) == 2)
+    options.chConvert = 1
+    options.merge_pinyin = true -- 还原默认
 end
 
 print(failures == 0 and "ALL PASS" or (failures .. " FAILED"))

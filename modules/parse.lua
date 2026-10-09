@@ -602,13 +602,22 @@ function convert_danmaku_to_ass_events(force)
                 local base_time = d.orig_time or d.time
                 if d.orig_time == nil then d.orig_time = base_time end
                 local adjusted_time = base_time + get_cached_delay(base_time)
+                -- 实体解码 + 简繁转换提前到收集阶段（此前在布局输出阶段）：
+                -- ① 合并引擎比较转换后文本，繁简互为变体的弹幕（淚目/泪目）同文可合并，
+                --    不再依赖拼音字典恰好覆盖两种字形；② 黑名单匹配对象与显示文本一致，
+                --    规则按屏幕上看到的文字书写即可命中。
+                -- 仅作用于此处新建的副本记录，源数据保持原文（导出 XML、模式切换重跑不受影响）
+                local text = d.text
+                if type(text) == "string" and text ~= "" then
+                    text = ch_convert_cached(decode_html_entities(text))
+                end
                 table.insert(list, {
                     orig_time = d.orig_time,
                     time = adjusted_time,
                     type = d.type,
                     size = d.size,
                     color = d.color,
-                    text = d.text,
+                    text = text,
                     source = url,
                 })
             end
@@ -811,7 +820,8 @@ function convert_danmaku_to_ass_events(force)
         local d = ev.danmaku
         local appear_time = ev.start_time
         local danmaku_type = d.type
-        local clean_text = ch_convert_cached(decode_html_entities(d.text))
+        -- 实体解码与简繁转换已在收集阶段完成（见管线收集循环），此处直接转义
+        local clean_text = d.text or ""
         local text = ass_escape(clean_text)
         -- 黑名单过滤阶段的匹配基准文本（剥引擎 xN 后缀），供「屏蔽此文本」写入规则时保持同一语义
         local blacklist_key = d.text or ""
