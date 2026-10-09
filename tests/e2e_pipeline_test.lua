@@ -9,6 +9,14 @@ package.path = ROOT .. "/?.lua;" .. package.path
 show_message = function() end
 
 require("modules/options")
+
+-- 模拟 conf 文件写法 blacklist_path="./black.txt" 的实际解析值：
+-- mp.options 从 conf 文件读值不剥引号（仅 CLI --script-opts 传参才剥），
+-- 此处手动包一层引号，回归 resolve_blacklist_path 的剥引号逻辑（E/H2 黑名单用例依赖路径解析成功）
+if options.blacklist_path and options.blacklist_path ~= "" then
+    options.blacklist_path = '"' .. options.blacklist_path .. '"'
+end
+
 require("modules/utils")
 require("modules/parse")
 
@@ -76,7 +84,8 @@ do
     end
     check("A 相似合并 x5",
         #evs == 1 and evs[1].merge_count == 5 and evs[1].text:find("x5", 1, true)
-            and evs[1].font_size > 50)
+            and evs[1].font_size > 50
+            and evs[1].merged_x_suffix == true and evs[1].blacklist_key == "哈哈哈哈")
 end
 
 -- B：套路规则改写后合并，文本统一为 23333
@@ -137,7 +146,8 @@ do
         if ev.text and ev.text:find("太强了x3", 1, true) then evs[#evs + 1] = ev end
     end
     check("G2 原文x数字结尾不样式化",
-        #evs == 1 and not evs[1].text:find("\\b1", 1, true))
+        #evs == 1 and not evs[1].text:find("\\b1", 1, true)
+            and not evs[1].merged_x_suffix and evs[1].blacklist_key == "太强了x3")
 end
 
 -- H：合并统计全局（实际发生合并时 before > after）

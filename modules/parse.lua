@@ -127,6 +127,9 @@ end
 -- 空路径必须短路：绝不能把空值拼进脚本目录而误命中仓库自带的 black.txt
 local function resolve_blacklist_path(raw)
     if not raw or raw == "" then return raw end
+    -- conf 文件里写的 "路径" mp.options 不剥引号（仅 CLI --script-opts 传参才剥），
+    -- 值会带引号字符导致文件永远找不到，此处统一剥掉成对引号
+    raw = raw:match('^%s*"(.+)"%s*$') or raw:match("^%s*'(.+)'%s*$") or raw
     local expanded = mp.command_native({ "expand-path", raw })
     local function is_abs(p)
         return p:match("^%a:[/\\]") or p:match("^[/\\]")
@@ -152,6 +155,11 @@ local black_patterns = load_blacklist_patterns(blacklist_file)
 function reload_blacklist()
     black_patterns = load_blacklist_patterns(blacklist_file)
     return #black_patterns
+end
+
+-- 供菜单「屏蔽此文本」判断当前规则是否已命中（黑名单规则本身仍是私有局部表）
+function is_text_blacklisted(str)
+    return is_blacklisted(str, black_patterns)
 end
 
 -- 检查字符串是否在黑名单中
@@ -805,6 +813,11 @@ function convert_danmaku_to_ass_events(force)
         local danmaku_type = d.type
         local clean_text = ch_convert_cached(decode_html_entities(d.text))
         local text = ass_escape(clean_text)
+        -- 黑名单过滤阶段的匹配基准文本（剥引擎 xN 后缀），供「屏蔽此文本」写入规则时保持同一语义
+        local blacklist_key = d.text or ""
+        if d.merged_x_suffix then
+            blacklist_key = blacklist_key:gsub("x%d+$", "")
+        end
         -- 仅样式化合并引擎生成的 ×N 后缀（merged_x_suffix 标记），
         -- 避免误样式化用户原文里天然的 x数字 结尾（如「666x3」）
         if d.merged_x_suffix then
@@ -875,6 +888,8 @@ function convert_danmaku_to_ass_events(force)
                 source = d.source,
                 font_size = event_fontsize,
                 merge_count = d.merge_count or 1,
+                merged_x_suffix = d.merged_x_suffix,
+                blacklist_key = blacklist_key,
             }
             table.insert(ass_events, event)
         end

@@ -818,8 +818,10 @@ mp.register_script_message("show_danmaku_keyboard", function()
 end)
 
 mp.register_script_message("auto_load_fallback", function()
-    if not fallback_triggered and options.auto_fallback_search and COMMENTS == nil then
-        fallback_triggered = true
+    -- FALLBACK_TRIGGER 在 on_unload 时重置（render.lua），保证每个文件各有一次自动兜底机会；
+    -- 此前误用未声明的 fallback_triggered，导致整个 mpv 会话只触发一次
+    if not FALLBACK_TRIGGER and options.auto_fallback_search and COMMENTS == nil then
+        FALLBACK_TRIGGER = true
         msg.info("自动加载弹幕失败，自动弹出搜索框")
         mp.commandv("script-message", "open_search_danmaku_menu")
     end

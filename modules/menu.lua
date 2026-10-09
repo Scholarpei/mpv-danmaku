@@ -181,7 +181,7 @@ function get_animes(query, filter_note)
         end
         if #matched > 0 then
             server_metas = { matched[1] }  -- 只取第一个匹配的
-            server_note = "服务器【" .. filter_note .. "】"
+            server_hint = "服务器【" .. filter_note .. "】"
         else
             show_message("未找到备注为【" .. filter_note .. "】的服务器，将使用全部服务器", 3)
             msg.info("未找到备注为【" .. filter_note .. "】的服务器，将使用全部服务器")
@@ -713,13 +713,54 @@ function open_add_menu()
 end
 
 -- 打开弹幕内容菜单
+-- uosc 菜单项索引 -> COMMENTS 原始索引的映射。
+-- 构建菜单时会过滤空文本/越界弹幕，菜单序号与数组序号错位，
+-- handler 若直接用 event.index 取 COMMENTS[event.index] 会作用到错误弹幕上
+local content_menu_map = {}
+
+-- Lua pattern 魔法字符转义：把任意文本变成只匹配自身的 pattern
+local function pattern_quote(s)
+    return (s:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1"))
+end
+
+-- 「屏蔽此文本」：把该条弹幕的黑名单基准文本（合并簇显示文本、剥引擎 xN 后缀、简繁转换前）
+-- 按整行字面匹配追加进黑名单文件并热重载，与管线黑名单过滤保持同一匹配语义
+function block_comment_text(d)
+    local path = BLACKLIST_FILE
+    if not path or path == "" then
+        show_message("未配置黑名单文件路径（blacklist_path）", 3)
+        return
+    end
+    local text = (d.blacklist_key or d.clean_text or ""):gsub("^%s*(.-)%s*$", "%1")
+    if text == "" then
+        show_message("该弹幕无有效文本", 3)
+        return
+    end
+    if is_text_blacklisted(text) then
+        show_message("该文本已在黑名单中", 3)
+        return
+    end
+    local file = io.open(path, "a")
+    if not file then
+        show_message("黑名单文件不可写：" .. path, 3)
+        return
+    end
+    file:write("^" .. pattern_quote(text) .. "$\n")
+    file:close()
+    local n = reload_blacklist()
+    show_message("已屏蔽该文本，黑名单共 " .. n .. " 条规则", 3)
+    mp.commandv("script-message-to", "uosc", "close-menu", "menu_content")
+    load_danmaku(true)
+end
+
 function open_content_menu(pos)
     local items = {}
     local time_pos = pos or mp.get_property_native("time-pos")
     local duration = mp.get_property_number("duration", 0)
 
+    content_menu_map = {}
     if COMMENTS ~= nil then
-        for _, event in ipairs(COMMENTS) do
+        for idx, event in ipairs(COMMENTS) do
             local text = event.clean_text:gsub("^m%s[mbl%s%-%d%.]+$", ""):gsub("^%s*(.-)%s*$", "%1")
             local delay = event.delay
             local start_time = event.start_time
@@ -736,14 +777,24 @@ function open_content_menu(pos)
                     adjust_label = adjust_label .. '（' .. delay_label_suffix .. '）'
                 end
 
+                -- 合并簇标注 ×N（菜单里一眼看出哪些是刷屏合并来的）
+                local merge_hint = (event.merge_count and event.merge_count > 1)
+                    and ("×" .. event.merge_count .. "  ") or ""
+                content_menu_map[#items + 1] = idx
                 table.insert(items, {
                     title = abbr_str(text, 60),
-                    hint = seconds_to_time(start_time) .. "  (" .. utf8_sub(remove_query(event.source), 1, 70) .. ")",
+                    hint = seconds_to_time(start_time) .. "  " .. merge_hint
+                        .. "(" .. utf8_sub(remove_query(event.source), 1, 70) .. ")",
                     actions = {
                         {
                             name = 'block_source',
                             icon = 'block',
                             label = '屏蔽对应弹幕源'
+                        },
+                        {
+                            name = 'block_text',
+                            icon = 'visibility_off',
+                            label = '屏蔽此文本'
                         },
                         {
                             name = 'adjust_delay',
@@ -1252,7 +1303,7 @@ function open_delay_from_time_get(source, time, status)
             if parsed ~= nil then
                 mp.commandv("script-message", "danmaku-delay", tostring(parsed), tostring(time), tostring(source))
             else
-                open_delay_from_time(time, "error")
+                open_delay_from_time(source, time, "error")
             end
         end
     })
@@ -1826,15 +1877,19 @@ mp.register_script_message('handle-danmaku-content-action', function(json)
     if not event or event.type ~= 'activate' then return end
 
     if event.action then
-        local d = COMMENTS[event.index]
-        if not d or not d.source then return end
+        local d = COMMENTS[content_menu_map[event.index]]
+        if not d then return end
 
         if event.action == "block_source" then
+            if not d.source then return end
             DANMAKU.sources[d.source]["blocked"] = true
             add_source_to_history(d.source, DANMAKU.sources[d.source])
             mp.commandv("script-message-to", "uosc", "close-menu", "menu_content")
             load_danmaku(true)
+        elseif event.action == "block_text" then
+            block_comment_text(d)
         elseif event.action == "adjust_delay" then
+            if not d.source then return end
             -- 打开以该弹幕时间为起点的延迟菜单（该延迟将作用于该时间点及之后的弹幕），仅针对该条弹幕的 source
             mp.commandv("script-message", "open_content_delay_menu", d.source, tostring(d.start_time))
         end

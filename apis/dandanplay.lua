@@ -629,7 +629,8 @@ function add_danmaku_source_online(query, from_menu)
         end
         local data = utils.parse_json(out)
         data = normalize_danmaku_response(data)
-        if not data or not data["comments"] or data["count"] <= 1 then
+        -- 按 comments 数组实际条数判定有效性（count<=1 会把只有一条弹幕的合法源也静默丢弃）
+        if not data or type(data["comments"]) ~= "table" or #data["comments"] < 1 then
             return
         end
         matched = true
