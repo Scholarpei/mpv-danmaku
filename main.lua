@@ -20,6 +20,11 @@ require("modules/update")
 
 require("apis/dandanplay")
 require('apis/extra')
+require("apis/tencent_search")
+require("apis/maccms")
+
+-- 多源聚合搜索（须在 apis 之后：运行时调用各 fetch/build 全局）
+search_hub = require("modules/search_hub")
 
 require("sites/bilibili")
 require("sites/bahamut")
@@ -68,6 +73,20 @@ PLATFORM = (function()
     end
     return "linux"
 end)()
+
+-- 弹幕磁盘缓存初始化（需在 PLATFORM 检测之后；目录放 ~~/ 下避开 update.lua 自更新清脚本目录；
+-- 建目录失败时模块内部静默禁用，功能退化为不缓存）
+danmaku_cache = require("modules/danmaku_cache")
+danmaku_cache.setup({
+    enabled = options.danmaku_cache_enabled,
+    dir = mp.command_native({ "expand-path", options.danmaku_cache_path }),
+    ttl_seconds = (tonumber(options.danmaku_cache_ttl_days) or 0) * 86400,
+    max_bytes = (tonumber(options.danmaku_cache_max_mb) or 0) * 1024 * 1024,
+    platform = PLATFORM,
+    run_sync = function(cmd) return mp.command_native(cmd) end,
+    defer = function(delay, fn) mp.add_timeout(delay, fn) end,
+    log = function(level, text) msg[level](text) end,
+})
 
 local rebuild_convert_timer = nil
 
@@ -130,16 +149,24 @@ function show_loaded(init)
     if BLACKLIST_STATS and BLACKLIST_STATS.dropped > 0 then
         blacklist_line = ("黑名单：过滤 %d 条\\N"):format(BLACKLIST_STATS.dropped)
     end
+    -- 缓存来源标注（读完即清，避免同会话后续非缓存加载误带标记；on_unload 重置 DANMAKU 为兜底）
+    local cache_tag = ""
+    if DANMAKU.cache_hit == "cache" then
+        cache_tag = "（缓存）"
+    elseif DANMAKU.cache_hit == "stale" then
+        cache_tag = "（离线缓存）"
+    end
+    DANMAKU.cache_hit = nil
     if DANMAKU.anime and DANMAKU.episode then
         show_message("匹配内容：" .. DANMAKU.anime .. "-" .. DANMAKU.episode .. "\\N" .. merge_line
             .. blacklist_line .. density_line
-            .. "弹幕加载成功，共计" .. #COMMENTS .. "条弹幕", 3)
+            .. "弹幕加载成功" .. cache_tag .. "，共计" .. #COMMENTS .. "条弹幕", 3)
         if init then
-            msg.info(DANMAKU.anime .. "-" .. DANMAKU.episode .. " 弹幕加载成功，共计" .. #COMMENTS .. "条弹幕")
+            msg.info(DANMAKU.anime .. "-" .. DANMAKU.episode .. " 弹幕加载成功" .. cache_tag .. "，共计" .. #COMMENTS .. "条弹幕")
         end
     else
         show_message(merge_line .. blacklist_line .. density_line
-            .. "弹幕加载成功，共计" .. #COMMENTS .. "条弹幕", 3)
+            .. "弹幕加载成功" .. cache_tag .. "，共计" .. #COMMENTS .. "条弹幕", 3)
     end
     mp.set_property_native(DANMAKU_COUNT, #COMMENTS)
 end
@@ -438,6 +465,9 @@ function add_source_to_history(add_url, add_source)
     local record = history[path]["sources"][add_url]
     record.from = add_source.from or "user_custom"
     record.blocked = add_source.blocked or false
+    if add_source.provider ~= nil then
+        record.provider = add_source.provider
+    end
 
    local delay_segments = shallow_copy(add_source.delay_segments or {})
     if #delay_segments > 0 then
@@ -493,6 +523,7 @@ function read_danmaku_source_record(path)
                 blocked = blocked,
                 delay_segments = delay_segments,
                 from_history = true,
+                provider = data.provider,
             }
         end
     else
@@ -679,8 +710,16 @@ function auto_load_danmaku(path, dir, filename, number)
                 show_message("自动加载上次匹配的弹幕", 3)
                 msg.verbose("自动加载上次匹配的弹幕")
                 local episodenum = history_extra.episodenum + x
-                get_details(history_extra.class, history_extra.id, history_extra.site,
-                    history_extra.title, history_extra.year, history_extra.number, episodenum)
+                -- extra 记录按 kind 分发：旧记录无 kind 等价 360kan（向后兼容）
+                local kind = history_extra.kind or "360kan"
+                if kind == "qq" then
+                    resume_tencent_episode(history_extra, episodenum)
+                elseif kind == "maccms" then
+                    resume_maccms_episode(history_extra, episodenum)
+                else
+                    get_details(history_extra.class, history_extra.id, history_extra.site,
+                        history_extra.title, history_extra.year, history_extra.number, episodenum)
+                end
             else
                 -- 记录无 episodeId/extra（如仅B站文件夹记忆）→ 走哈希匹配
                 get_danmaku_with_hash(filename, path)
@@ -837,6 +876,14 @@ mp.register_script_message("clear-bilibili-record", function()
         show_message("已清除本文件夹的B站弹幕记忆", 3)
     else
         show_message("本文件夹无B站弹幕记忆", 3)
+    end
+end)
+mp.register_script_message("clear-danmaku-cache", function()
+    local n = danmaku_cache.clear()
+    if n > 0 then
+        show_message(string.format("已清空弹幕缓存（%d 项）", n), 3)
+    else
+        show_message("弹幕缓存为空或未启用", 3)
     end
 end)
 mp.register_script_message("immediately_save_danmaku", save_danmaku)

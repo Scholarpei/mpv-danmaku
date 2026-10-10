@@ -9,6 +9,10 @@ options = {
     -- 指定 b 站和爱腾优的弹幕获取的兜底服务器地址，主要用于获取非动画弹幕
     -- 可用： https://dmku.hls.one
     fallback_server = "https://dmku.hls.one",
+    -- 可选：MacCMS（苹果CMS）采集站根地址，供搜索后缀 |mac 搜索采集站收录内容，多个用逗号分隔
+    -- 仅填站点根地址，脚本自动请求 {根地址}/api.php/provide/vod/ 标准采集接口；支持 '|' 或 '#' 追加备注
+    -- 采集站地址可在资源站导航/站点首页找到（形如 https://caiji.example.com），需自备可访问的站点
+    maccms_servers = "",
     -- 设置 tmdb 的 API Key，用于获取非动画条目的中文信息(当搜索内容非中文时)
     -- 可以在 https://www.themoviedb.org 注册后去个人账号设置界面获取
     -- 注意：自定义此参数时还需要对获取到的 API Key 进行 base64 编码
@@ -125,6 +129,15 @@ options = {
     excluded_path = [[
         []
     ]],
+    -- 弹幕磁盘缓存：按 episodeId/cid 缓存网络拉取的弹幕。TTL 内二刷直接读盘（不发包），
+    -- 网络失败时回退使用过期缓存（断网可看）。空弹幕不缓存；缓存目录创建/写入失败时静默退化为不缓存
+    danmaku_cache_enabled = true,
+    -- 缓存目录，支持绝对路径和相对路径（~~/ 为 mpv 配置目录），不存在时自动创建
+    danmaku_cache_path = "~~/danmaku-cache",
+    -- 缓存有效期（天），0 表示永不过期。过期后播放正常走网络刷新，刷新失败仍可用旧缓存兜底
+    danmaku_cache_ttl_days = 7,
+    -- 缓存目录容量上限（MB），超出按最旧优先淘汰；0 表示不限制
+    danmaku_cache_max_mb = 300,
 }
 
 opt.read_options(options, mp.get_script_name(), function() end)

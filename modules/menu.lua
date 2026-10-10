@@ -47,242 +47,30 @@ local function perform_cancel_active_request(expected_type)
     end
 end
 
-local function make_build_args(encoded_query)
-    return function(server)
-        local url = server .. "/api/v2/search/anime"
-        local full_url = url .. "?keyword=" .. encoded_query
-        return make_danmaku_request_args("GET", full_url)
-    end
-end
-
-local function make_handle_response(ctx)
-    return function(server, err, out)
-        if request_cancelled then
-            ctx.remaining.n = math.max(0, ctx.remaining.n - 1)
-            return
-        end
-
-        local function do_final_update()
-            local final_items = {}
-            -- 按配置的 server 顺序拼接每个 server 的结果
-            for _, srv in ipairs(ctx.server_order or {}) do
-                local list = ctx.server_items and ctx.server_items[srv]
-                if list and type(list) == 'table' then
-                    for _, v in ipairs(list) do table.insert(final_items, v) end
-                end
-            end
-            if request_cancelled then return end
-            if uosc_available then
-                latest_menu_anime = update_menu_uosc(ctx.menu_type, ctx.menu_title, final_items, ctx.footnote, ctx.menu_cmd, ctx.query)
-            else
-                latest_menu_anime = utils.format_json(final_items)
-                if input_loaded then
-                    input.terminate()
-                    mp.add_timeout(0.1, function()
-                        open_menu_select(final_items)
-                    end)
-                end
-            end
-        end
-
-        if err then
-            msg.debug(("search anime failed for %s: %s"):format(server, tostring(err)))
-            ctx.remaining.n = math.max(0, ctx.remaining.n - 1)
-            if ctx.remaining.n == 0 then pcall(do_final_update) end
-            return
-        end
-        local data = utils.parse_json(out)
-        if not data or not data.animes then
-            ctx.remaining.n = math.max(0, ctx.remaining.n - 1)
-            if ctx.remaining.n == 0 then pcall(do_final_update) end
-            return
-        end
-        for _, anime in ipairs(data.animes) do
-            local key = anime.bangumiId or (anime.animeTitle and anime.animeTitle:gsub("%s+", " ") or nil)
-            if key and not ctx.seen[key] then
-                ctx.seen[key] = true
-                ctx.server_items[server] = ctx.server_items[server] or {}
-                local note = (ctx.server_notes and ctx.server_notes[server]) or nil
-                local hint = anime.typeDescription
-                if note and note ~= "" then
-                    if hint and hint ~= "" then
-                        hint = hint .. "|" .. note
-                    else
-                        hint = note
-                    end
-                end
-                table.insert(ctx.server_items[server], {
-                    title = anime.animeTitle,
-                    hint = hint,
-                    value = { "script-message-to", mp.get_script_name(), "search-episodes-event", anime.animeTitle, anime.bangumiId, server },
-                })
-                ctx.total_count = (ctx.total_count or 0) + 1
-            end
-        end
-        local display_items = {}
-        if ctx.remaining.n > 0 then
-            local progress_msg = ctx.message or ""
-            if ctx.total_servers and ctx.total_servers > 1 and ctx.remaining and ctx.remaining.n then
-                local completed = math.max(0, (ctx.total_servers - ctx.remaining.n) + 1)
-                progress_msg = tostring(progress_msg):gsub("%.+$", "")
-                progress_msg = progress_msg .. string.format("（%d/%d）...", completed, ctx.total_servers)
-            end
-            table.insert(display_items, {
-                title = progress_msg,
-                value = "",
-                italic = true,
-                keep_open = true,
-                selectable = false,
-                icon = "spinner",
-            })
-        end
-        -- 按 server_order 拼接当前已收到的结果
-        for _, srv in ipairs(ctx.server_order or {}) do
-            local list = ctx.server_items and ctx.server_items[srv]
-            if list and type(list) == 'table' then
-                for _, v in ipairs(list) do table.insert(display_items, v) end
-            end
-        end
-
-        if uosc_available then
-            latest_menu_anime = update_menu_uosc(ctx.menu_type, ctx.menu_title, display_items, ctx.footnote, ctx.menu_cmd, ctx.query,
-                { "script-message-to", mp.get_script_name(), "cancel-active-request", ctx.menu_type })
-        else
-            if not ctx.first_opened.val and input_loaded and (ctx.total_count or 0) > 0 then
-                ctx.first_opened.val = true
-                show_message("", 0)
-                input.terminate()
-                mp.add_timeout(0.1, function()
-                    latest_menu_anime = utils.format_json(display_items)
-                    open_menu_select(display_items)
-                end)
-            end
-        end
-
-        ctx.remaining.n = math.max(0, ctx.remaining.n - 1)
-        if ctx.remaining.n == 0 then
-            pcall(do_final_update)
-        end
-    end
-end
-
--- 打开番剧数据匹配菜单
-function get_animes(query, filter_note)
-    local encoded_query = url_encode(query)
-    local all_metas = get_api_server_list(options.api_server, true)
-    local server_hint = ""
-    local server_metas = {}
-    if filter_note and filter_note ~= "" then
-        local matched = {}
-        for _, m in ipairs(all_metas) do
-            if m.note and m.note == filter_note then
-                table.insert(matched, m)
-            end
-        end
-        if #matched > 0 then
-            server_metas = { matched[1] }  -- 只取第一个匹配的
-            server_hint = "服务器【" .. filter_note .. "】"
-        else
-            show_message("未找到备注为【" .. filter_note .. "】的服务器，将使用全部服务器", 3)
-            msg.info("未找到备注为【" .. filter_note .. "】的服务器，将使用全部服务器")
-            server_metas = all_metas
-        end
-    else
-        server_metas = all_metas
-    end
-
-    local servers = {}
-    local server_notes = {}
-    for _, m in ipairs(server_metas) do
-        table.insert(servers, m.url)
-        if m.note and m.note ~= '' then
-            server_notes[m.url] = m.note
-        end
-    end
-
-    local items = {}
-    local seen = {}
-    local first_opened = false
-    local remaining = #servers
-    local total_servers = remaining
-    local server_items = {}
-    local server_order = servers
-    local total_count = 0
-    request_cancelled = false
-
-    local message = server_hint .. "加载数据中..."
-    local menu_type = "menu_anime"
-    local menu_title = "在此处输入番剧名称"
-    local footnote = "使用enter或ctrl+enter进行搜索"
-    local menu_cmd = { "script-message-to", mp.get_script_name(), "search-anime-event" }
-
-    local function strip_trailing_dots(s)
-        if not s then return "" end
-        return tostring(s):gsub("%.+$", "")
-    end
-
-    local initial_message = message
-    if total_servers and total_servers > 1 then
-        initial_message = strip_trailing_dots(message) .. string.format("（%d/%d）...", 0, total_servers)
-    end
-    if uosc_available then
-        active_request_type = menu_type
-        update_menu_uosc(menu_type, menu_title, initial_message, footnote, menu_cmd, query, "spinner",
-            { "script-message-to", mp.get_script_name(), "cancel-active-request", menu_type })
-    else
-        show_message(initial_message, 30)
-    end
-
-    msg.verbose("尝试获取番剧数据，servers: " .. table.concat(servers, ", ") .. " query: " .. query)
-
-    local build_args = make_build_args(encoded_query)
-
-    -- 构造 ctx，用于 handle_response 闭包访问和修改共享状态
-    local ctx = {
-        items = items,
-        seen = seen,
-        first_opened = { val = first_opened },
-        remaining = { n = remaining },
-        message = message,
-        total_servers = total_servers,
-        menu_type = menu_type,
-        menu_title = menu_title,
-        footnote = footnote,
-        menu_cmd = menu_cmd,
-        query = query,
-        server_items = server_items,
-        server_order = server_order,
-        server_notes = server_notes,
-        total_count = total_count,
-    }
-
-    local handle_response = make_handle_response(ctx)
-
-    local cancel_fn = parallel_requests(servers, build_args, handle_response, function()
-        if request_cancelled then return end
-        local final_items = {}
-        for _, srv in ipairs(ctx.server_order or {}) do
-            local list = ctx.server_items and ctx.server_items[srv]
-            if list and type(list) == 'table' then
-                for _, v in ipairs(list) do table.insert(final_items, v) end
-            end
-        end
-        if uosc_available then
-            latest_menu_anime = update_menu_uosc(ctx.menu_type, ctx.menu_title, final_items, ctx.footnote, ctx.menu_cmd, ctx.query)
-        else
-            latest_menu_anime = utils.format_json(final_items)
-            if not ctx.first_opened.val and input_loaded and #final_items > 0 then
-                ctx.first_opened.val = true
-                show_message("", 0)
-                input.terminate()
-                mp.add_timeout(0.1, function()
-                    open_menu_select(final_items)
-                end)
-            end
-        end
-    end, { concurrency = 5, per_request_timeout = 60 })
+-- 供聚合搜索 hub（modules/search_hub.lua）注册/清理当前请求的取消函数
+-- （active_request_* 为本文件局部变量，hub 无法直接赋值）
+function set_active_request(cancel_fn, menu_type)
     active_request_cancel = cancel_fn
     active_request_type = menu_type
+    request_cancelled = false
+end
+
+-- dandanplay 搜索结果条目（聚合搜索 hub 与剧集菜单共用同一形状；
+-- 旧 get_animes 扇出已删除，纯关键词搜索统一走 modules/search_hub.lua）
+function build_dandanplay_menu_item(anime, server, note)
+    local hint = anime.typeDescription
+    if note and note ~= "" then
+        if hint and hint ~= "" then
+            hint = hint .. "|" .. note
+        else
+            hint = note
+        end
+    end
+    return {
+        title = anime.animeTitle,
+        hint = hint,
+        value = { "script-message-to", mp.get_script_name(), "search-episodes-event", anime.animeTitle, anime.bangumiId, server },
+    }
 end
 
 function get_episodes(animeTitle, bangumiId, api_server)
@@ -378,7 +166,10 @@ function get_episodes(animeTitle, bangumiId, api_server)
             local menu_table = utils.parse_json(latest_menu_anime)
             if menu_table and type(menu_table.items) == "table" then
                 for i, back_item in ipairs(menu_table.items) do
+                    -- 仅匹配 dandanplay 条目：聚合菜单里其它源的 value[5]/value[6]
+                    -- （如 maccms 的 server/vod_id）可能与 bangumiId/api_server 撞值
                     if type(back_item.value) == "table" and
+                    back_item.value[3] == "search-episodes-event" and
                     back_item.value[5] == bangumiId and back_item.value[6] == api_server then
                         menu_table.items[i].footnote = mp.get_property("filename")
                         menu_table.items[i].items = { unpack(items, 2) }
@@ -506,7 +297,7 @@ function open_input_menu_uosc()
     end
 
     items[#items + 1] = {
-        hint = "  追加|ds或|dy或|dm可搜索电视剧|电影|国漫",
+        hint = "  直接搜索聚合全部来源；|tx只搜腾讯，|mac只搜采集站，|ds|dy|dm搜剧/影/漫，@备注指定弹幕服务器",
         keep_open = true,
         selectable = false,
     }
@@ -561,14 +352,14 @@ function open_add_menu_get()
                 else
                     serial = serial + 1
                     local action1 = source.blocked and "unblock" or "block"
-                    local text1 = string.format("  [%02d] %s [来源：用户添加]%s  ", serial, url, source.blocked and " (已屏蔽)" or "（未屏蔽）")
+                    local text1 = string.format("  [%02d] %s [来源：%s]%s  ", serial, url, source.provider or "用户添加", source.blocked and " (已屏蔽)" or "（未屏蔽）")
                     local style1 = (tonumber(select_num) == serial) and "{\\c&HFFDE7F&\\b1}" or (action1 == "unblock" and "{\\c&H4C4CC3&\\b0}" or "{\\c&HCCCCCC&\\b0}")
                     deal_value[serial] = {value = url, action = action1}
                     table.insert(menu_log, {text = text1, style = style1})
 
                     serial = serial + 1
                     local action2 = "delete"
-                    local text2 = string.format("  [%02d] %s [来源：用户添加] (删除)  ", serial, url)
+                    local text2 = string.format("  [%02d] %s [来源：%s] (删除)  ", serial, url, source.provider or "用户添加")
                     local style2 = (tonumber(select_num) == serial) and "{\\c&HFFDE7F&\\b1}" or "{\\c&HCCCCCC&\\b0}"
                     deal_value[serial] = {value = url, action = action2}
                     table.insert(menu_log, {text = text2, style = style2})
@@ -671,7 +462,7 @@ function open_add_menu_uosc()
                     item.actions = {{icon = "not_interested", name = "block", label = "屏蔽" .. count_text},}
                 end
             else
-                item.hint = "来源：用户添加"
+                item.hint = "来源：" .. (source.provider or "用户添加")
                 if source.blocked then
                     item.actions = {
                         {icon = "check", name = "unblock", label = "解除屏蔽" .. count_text},
@@ -780,11 +571,14 @@ function open_content_menu(pos)
                 -- 合并簇标注 ×N（菜单里一眼看出哪些是刷屏合并来的）
                 local merge_hint = (event.merge_count and event.merge_count > 1)
                     and ("×" .. event.merge_count .. "  ") or ""
+                -- 源提供方标注（有记录时前缀在 URL 前，如「腾讯视频｜v.qq.com/...」）
+                local src_meta = DANMAKU.sources[event.source]
+                local prov_prefix = (src_meta and src_meta.provider) and (src_meta.provider .. "｜") or ""
                 content_menu_map[#items + 1] = idx
                 table.insert(items, {
                     title = abbr_str(text, 60),
                     hint = seconds_to_time(start_time) .. "  " .. merge_hint
-                        .. "(" .. utf8_sub(remove_query(event.source), 1, 70) .. ")",
+                        .. "(" .. prov_prefix .. utf8_sub(remove_query(event.source), 1, 70) .. ")",
                     actions = {
                         {
                             name = 'block_source',
@@ -1525,6 +1319,7 @@ local total_menu_items_config = {
     { title = "弹幕样式", action = "open_danmaku_style_menu" },
     { title = "弹幕过滤", action = "open_filter_danmaku_menu" },
     { title = "弹幕内容", action = "open_content_danmaku_menu" },
+    { title = "清空弹幕缓存", action = "clear-danmaku-cache" },
 }
 
 function open_add_total_menu_uosc()
@@ -1692,7 +1487,14 @@ mp.register_script_message("search-anime-event", function(query)
     end
     local name, class = query:match("^(.-)%s*|%s*(.-)%s*$")
     if name and class then
-        query_extra(name, class)
+        class = class:lower()
+        if class == "tx" then
+            query_tencent_search(name)
+        elseif class == "mac" then
+            query_maccms_search(name)
+        else
+            query_extra(name, class)
+        end
         return
     end
     local filter_note = nil
@@ -1703,7 +1505,8 @@ mp.register_script_message("search-anime-event", function(query)
         filter_note = query:sub(at_pos+1):gsub("^%s*(.-)%s*$", "%1")
         if filter_note == "" then filter_note = nil end
     end
-    get_animes(search_name, filter_note)
+    -- 纯关键词 → 多源聚合搜索（modules/search_hub.lua）
+    search_hub.multi_source_search(search_name, filter_note)
 end)
 
 mp.register_script_message("search-episodes-event", function(animeTitle, bangumiId, api_server)
@@ -1727,7 +1530,7 @@ mp.register_script_message("add-source-event", function(query)
         mp.commandv("script-message-to", "uosc", "close-menu", "menu_source")
     end
     ENABLED = true
-    add_danmaku_source(query, true)
+    add_danmaku_source(query, true, provider_label_from_url(query))
 end)
 
 mp.register_script_message("open_danmaku_style_menu", function()

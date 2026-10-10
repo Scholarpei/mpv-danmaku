@@ -1,5 +1,6 @@
 local msg = require('mp.msg')
 local utils = require("mp.utils")
+local dcache = require("modules/danmaku_cache")
 
 local function extract_url(url)
     local path = url:match("^https?://[^/]+(/[^%?]*)")
@@ -69,7 +70,7 @@ function get_danmaku_fallback(query)
                 if DANMAKU.sources[query] ~= nil then
                     DANMAKU.sources[query]["data"] = data["xml"]
                 else
-                    DANMAKU.sources[query] = {from = "user_custom", data = data["xml"]}
+                    DANMAKU.sources[query] = {from = "user_custom", provider = "兜底服务器", data = data["xml"]}
                 end
                 load_danmaku(true)
                 return
@@ -82,6 +83,9 @@ function get_danmaku_fallback(query)
             end
 
             save_danmaku_data(data["comments"], query, "user_custom")
+            if DANMAKU.sources[query] and DANMAKU.sources[query].provider == nil then
+                DANMAKU.sources[query].provider = "兜底服务器"
+            end
             load_danmaku(true)
         end)
     end
@@ -216,7 +220,16 @@ local function normalize_danmaku_response(d)
             local p = string.format("%.2f,%d,%d", time, mode, colorDec)
             table.insert(out, { p = p, m = content })
         end
-        return { comments = out, count = tonumber(d.danum) or #out }
+        -- danum 为声明总数，个别服务会在数组开头多吐冗余项，取末尾 danum 条对齐（danmaku-anywhere 同款处理）
+        local danum = tonumber(d.danum)
+        if danum and danum > 0 and danum < #out then
+            local trimmed = {}
+            for i = #out - danum + 1, #out do
+                trimmed[#trimmed + 1] = out[i]
+            end
+            out = trimmed
+        end
+        return { comments = out, count = danum or #out }
     end
 
     return d
@@ -425,11 +438,13 @@ local function match_file(file_path, file_name, callback)
 end
 
 -- 异步获取弹幕数据
-function fetch_danmaku_data(args, callback)
+-- on_error 为可选的第三参：网络失败钩子（弹幕主路径用来做过期缓存兜底），既有调用方不传行为不变
+function fetch_danmaku_data(args, callback, on_error)
     call_cmd_async(args, function(error, json)
         if error then
             show_message("获取数据失败", 3)
             msg.error("HTTP 请求失败：" .. error)
+            if on_error then on_error() end
             return
         end
         local data = utils.parse_json(json)
@@ -516,19 +531,56 @@ end
 
 -- 匹配弹幕库 comment, 仅匹配dandan本身弹幕库
 -- 通过danmaku api（url）+id获取弹幕
+-- 优先读磁盘缓存（TTL 内不发网络包）；网络失败回退过期缓存（断网可看）；成功且非空写缓存
 function fetch_danmaku(episodeId, from_menu, api_server)
     local url = api_server .. "/api/v2/comment/" .. episodeId .. "?withRelated=true&chConvert=0"
-    show_message("弹幕加载中...", 30)
-    msg.verbose("尝试获取弹幕：" .. url)
     local args = make_danmaku_request_args("GET", url)
 
     if args == nil then
         return
     end
 
+    local key = "ep:" .. episodeId
+
+    -- 1) TTL 内命中缓存：不发网络，走与网络完全相同的下游路径（sources key 仍为 comment URL）
+    local hit = dcache.get(key)
+    if hit then
+        local data = utils.parse_json(hit.payload)
+        if data and type(data.comments) == "table" and #data.comments > 0 then
+            DANMAKU.cache_hit = "cache"
+            msg.verbose("弹幕缓存命中：" .. key)
+            handle_fetched_danmaku(data, url, from_menu)
+            return
+        end
+        dcache.remove(key)
+    end
+
+    show_message("弹幕加载中...", 30)
+    msg.verbose("尝试获取弹幕：" .. url)
+
+    -- 2) 网络失败 → 过期缓存兜底（断网可看）
+    local function on_error()
+        local stale = dcache.get_stale(key)
+        if stale then
+            local data = utils.parse_json(stale.payload)
+            if data and type(data.comments) == "table" and #data.comments > 0 then
+                DANMAKU.cache_hit = "stale"
+                show_message("网络失败，已使用过期弹幕缓存", 3)
+                handle_fetched_danmaku(data, url, from_menu)
+            end
+        end
+    end
+
+    -- 3) 网络成功：非空结果写缓存后走原路径（count==0 不缓存；载荷为归一化后的 comments）
     fetch_danmaku_data(args, function(data)
+        if data and data["comments"] and (data["count"] or 0) > 0 then
+            dcache.put(key, utils.format_json({
+                count = data["count"],
+                comments = data["comments"],
+            }), { type = "json", count = data["count"] })
+        end
         handle_fetched_danmaku(data, url, from_menu)
-    end)
+    end, on_error)
 end
 
 -- 从用户添加过的弹幕源添加弹幕
@@ -548,9 +600,13 @@ function addon_danmaku(dir, from_menu)
 end
 
 --通过输入源url获取弹幕库
-function add_danmaku_source(query, from_menu)
+--provider: 源提供方显示名（腾讯视频/maccms·某站/bilibili 等），仅用于菜单标注，不参与取数逻辑
+function add_danmaku_source(query, from_menu, provider)
     if DANMAKU.sources[query] == nil then
-        DANMAKU.sources[query] = {from = "user_custom"}
+        DANMAKU.sources[query] = {from = "user_custom", provider = provider}
+    elseif provider ~= nil and DANMAKU.sources[query].provider == nil then
+        -- 历史遗留源补标：只补不覆盖（重放/续载时不带 provider 也不丢已有标注）
+        DANMAKU.sources[query].provider = provider
     end
 
     from_menu = from_menu or false
@@ -583,9 +639,12 @@ function add_danmaku_source_local(query, from_menu)
 
     if DANMAKU.sources[query] ~= nil then
         DANMAKU.sources[query]["from"] = "user_local"
+        if DANMAKU.sources[query].provider == nil then
+            DANMAKU.sources[query].provider = "本地文件"
+        end
         DANMAKU.sources[query]["data"] = parse_danmaku_file(path)
     else
-        DANMAKU.sources[query] = {from = "user_local", data = parse_danmaku_file(path)}
+        DANMAKU.sources[query] = {from = "user_local", provider = "本地文件", data = parse_danmaku_file(path)}
     end
 
     set_danmaku_button()

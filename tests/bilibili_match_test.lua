@@ -43,6 +43,26 @@ for i = 1, 14 do
     S3ONLY[#S3ONLY + 1] = { page = i, part = tostring(i), duration = 1435 }
 end
 
+-- 合并2季投稿 20 P：裸序号 "1".."19"（S3 11集 + S4夺还篇 8集）+ p20 MAD
+-- （照抄真实 BV1wT8J6NEFS：分P按合集内序号编号，本地文件夹用全局集数
+--   78..85，第二集 79 ↔ p13，两套编号体系差常量偏移 66）
+local MERGED = {}
+do
+    local real_dur = { 2344, 2752, 2431, 2432, 2612, 1732, 2432, 3072 } -- p12..p19 真实时长
+    for i = 1, 19 do
+        MERGED[#MERGED + 1] = { page = i, part = tostring(i),
+            duration = i >= 12 and real_dur[i - 11] or 2012 }
+    end
+    MERGED[#MERGED + 1] = { page = 20, part = "av2138【萌】『MAD』双子星公主 X 草莓棉花糖", duration = 234 }
+    assert(#MERGED == 20)
+end
+
+-- MERGED 去掉 p14（页号保持 1..13, 15..20），用于仲裁回退用例
+local MERGED_GAP = {}
+for _, p in ipairs(MERGED) do
+    if p.page ~= 14 then MERGED_GAP[#MERGED_GAP + 1] = p end
+end
+
 local function match(parts, o)
     o = o or {}
     o.parts = parts
@@ -209,6 +229,116 @@ end
 do
     local m = match(FRANCHISE, { episode = nil, anchor_page = 58, anchor_episode = 9 })
     check("match episode为nil → nil", m == nil)
+end
+
+-- ---------- 锚点相对编号校准（合并多季合集）----------
+-- 合并季合集的分P常按合集内序号编号（"1".."19"），本地文件名用全局集数
+-- （"78".."85"），两套体系差常量偏移；锚点 (page, episode) 是对齐基准
+
+-- 14. 用户实例：ep80（本地全局集数），锚 {13,79}，时长 2431 → delta p14
+do
+    local m = match(MERGED, { episode = 80, anchor_page = 13, anchor_episode = 79, duration = 2431 })
+    check("match 合并季全局编号 ep80 → p14", m and m.page == 14 and m.via == "delta")
+end
+
+-- 14b. 同集重放：ep79，锚 {13,79} → delta p13（旧守卫 pe 13≠79 同样误杀重放）
+do
+    local m = match(MERGED, { episode = 79, anchor_page = 13, anchor_episode = 79, duration = 2752 })
+    check("match 合并季全局编号 重放ep79 → p13", m and m.page == 13 and m.via == "delta")
+end
+
+-- 14c. 回退一集：ep78 → p12
+do
+    local m = match(MERGED, { episode = 78, anchor_page = 13, anchor_episode = 79, duration = 2344 })
+    check("match 合并季全局编号 ep78 → p12", m and m.page == 12)
+end
+
+-- 14d. 季末：ep85（夺还篇最后一集）→ p19
+do
+    local m = match(MERGED, { episode = 85, anchor_page = 13, anchor_episode = 79, duration = 3072 })
+    check("match 合并季全局编号 ep85 → p19", m and m.page == 19)
+end
+
+-- 14e. 越界：ep86 → delta 落点 p20 是 MAD，时长门拦截 → nil
+do
+    local m = match(MERGED, { episode = 86, anchor_page = 13, anchor_episode = 79, duration = 3072 })
+    check("match 合并季全局编号 ep86 MAD拦截 → nil", m == nil)
+end
+
+-- 15. 锚点滚动链：上一集匹配成功后锚点回写为 {14,80}，再切 ep81 → p15
+do
+    local m = match(MERGED, { episode = 81, anchor_page = 14, anchor_episode = 80, duration = 2432 })
+    check("match 合并季 锚点滚动 ep81 → p15", m and m.page == 15)
+end
+
+-- 16. 缺集保护：合集缺第3集（标题 1,2,4,5），锚 {1,1}，ep3 → 落点 pe=4 ≠ expected 3 → nil
+do
+    local parts = {
+        { page = 1, part = "1", duration = 1435 },
+        { page = 2, part = "2", duration = 1435 },
+        { page = 3, part = "4", duration = 1435 },
+        { page = 4, part = "5", duration = 1435 },
+    }
+    local m = match(parts, { episode = 3, anchor_page = 1, anchor_episode = 1 })
+    check("match 缺集 编号矛盾拒绝 → nil", m == nil)
+end
+
+-- 17. pe0 未知保守分支：锚点分P标题不可解析（"上集"），退回与本地集数直接比较
+do
+    local parts = {
+        { page = 1, part = "上集", duration = 1435 },
+        { page = 2, part = "5", duration = 1435 },
+        { page = 3, part = "6", duration = 1435 },
+    }
+    local m = match(parts, { episode = 2, anchor_page = 1, anchor_episode = 1 })
+    check("match pe0未知 保守拒绝 → nil", m == nil)
+end
+
+-- 18. 单候选数字巧合仲裁：合并季合集两季时长接近（标准集 ~24min），本地按季内
+--     编号（"02"），唯一标题候选 p2（"2"）是 S3 第2集的巧合命中 → 仲裁取 delta p14
+do
+    local parts = {}
+    for i = 1, 19 do
+        parts[#parts + 1] = { page = i, part = tostring(i), duration = 1435 }
+    end
+    local m = match(parts, { episode = 2, anchor_page = 13, anchor_episode = 1 })
+    check("match 合并季 季内编号 巧合候选仲裁 → p14", m and m.page == 14 and m.via == "delta")
+end
+
+-- 19. 偏移为 0（pe0 == 锚点集数）时单候选不受仲裁影响 → 仍走 title
+do
+    local m = match(S3ONLY, { episode = 9, anchor_page = 9, anchor_episode = 9 })
+    check("match 偏移0 单候选不仲裁 → p9 title", m and m.page == 9 and m.via == "title")
+end
+
+-- 20. 带季标题 + 全局本地编号：【S3】01..11 + 【S4】01..08，锚 {13,79}（pe0=2）→ p14
+do
+    local parts = {}
+    for i = 1, 11 do
+        parts[#parts + 1] = { page = i, part = string.format("【S3】%02d", i), duration = 2012 }
+    end
+    for i = 1, 8 do
+        parts[#parts + 1] = { page = 11 + i, part = string.format("【S4】%02d", i), duration = 2431 }
+    end
+    local m = match(parts, { episode = 80, anchor_page = 13, anchor_episode = 79, duration = 2431 })
+    check("match 带季标题+全局编号 ep80 → p14", m and m.page == 14)
+end
+
+-- 21. 反向偏移：合集全局标题（第67话..第85话，p13=第79话）+ 本地季内编号，
+--     锚 {13,2}（pe0=79），ep3 → delta p14（第80话）
+do
+    local parts = {}
+    for i = 67, 85 do
+        parts[#parts + 1] = { page = i - 66, part = string.format("第%d话", i), duration = 2431 }
+    end
+    local m = match(parts, { episode = 3, anchor_page = 13, anchor_episode = 2, duration = 2431 })
+    check("match 合集全局标题+季内编号 ep3 → p14", m and m.page == 14)
+end
+
+-- 22. 仲裁回退：delta 落点缺失（MERGED 去掉 p14）→ 仍收标题候选 p2
+do
+    local m = match(MERGED_GAP, { episode = 2, anchor_page = 13, anchor_episode = 1, duration = 2012 })
+    check("match 仲裁delta落点缺失回退 → p2 title", m and m.page == 2 and m.via == "title")
 end
 
 print(failures == 0 and "ALL PASS" or (failures .. " FAILED"))

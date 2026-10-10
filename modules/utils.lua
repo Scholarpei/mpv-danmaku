@@ -356,6 +356,24 @@ function remove_query(url)
     end
 end
 
+-- 从源 URL 推断弹幕提供方显示名（源管理/内容菜单标注用；无法识别返回 nil）
+function provider_label_from_url(url)
+    if type(url) ~= "string" then return nil end
+    local host_map = {
+        ["bilibili.com"] = "bilibili",
+        ["bilivideo.c"] = "bilibili",
+        ["v.qq.com"] = "腾讯视频",
+        ["iqiyi.com"] = "爱奇艺",
+        ["v.youku.com"] = "优酷",
+        ["mgtv.com"] = "芒果TV",
+        ["bahamut.akamaized.net"] = "巴哈姆特",
+    }
+    for host, label in pairs(host_map) do
+        if url:find(host, 1, true) then return label end
+    end
+    return nil
+end
+
 function file_exists(path)
     if path then
         local meta = utils.file_info(path)
@@ -831,6 +849,38 @@ function call_cmd_async(args, callback)
 
     return function()
         mp.abort_async_command(abort_signal)
+    end
+end
+
+-- 带超时的异步命令：到点未归按失败回调一次并中止请求；
+-- 返回的取消函数同时杀定时器与请求（回调只触发一次）
+function call_cmd_async_with_timeout(args, timeout, callback)
+    local fired = false
+    local timer = nil
+    local abort_req = nil
+
+    local function fire(err, out)
+        if fired then return end
+        fired = true
+        if timer then timer:kill(); timer = nil end
+        callback(err, out)
+    end
+
+    abort_req = call_cmd_async(args, function(err, out)
+        fire(err, out)
+    end)
+
+    if timeout and timeout > 0 then
+        timer = mp.add_timeout(timeout, function()
+            timer = nil
+            if abort_req then pcall(abort_req) end
+            fire("timeout", nil)
+        end)
+    end
+
+    return function()
+        if timer then timer:kill(); timer = nil end
+        if abort_req then pcall(abort_req) end
     end
 end
 

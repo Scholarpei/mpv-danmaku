@@ -6,6 +6,7 @@
 -- 输出：{page=, part=, via="title"|"duration"|"delta"} 或 nil（真歧义/无候选）
 --
 -- 匹配优先级：标题精确匹配（季+集打分）> 时长校验裁决 > 锚点 p+集数差 仲裁
+-- 编号一致性按锚点相对偏移校验：合并多季合集的分P编号体系可与本地集数差常量偏移
 -- 本地文件名普遍解析不出季数（如 "Title S3 - 09"），锚点是可靠性的兜底主力
 
 local M = {}
@@ -82,6 +83,18 @@ function M.match_bilibili_part(opts)
         if part.page ~= nil then by_page[part.page] = part end
     end
 
+    -- 锚点分P的标题编号 pe0：合并多季合集里分P编号体系与本地集数体系可差一个
+    -- 常量偏移（p13 标题 "13" ↔ 本地第79集），pe0 是推算该偏移的基准。
+    -- 锚点页不在列表或标题不可解析时为 nil，各处退回保守行为
+    local anchor_pe = nil
+    if anchor_page ~= nil then
+        local ap = by_page[anchor_page]
+        if ap ~= nil then
+            local _, pe0 = M.parse_part_title(ap.part or "")
+            anchor_pe = pe0
+        end
+    end
+
     -- 锚点差值：p0 + (当前集 - 锚点集)。落点存在、集数不矛盾、非特殊篇、时长不离谱才收
     -- 时长硬门 600s：容纳 BD/WEB 等不同剪辑的时长漂移，仍拦截 MAD/PV 类短分P
     local function delta_result()
@@ -90,7 +103,13 @@ function M.match_bilibili_part(opts)
         local target = by_page[p]
         if target == nil then return nil end
         local _, pe, special = M.parse_part_title(target.part or "")
-        if pe ~= nil and pe ~= episode then return nil end
+        if pe ~= nil then
+            -- 编号一致性（锚点相对）：pe 应等于 pe0 + 集数差；pe0 未知时退回
+            -- 与本地集数直接比较（旧行为，保守）
+            local expected = anchor_pe ~= nil
+                and (anchor_pe + episode - anchor_episode) or episode
+            if pe ~= expected then return nil end
+        end
         if special then return nil end
         if duration and target.duration
             and math.abs(target.duration - duration) > 600 then return nil end
@@ -133,6 +152,13 @@ function M.match_bilibili_part(opts)
         -- 唯一候选但时长严重矛盾（且非锚点重放）→ 交给锚点差值兜底判定
         if c.dd ~= nil and c.dd > 300 and c.page ~= anchor_page then
             return delta_result()
+        end
+        -- 锚点证明两套编号体系存在常量偏移（pe0 ≠ 锚点集数）时，唯一标题候选
+        -- 可能是另一体系的数字巧合（合并季合集里 "02" 既是 p2 也是 p14 的编号），
+        -- 优先锚点差值落点；delta 不成立（越界/特殊篇/时长门/编号不一致）仍收标题候选
+        if anchor_pe ~= nil and anchor_episode ~= nil and anchor_pe ~= anchor_episode then
+            local d = delta_result()
+            if d ~= nil and d.page ~= c.page then return d end
         end
         return { page = c.page, part = c.part, via = "title" }
     end

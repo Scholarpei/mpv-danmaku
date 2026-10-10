@@ -11,6 +11,19 @@ local Source = {
     ["优酷"] = "youku",
 }
 
+-- source_id → 弹幕源管理菜单里的提供方显示名（反查 Source；未知站点回退 360kan·id）
+local SiteLabel = {
+    bilibili1 = "bilibili",
+    qq = "腾讯视频",
+    qiyi = "爱奇艺",
+    youku = "优酷",
+    imgo = "芒果TV",
+}
+
+local function extra_site_label(site)
+    return SiteLabel[site] or ("360kan·" .. tostring(site))
+end
+
 local function load_extra_danmaku(url, episode, number, class, id, site, title, year)
     local play_url = nil
     if url:match("^.-%.html") then
@@ -32,6 +45,7 @@ local function load_extra_danmaku(url, episode, number, class, id, site, title, 
     DANMAKU.episode = "第" .. episode .. "话"
     DANMAKU.source = site
     DANMAKU.extra = {
+        kind = "360kan",
         id = id,
         site = site,
         year = year,
@@ -41,10 +55,12 @@ local function load_extra_danmaku(url, episode, number, class, id, site, title, 
         episodenum = tonumber(episode),
     }
     write_history()
-    add_danmaku_source(play_url, true)
+    add_danmaku_source(play_url, true, extra_site_label(site))
 end
 
-local function query_tmdb(title, class, menu)
+-- 导出为全局供 apis/tencent_search.lua 复用（非中文关键词换中文译名）
+-- silent: 静默模式（聚合搜索前置翻译用），失败不渲染菜单只记日志返回 nil
+function query_tmdb(title, class, menu, silent)
     local encoded_title = url_encode(title)
     local url = string.format("https://api.tmdb.org/3/search/%s?api_key=%s&query=%s&language=zh-CN",
     class, Base64.decode(options.tmdb_api_key), encoded_title)
@@ -52,6 +68,7 @@ local function query_tmdb(title, class, menu)
     local cmd = {
         "curl",
         "-s",
+        "--max-time", "8",
         "-H", "accept: application/json",
         url
     }
@@ -70,13 +87,15 @@ local function query_tmdb(title, class, menu)
 
     local data = utils.parse_json(res.stdout)
     if not res.status or res.status ~= 0 or not data.results or #data.results == 0 then
-        local message = "获取 tmdb 中文数据失败"
-        if uosc_available then
-            update_menu_uosc(menu.type, menu.title, message, menu.footnote, menu.cmd, title)
-        else
-            show_message(message, 3)
+        if not silent then
+            local message = "获取 tmdb 中文数据失败"
+            if uosc_available then
+                update_menu_uosc(menu.type, menu.title, message, menu.footnote, menu.cmd, title)
+            else
+                show_message(message, 3)
+            end
         end
-        msg.error("获取 tmdb 中文数据失败：" .. res.stdout)
+        msg.error("获取 tmdb 中文数据失败：" .. tostring(res.stdout))
     else
         if class == "tv" then
             return data.results[1].name
@@ -354,34 +373,20 @@ function get_details(class, id, site, title, year, number, episodenum)
     end
 end
 
-local function search_query(query, class, menu)
+-- 搜索 URL 构造（kw 保持原文不编码——与历史行为字节一致，同步/异步两路共享）
+local function build_360kan_search_url(query, class)
     local url = string.format("https://api.so.360kan.com/index?force_v=1&kw=%s", query)
     if class ~= nil then
         url = url .. "&type=" .. class
     end
-    local cmd = { "curl", "-s", url }
+    return url
+end
 
-    local res = mp.command_native({
-        name = "subprocess",
-        args = cmd,
-        capture_stdout = true,
-        capture_stderr = true,
-    })
-
-    if not res.status or res.status ~= 0 then
-        local message = "无结果"
-        if uosc_available then
-            update_menu_uosc(menu.type, menu.title, message, menu.footnote, menu.cmd, query)
-        else
-            show_message(message, 3)
-        end
-        msg.verbose("无结果")
-        return
-    end
-
-    local result = utils.parse_json(res.stdout)
+-- 360kan 搜索响应 → menu_anime 条目（一个条目 × 每个可用站点一行）；
+-- 副作用：缓存 seriesPlaylinks（en_id 为 key，get_details 优先复用）
+function build_360kan_items(result)
     local items = {}
-    if result and result.data.longData and result.data.longData.rows then
+    if result and result.data and result.data.longData and result.data.longData.rows then
         for _, item in ipairs(result.data.longData.rows) do
             if item.playlinks then
                 -- 如果搜索结果中包含 seriesPlaylinks，则缓存它（使用 en_id 作为 key）
@@ -414,6 +419,41 @@ local function search_query(query, class, menu)
             end
         end
     end
+    return items
+end
+
+-- 仅取数：360kan 搜索异步版（|ds 等后缀流保持同步不走此路；timeout 为 nil 时不设超时）；
+-- callback(items, err)，返回取消函数
+function fetch_360kan_search(query, class, callback, timeout)
+    return call_cmd_async_with_timeout({ "curl", "-s", build_360kan_search_url(query, class) }, timeout, function(err, out)
+        if err then
+            callback(nil, "请求失败")
+            return
+        end
+        callback(build_360kan_items(utils.parse_json(out)), nil)
+    end)
+end
+
+local function search_query(query, class, menu)
+    local res = mp.command_native({
+        name = "subprocess",
+        args = { "curl", "-s", build_360kan_search_url(query, class) },
+        capture_stdout = true,
+        capture_stderr = true,
+    })
+
+    if not res.status or res.status ~= 0 then
+        local message = "无结果"
+        if uosc_available then
+            update_menu_uosc(menu.type, menu.title, message, menu.footnote, menu.cmd, query)
+        else
+            show_message(message, 3)
+        end
+        msg.verbose("无结果")
+        return
+    end
+
+    local items = build_360kan_items(utils.parse_json(res.stdout))
     if #items > 0 then
         if uosc_available then
             latest_menu_anime = update_menu_uosc(menu.type, menu.title, items, menu.footnote, menu.cmd, query)
@@ -492,7 +532,7 @@ mp.register_script_message("get-extra-event", function(cat, id, playlink, source
         DANMAKU.episode = "电影"
         DANMAKU.source = source_id
         write_history()
-        add_danmaku_source(playlink, true)
+        add_danmaku_source(playlink, true, extra_site_label(source_id))
     else
         get_details(cat, id, source_id, title, year)
     end

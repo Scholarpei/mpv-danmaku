@@ -2,6 +2,7 @@ local msg = require('mp.msg')
 local utils = require("mp.utils")
 
 local bmatch = require("modules/bilibili_match")
+local dcache = require("modules/danmaku_cache")
 
 local user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
@@ -179,22 +180,59 @@ local function resolve_bilibili_cid(path, callback)
     callback(nil)
 end
 
+-- 下载B站弹幕 XML。优先读磁盘缓存（TTL 内不发网络包）；网络失败/空响应回退过期缓存
+-- （断网可看）；成功且解析非空写缓存（防缓存 HTML 错误页/空 <i></i>）
 local function download_bilibili_danmaku(path, cid, from_menu, callback)
     local url = "https://comment.bilibili.com/" .. cid .. ".xml"
+    local key = "cid:" .. cid
+
+    -- 1) TTL 内命中缓存：不发网络
+    local hit = dcache.get(key)
+    if hit and hit.payload and #parse_xml_danmaku(hit.payload) > 0 then
+        DANMAKU.cache_hit = "cache"
+        msg.verbose("弹幕缓存命中：" .. key)
+        save_danmaku_xml(path, hit.payload)
+        load_danmaku(from_menu == nil and true or from_menu)
+        callback(true)
+        return
+    end
+
+    -- 过期缓存兜底（网络失败时调用；成功返回 true）
+    local function try_stale()
+        local stale = dcache.get_stale(key)
+        if stale and stale.payload and #parse_xml_danmaku(stale.payload) > 0 then
+            DANMAKU.cache_hit = "stale"
+            show_message("网络失败，已使用过期弹幕缓存", 3)
+            save_danmaku_xml(path, stale.payload)
+            load_danmaku(from_menu == nil and true or from_menu)
+            callback(true)
+            return true
+        end
+        return false
+    end
+
     local args = build_curl_args(url)
 
     call_cmd_async(args, function(error, out)
         if error then
-            show_message("HTTP request failed, see console for details", 5)
-            msg.error(error)
-            callback(false)
+            if not try_stale() then
+                show_message("HTTP request failed, see console for details", 5)
+                msg.error(error)
+                callback(false)
+            end
             return
         end
         if not out or out == '' then
-            callback(false)
+            -- 服务器 200 但空响应也兜底
+            if not try_stale() then
+                callback(false)
+            end
             return
         end
         save_danmaku_xml(path, out)
+        if #parse_xml_danmaku(out) > 0 then
+            dcache.put(key, out, { type = "xml" })
+        end
         load_danmaku(from_menu == nil and true or from_menu)
         callback(true)
     end)
@@ -542,6 +580,7 @@ function autoload_bilibili_series(path, dir, records, fallback)
             -- 预置持久化标志；save_danmaku_xml 只补 data 不覆盖既有字段
             DANMAKU.sources[url] = DANMAKU.sources[url] or {
                 from = "user_custom",
+                provider = "bilibili",
                 blocked = rec.blocked or false,
                 delay_segments = rec.delay_segments and shallow_copy(rec.delay_segments) or nil,
             }

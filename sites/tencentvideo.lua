@@ -1,5 +1,6 @@
 local msg = require('mp.msg')
 local utils = require('mp.utils')
+local tparse = require('modules/tencent_parse')
 
 local user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
@@ -45,20 +46,17 @@ local function build_curl_args(target_url)
 end
 
 -- 解析单个 segment 返回并把弹幕追加到 output_table
+-- 条目级解析（时间/颜色）统一走 modules/tencent_parse.parse_barrage_item：
+-- content_style 实为字符串化 JSON（原实现直接当 table 索引恒为 nil，颜色一直掉白色兜底），
+-- 且渐变弹幕取 gradient_colors 首色
 local function parse_segment_to_output(seg_json, output_table)
     if not seg_json or not seg_json['barrage_list'] then return end
     for _, item in ipairs(seg_json['barrage_list']) do
-        local time = tonumber(item['time_offset']) and tonumber(item['time_offset']) / 1000 or 0
-        local color = 16777215
-        if item['content_style'] and item['content_style']['color'] then
-            local col = item['content_style']['color']
-            if type(col) == 'string' and col:match('^#') then
-                color = hex_to_int_color(col)
-            end
+        local parsed = tparse.parse_barrage_item(item)
+        if parsed then
+            local c_param = string.format('%s,%s,%s,25,,,', parsed.time, parsed.color, parsed.mode)
+            table.insert(output_table, {c = c_param, m = parsed.text})
         end
-        local mode = 1
-        local c_param = string.format('%s,%s,%s,25,,,', time, color, mode)
-        table.insert(output_table, {c = c_param, m = item['content'] or ''})
     end
 end
 
