@@ -2,6 +2,12 @@ local msg = require('mp.msg')
 local utils = require("mp.utils")
 
 local function resolve_bahamut_sn(input_string)
+    -- 优先识别规范播放页 URL 的 sn 查询参数（apis/bahamut_search.lua 产出此形式）
+    local qsn = input_string:match("[?&]sn=(%d+)")
+    if qsn then
+        return qsn
+    end
+    -- 兼容旧形式：sn 位于第 2、3 个冒号之间
     local start_index = 0
     local end_index = 0
     local count = 0
@@ -78,26 +84,8 @@ function load_danmaku_for_bahamut(path, callback)
         table.insert(arg, mp.command_native({"expand-path", options.cookie_file}))
     end
 
-    call_cmd_async(arg, function(error)
-        if error then
-            show_message("HTTP 请求失败，打开控制台查看详情", 5)
-            msg.error(error)
-            callback(false)
-            return
-        end
-        if not file_exists(danmaku_json) then
-            callback(false)
-            return
-        end
-
-        local comments_json = read_file(danmaku_json)
-        os.remove(danmaku_json)
-        local comments = utils.parse_json(comments_json)
-        if not comments then
-            callback(false)
-            return
-        end
-
+    -- 保存弹幕条目（danmuGet.php 与 danmu.php 的条目字段同构：color/position/time/text）
+    local function save_comments(comments)
         local output_table = {}
         for _, comment in ipairs(comments) do
             local color = hex_to_int_color(comment["color"])
@@ -114,5 +102,60 @@ function load_danmaku_for_bahamut(path, callback)
         save_danmaku_json("https://ani.gamer.com.tw/animeVideo.php?sn=" .. sn, final_json_str)
         load_danmaku(true)
         callback(true)
+    end
+
+    -- 降级端点：App API danmu.php（GET，大陆直连可达性更好；弹幕在 data.danmu 数组）
+    local function try_danmu_api()
+        local api_url = "https://api.gamer.com.tw/anime/v1/danmu.php?geo=TW%2CHK&videoSn=" .. sn
+        local api_arg = {
+            "curl",
+            "-L",
+            "-s",
+            "--compressed",
+            "--user-agent",
+            "Anime/2.29.2 (7N5749MM3F.tw.com.gamer.anime; build:972; iOS 26.0.0) Alamofire/5.6.4",
+        }
+        if options.proxy ~= "" then
+            table.insert(api_arg, '-x')
+            table.insert(api_arg, options.proxy)
+        end
+        if options.cookie_file and options.cookie_file ~= "" then
+            table.insert(api_arg, '-b')
+            table.insert(api_arg, mp.command_native({"expand-path", options.cookie_file}))
+        end
+        table.insert(api_arg, api_url)
+
+        call_cmd_async(api_arg, function(api_err, api_out)
+            local data = not api_err and utils.parse_json(api_out or '') or nil
+            local comments = data and data["data"] and data["data"]["danmu"]
+            if type(comments) ~= "table" or #comments == 0 then
+                show_message("好像没有弹幕哦", 3)
+                callback(false)
+                return
+            end
+            save_comments(comments)
+        end)
+    end
+
+    call_cmd_async(arg, function(error)
+        if error then
+            msg.warn("巴哈 danmuGet.php 请求失败，降级 danmu.php: " .. tostring(error))
+            try_danmu_api()
+            return
+        end
+        if not file_exists(danmaku_json) then
+            try_danmu_api()
+            return
+        end
+
+        local comments_json = read_file(danmaku_json)
+        os.remove(danmaku_json)
+        local comments = utils.parse_json(comments_json)
+        if not comments or #comments == 0 then
+            try_danmu_api()
+            return
+        end
+
+        save_comments(comments)
     end)
 end

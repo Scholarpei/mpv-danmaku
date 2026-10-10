@@ -254,7 +254,7 @@ function query_maccms_search(name)
 
     local servers = get_api_server_list(options.maccms_servers)
     if #servers == 0 then
-        show("未配置采集站地址：请在 script-opts 中设置 maccms_servers（站点根地址，逗号分隔）")
+        show("未配置采集站地址：请在 script-opts 中设置 maccms_servers（须选播放链接为平台播放页的站，详见 README）")
         return
     end
 

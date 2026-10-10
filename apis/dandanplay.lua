@@ -97,8 +97,22 @@ function get_danmaku_fallback(query)
         return
     end
 
-    if query:find('bahamut.akamaized.net') then
+    if query:find('bahamut.akamaized.net') or query:find('ani.gamer.com.tw') then
         load_danmaku_for_bahamut(query, function(success)
+            if not success then do_fallback() end
+        end)
+        return
+    end
+
+    if query:find('animeko.org') then
+        load_danmaku_for_animeko(query, function(success)
+            if not success then do_fallback() end
+        end)
+        return
+    end
+
+    if query:find('mddcloud.com.cn') then
+        load_danmaku_for_maiduidui(query, function(success)
             if not success then do_fallback() end
         end)
         return
@@ -588,7 +602,8 @@ function addon_danmaku(dir, from_menu)
     if dir then
         local history_json = read_file(HISTORY_PATH)
         local history = utils.parse_json(history_json) or {}
-        if history[dir] and history[dir].extra ~= nil then
+        -- 文件夹有直连源记忆（旧单 extra 或新 extras 表）时跳过，续载由 dandanplay_flow 负责
+        if history[dir] and (history[dir].extra ~= nil or history[dir].extras ~= nil) then
             return
         end
     end
@@ -658,6 +673,13 @@ function add_danmaku_source_online(query, from_menu)
     msg.verbose("尝试获取弹幕：" .. query)
 
     local servers = get_api_server_list(options.api_server)
+
+    -- 自有直连域名（本地 sites/ 加载器独占，弹弹play extcomment 不支持）：
+    -- 跳过 extcomment 直接走域名直连，避免整轮无效等待（extcomment 单请求超时高达 60s）
+    if type(query) == "string" and (query:find("animeko%.org") or query:find("mddcloud%.com%.cn")) then
+        get_danmaku_fallback(query)
+        return
+    end
 
     -- 过滤掉指向 dandanplay.net 的服务器
     local filtered = {}

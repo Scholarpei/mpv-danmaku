@@ -11,7 +11,8 @@ options = {
     fallback_server = "https://dmku.hls.one",
     -- 可选：MacCMS（苹果CMS）采集站根地址，供搜索后缀 |mac 搜索采集站收录内容，多个用逗号分隔
     -- 仅填站点根地址，脚本自动请求 {根地址}/api.php/provide/vod/ 标准采集接口；支持 '|' 或 '#' 追加备注
-    -- 采集站地址可在资源站导航/站点首页找到（形如 https://caiji.example.com），需自备可访问的站点
+    -- 注意：弹幕取自剧集链接对应的平台播放页，须选 vod_play_url 含平台链接（v.qq.com 等）的站；
+    -- 公开采集站多为自托管 m3u8（选集后取不到弹幕），本选项更适合自建影视站，详见 README
     maccms_servers = "",
     -- 设置 tmdb 的 API Key，用于获取非动画条目的中文信息(当搜索内容非中文时)
     -- 可以在 https://www.themoviedb.org 注册后去个人账号设置界面获取

@@ -9,6 +9,7 @@ AES = require("modules/aes")
 Base64 = require("modules/base64")
 MD5 = require("modules/md5")
 Sha256 = require("modules/hash")
+hmerge = require("modules/history_merge")
 
 require("modules/options")
 require("modules/utils")
@@ -22,6 +23,12 @@ require("apis/dandanplay")
 require('apis/extra')
 require("apis/tencent_search")
 require("apis/maccms")
+require("apis/youku_search")
+require("apis/mgtv_search")
+require("apis/bilibili_search")
+require("apis/bahamut_search")
+require("apis/animeko_search")
+require("apis/maiduidui_search")
 
 -- 多源聚合搜索（须在 apis 之后：运行时调用各 fetch/build 全局）
 search_hub = require("modules/search_hub")
@@ -32,6 +39,8 @@ require("sites/iqiyi")
 require("sites/mgtv")
 require("sites/tencentvideo")
 require("sites/youku")
+require("sites/animeko")
+require("sites/maiduidui")
 
 DANMAKU_PATH = os.getenv("TEMP") or "/tmp/"
 HISTORY_PATH = mp.command_native({"expand-path", options.history_path})
@@ -398,8 +407,12 @@ function write_history(episodeid, api_server)
         if history_json ~= nil then
             history = utils.parse_json(history_json) or {}
         end
-        -- 记录整体重建，保留B站合集文件夹记忆
-        local preserved_bilibili = history[dir] and history[dir].bilibili or nil
+        local old = history[dir] or {}
+        -- 多源并行记忆：直连源选择记入 extras 表（同 kind 替换），旧格式单 extra 迁移；
+        -- dandanplay 选择（episodeid 非 nil）不合并当前 DANMAKU.extra（防全局残留污染新文件夹），
+        -- 详见 modules/history_merge.lua（含单元测试）
+        local extras = hmerge.merge_extras(old,
+            episodeid and nil or DANMAKU.extra)
         history[dir] = {}
         history[dir].fname = fname
         history[dir].source = DANMAKU.source
@@ -408,14 +421,18 @@ function write_history(episodeid, api_server)
         history[dir].episodeNumber = episodeNumber
         if episodeid then
             history[dir].episodeId = episodeid
-        elseif DANMAKU.extra then
-            history[dir].extra = DANMAKU.extra
+        elseif old.episodeId then
+            -- 直连源选择不挤掉 dandanplay 的集数记录（多源并存续载的依据）
+            history[dir].episodeId = old.episodeId
+        end
+        if #extras > 0 then
+            history[dir].extras = extras
         end
         if api_server then
             history[dir].api_server = api_server
         end
-        if preserved_bilibili ~= nil then
-            history[dir].bilibili = preserved_bilibili
+        if old.bilibili ~= nil then
+            history[dir].bilibili = old.bilibili
         end
         write_json_file(HISTORY_PATH, history)
     end
@@ -680,7 +697,6 @@ function auto_load_danmaku(path, dir, filename, number)
         local history_number = history_dir.episodeNumber
         local history_id = history_dir.episodeId
         local history_fname = history_dir.fname
-        local history_extra = history_dir.extra
         local history_api_server = history_dir.api_server
         local playing_number = nil
 
@@ -701,24 +717,43 @@ function auto_load_danmaku(path, dir, filename, number)
             local x = playing_number - history_number --获取集数差值
             DANMAKU.episode = episode_number and string.format("第%s话", episode_number + x) or history_dir.episodeTitle
             DANMAKU.api_server = history_api_server or nil
-            if history_id then
+
+            -- 多源并行续载：extras 表（各直连源一条）+ dandanplay 的 episodeId 同时恢复；
+            -- 旧格式单 extra 迁移为单元素表（modules/history_merge.lua）。各源集数编号语义一致
+            --（列表序），共用同一差值推算
+            local extras_list = hmerge.read_extras(history_dir)
+
+            if history_id ~= nil or #extras_list > 0 then
                 show_message("自动加载上次匹配的弹幕", 3)
                 msg.verbose("自动加载上次匹配的弹幕")
-                local tmp_id = tostring(x + history_id)
-                set_episode_id(tmp_id)
-            elseif history_extra then
-                show_message("自动加载上次匹配的弹幕", 3)
-                msg.verbose("自动加载上次匹配的弹幕")
-                local episodenum = history_extra.episodenum + x
-                -- extra 记录按 kind 分发：旧记录无 kind 等价 360kan（向后兼容）
-                local kind = history_extra.kind or "360kan"
-                if kind == "qq" then
-                    resume_tencent_episode(history_extra, episodenum)
-                elseif kind == "maccms" then
-                    resume_maccms_episode(history_extra, episodenum)
-                else
-                    get_details(history_extra.class, history_extra.id, history_extra.site,
-                        history_extra.title, history_extra.year, history_extra.number, episodenum)
+                if history_id then
+                    local tmp_id = tostring(x + history_id)
+                    set_episode_id(tmp_id)
+                end
+                for _, ex in ipairs(extras_list) do
+                    local episodenum = ex.episodenum + x
+                    -- extra 记录按 kind 分发：旧记录无 kind 等价 360kan（向后兼容）
+                    local kind = ex.kind or "360kan"
+                    if kind == "qq" then
+                        resume_tencent_episode(ex, episodenum)
+                    elseif kind == "maccms" then
+                        resume_maccms_episode(ex, episodenum)
+                    elseif kind == "youku" then
+                        resume_youku_episode(ex, episodenum)
+                    elseif kind == "mgtv" then
+                        resume_mgtv_episode(ex, episodenum)
+                    elseif kind == "bilibili" then
+                        resume_bilibili_episode(ex, episodenum)
+                    elseif kind == "bahamut" then
+                        resume_bahamut_episode(ex, episodenum)
+                    elseif kind == "animeko" then
+                        resume_animeko_episode(ex, episodenum)
+                    elseif kind == "maiduidui" then
+                        resume_maiduidui_episode(ex, episodenum)
+                    else
+                        get_details(ex.class, ex.id, ex.site,
+                            ex.title, ex.year, ex.number, episodenum)
+                    end
                 end
             else
                 -- 记录无 episodeId/extra（如仅B站文件夹记忆）→ 走哈希匹配

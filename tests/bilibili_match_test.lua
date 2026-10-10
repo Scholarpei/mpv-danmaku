@@ -342,4 +342,5 @@ do
 end
 
 print(failures == 0 and "ALL PASS" or (failures .. " FAILED"))
-mp.commandv("quit", failures > 0 and "1" or "0")
+-- os.exit 直杀：mpv 正常 quit 的关机路径在 Windows 控制台代理下偶发挂起（测试环境已知问题）
+os.exit(failures > 0 and 1 or 0)

@@ -297,7 +297,7 @@ function open_input_menu_uosc()
     end
 
     items[#items + 1] = {
-        hint = "  直接搜索聚合全部来源；|tx只搜腾讯，|mac只搜采集站，|ds|dy|dm搜剧/影/漫，@备注指定弹幕服务器",
+        hint = "  直接搜索聚合全部来源；|tx腾讯 |yk优酷 |mg芒果 |biliB站 |baha巴哈 |ako番剧社区 |mdd埋堆堆 |mac采集站，|ds|dy|dm搜剧/影/漫，@备注指定弹幕服务器",
         keep_open = true,
         selectable = false,
     }
@@ -1492,6 +1492,18 @@ mp.register_script_message("search-anime-event", function(query)
             query_tencent_search(name)
         elseif class == "mac" then
             query_maccms_search(name)
+        elseif class == "yk" then
+            query_youku_search(name)
+        elseif class == "mg" then
+            query_mgtv_search(name)
+        elseif class == "bili" then
+            query_bilibili_search(name)
+        elseif class == "baha" then
+            query_bahamut_search(name)
+        elseif class == "ako" then
+            query_animeko_search(name)
+        elseif class == "mdd" then
+            query_maiduidui_search(name)
         else
             query_extra(name, class)
         end

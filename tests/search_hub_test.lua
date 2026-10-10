@@ -138,3 +138,4 @@ if failures > 0 then
     os.exit(1)
 end
 print("ALL PASS")
+os.exit(0)

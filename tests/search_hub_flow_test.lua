@@ -66,6 +66,20 @@ fetch_360kan_search = function(query, class, cb, timeout)
     cb({ { title = "K1", hint = "动漫 | 2023 | 来源：b 站", value = { "k" } } }, nil)
     return function() end
 end
+-- 新增直连源 stub：同步返回空结果（空组隐藏，不干扰既有断言）
+local function stub_site_fetch(name)
+    _G["fetch_" .. name .. "_search"] = function(query, cb, timeout)
+        fetch_calls[name] = { query = query, timeout = timeout }
+        cb({}, nil)
+        return function() end
+    end
+end
+stub_site_fetch("youku")
+stub_site_fetch("mgtv")
+stub_site_fetch("bilibili")
+stub_site_fetch("bahamut")
+stub_site_fetch("animeko")
+stub_site_fetch("maiduidui")
 fetch_maccms_found = function(name, cb, opts)
     fetch_calls.maccms = { name = name, opts = opts }
     cb({}, false)
@@ -187,7 +201,8 @@ end
 
 steps[#steps + 1] = function()
     print(failures == 0 and "ALL PASS" or (failures .. " FAILED"))
-    mp.commandv("quit", failures == 0 and 0 or 1)
+    -- os.exit 直杀：mpv 正常 quit 的关机路径在 Windows 控制台代理下偶发挂起（测试环境已知问题）
+    os.exit(failures == 0 and 0 or 1)
 end
 
 local i = 0

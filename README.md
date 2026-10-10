@@ -43,7 +43,7 @@
 | 📺 [B站合集弹幕记忆](#b站合集弹幕记忆) | 🎛️ [弹幕过滤菜单](#弹幕过滤菜单) |
 | 文件夹内粘贴一次B站链接，全季自动匹配分P | 合并 / 密度 / 简繁 / 黑名单播放中实时调节 |
 | 🔍 [更多弹幕源搜索](#更多弹幕源搜索) | 🖥️ [自建弹幕服务器](#自建弹幕服务器danmu-api-兼容) |
-| 直接搜索并发全部来源、结果按源分组，`\|tx`/`\|mac` 后缀只搜单源 | danmu-api 兼容服务一行配置接入 |
+| 直接搜索并发全部来源、结果按源分组，`\|tx`/`\|yk`/`\|mg` 等后缀只搜单源 | danmu-api 兼容服务一行配置接入 |
 
 ### pakku 式弹幕合并
 
@@ -138,19 +138,27 @@
 
 ### 更多弹幕源搜索
 
-弹幕搜索菜单（默认 `Ctrl+d`）**直接输入关键词即聚合搜索全部来源**（弹弹play 全部 `api_server` + 腾讯 + 360kan，配置了 `maccms_servers` 再加采集站），结果按来源分组展示、一眼区分不同站；追加 `|` 后缀则只搜单一来源（复刻自 [danmaku-anywhere](https://github.com/Mr-Quin/danmaku-anywhere) 的源实现）：
+弹幕搜索菜单（默认 `Ctrl+d`）**直接输入关键词即聚合搜索全部来源**（弹弹play 全部 `api_server` + 腾讯 + 优酷 + 芒果 + B站 + 巴哈姆特 + animeko + 埋堆堆 + 360kan，配置了 `maccms_servers` 再加采集站），结果按来源分组展示、一眼区分不同站；追加 `|` 后缀则只搜单一来源（复刻自 [danmaku-anywhere](https://github.com/Mr-Quin/danmaku-anywhere) 的源实现）：
 
 | 后缀 | 搜索源 | 说明 |
 | --- | --- | --- |
 | （无） | 全源聚合 | 并发搜上述全部来源，按源分组显示；空结果的组隐藏、失败的组显示错误行，整体 10s 到点齐展示 |
 | `\|ds` / `\|dy` / `\|dm` | 360kan 聚合 | 电视剧 / 电影 / 国漫，覆盖爱腾优芒B站源 |
 | `\|tx` 🆕 | 腾讯视频 | 腾讯公开搜索接口直连，搜剧 → 选集一步到位 |
+| `\|yk` 🆕 | 优酷 | 优酷版权内容直连（站外版权条目自动过滤），分集带原生正片判定（花絮/预告剔除） |
+| `\|mg` 🆕 | 芒果TV | 芒果直连，综艺按月分页并发、预告与衍生内容（花絮/彩蛋/纯享等）剔除 |
+| `\|bili` 🆕 | B站 番剧 | WBI 签名搜索（番剧 + 影视两路），PGC 分集仅列正片；弹幕密度高的首选补充源 |
+| `\|baha` 🆕 | 巴哈姆特动画疯 | 台湾繁体番剧弹幕（关键词自动简→繁，分集按巴哈原始话数编号）；**分集接口对大陆直连按时段性开窗**——失败自动重试 3 次，撞上关闭窗口时菜单提示稍后重试（过几分钟通常可进），稳定使用需在 `proxy` 配置台湾/香港节点 |
+| `\|ako` 🆕 | animeko | [open-ani](https://github.com/open-ani/animeko) 社区番剧弹幕（Bangumi 元数据），与弹弹play弹幕池互补；多节点自动降级 |
+| `\|mdd` 🆕 | 埋堆堆 | TVB 港剧粤语弹幕（固定私钥签名直连），粤语/国语版本分列 |
 | `\|mac` 🆕 | MacCMS 采集站 | 搜索采集站收录内容（需配置 [`maccms_servers`](#弹幕源搜索)） |
 
-- 聚合与非 dandanplay 源的条目选中后，弹幕获取自动走现有管线：先尝试各 `api_server` 的 extcomment，失败回退域名直连（腾讯条目即直连腾讯弹幕接口），最后由 `fallback_server`（dmku / danmu.icu 协议）兜底；加载后的源在「弹幕源管理」里显示真实提供方（腾讯视频 / maccms·某站 / 360kan·B站 等）而非笼统的「用户添加」
-- **换集自动续载**：选过的剧记入文件夹历史（`kind` 字段区分来源），同文件夹播放下一集按集数差自动定位，无需重新搜索
+- 聚合与非 dandanplay 源的条目选中后，弹幕获取自动走现有管线：先尝试各 `api_server` 的 extcomment，失败回退域名直连（腾讯条目即直连腾讯弹幕接口），最后由 `fallback_server`（dmku / danmu.icu 协议）兜底；animeko / 埋堆堆这类弹弹play 不支持的域名会跳过 extcomment 直接直连，不浪费等待；加载后的源在「弹幕源管理」里显示真实提供方（腾讯视频 / 优酷 / maccms·某站 / 360kan·B站 等）而非笼统的「用户添加」
+- **换集自动续载（多源并行）**：选过的剧记入文件夹历史——各直连源各记一条（`extras` 表，同源覆盖）、dandanplay 的集数记录独立保留，互不挤占；同文件夹播放下一集时**全部源一起按集数差自动定位续载**（如 dandanplay + 腾讯 + animeko 同时恢复），旧格式单 `extra` 记录自动迁移
 - `|tx` 顺手修复了腾讯弹幕颜色恒为白色的问题：接口的 `content_style` 实为字符串化 JSON，渐变弹幕取首色呈现
+- `|yk` 顺带给 `sites/youku.lua` 补了 cna 本地生成兜底：优酷弹幕接口不校验 cna 来源，`log.mmstat.com` 被广告 DNS 拦截时不再整源失败
 - `|mac` 的采集站地址需自备：在资源站导航 / 站点首页找到形如 `https://caiji.example.com` 的站点根地址填入 `maccms_servers`，脚本自动请求其 `/api.php/provide/vod/` 标准采集接口（MacCMS10 格式）；多站逗号分隔，并发搜索、结果按站点标注；多播放来源组会先出「播放来源」菜单再列集
+- **采集站选站注意**：本源的弹幕取自剧集链接对应的平台播放页，公开采集站大多只提供自托管 m3u8 链接（选集后会提示「未获取到任何弹幕」，兜底服务明确不支持 m3u8），因此适合 `vod_play_url` 中带平台播放页链接（`v.qq.com` 等）的站点——常见于自建影视站。验证方法：浏览器打开 `{站根}/api.php/provide/vod/?ac=detail&wd=测试词`，查看返回 JSON 里 `vod_play_url` 是否含平台域名
 
 ### 自建弹幕服务器（danmu-api 兼容）
 
@@ -187,7 +195,7 @@ api_server=http://192.168.1.5:9321
 | 能力 | 上游 uosc_danmaku | 本分支 |
 | --- | :---: | :---: |
 | 弹幕搜索 / 加载 / 记忆 / 哈希匹配 / URL 自动加载 | ✅ | ✅ 全部继承 |
-| 搜索来源 | 仅弹弹play | 🔍 多源并发聚合（腾讯/360kan/采集站），结果按源分组、加载后源管理标注真实提供方 |
+| 搜索来源 | 仅弹弹play | 🔍 多源并发聚合（腾讯/优酷/芒果/B站/巴哈/animeko/埋堆堆/360kan/采集站），结果按源分组、加载后源管理标注真实提供方 |
 | 重复弹幕 | 仅同文本精确合并 | 🔀 pakku 四通道相似度合并 ×N |
 | 弹幕过密 | 同屏上限 + 随机丢弃 | 📉 先缩字号再按权重丢弃，×N 双重保护 |
 | B站多分P合集 | 每集手动粘贴链接 | 📺 文件夹记忆自动匹配分P |
@@ -460,6 +468,13 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 | `tests/danmaku_cache_fetch_test.lua` | 弹弹play 拉取链路缓存命中不发网络（B站下载函数为模块内局部，由单测+手动场景覆盖） | `mpv.com --idle=once --no-config --script=tests/danmaku_cache_fetch_test.lua` |
 | `tests/tencent_parse_test.lua` | 🆕 腾讯搜索/剧集/弹幕条目解析（MainNeed 优先、预告过滤、content_style 字符串化 JSON 与渐变首色） | `mpv.com --idle=once --no-config --script=tests/tencent_parse_test.lua` |
 | `tests/maccms_parse_test.lua` | 🆕 MacCMS 采集接口解析（`$$$` 分组、`#` 分集、`标题$链接` 切分、字段类型容错） | `mpv.com --idle=once --no-config --script=tests/maccms_parse_test.lua` |
+| `tests/youku_items_test.lua` | 🆕 优酷搜索/分集解析（版权过滤、黑名单词、`seq==stage` 正片判定、电影/综艺/剧标题格式化；fixture 为实抓响应） | `mpv.com --idle=once --no-config --script=tests/youku_items_test.lua` |
+| `tests/mgtv_items_test.lua` | 🆕 芒果搜索/分集解析（站外过滤、综艺黑名单、按月合并与期数编号） | `mpv.com --idle=once --no-config --script=tests/mgtv_items_test.lua` |
+| `tests/bilibili_items_test.lua` | 🆕 B站 WBI 签名（确定性参考值）与搜索/PGC 分集解析（`section_type==0` 正片、season_id 去重） | `mpv.com --idle=once --no-config --script=tests/bilibili_items_test.lua` |
+| `tests/bahamut_items_test.lua` | 🆕 巴哈搜索解析（info 年份）、分集双深度形态/各层断层受限识别、真实窗口期样本、sn 条目形状 | `mpv.com --idle=once --no-config --script=tests/bahamut_items_test.lua` |
+| `tests/animeko_items_test.lua` | 🆕 animeko 搜索/MAIN 过滤/弹幕解析（顶层 `danmakuList`、location→mode 映射） | `mpv.com --idle=once --no-config --script=tests/animeko_items_test.lua` |
+| `tests/maiduidui_items_test.lua` | 🆕 埋堆堆签名确定性、分组搜索/分集/弹幕解析（颜色兜底） | `mpv.com --idle=once --no-config --script=tests/maiduidui_items_test.lua` |
+| `tests/history_merge_test.lua` | 🆕 文件夹记忆多源合并（旧 extra 迁移、同 kind 替换、dandanplay/直连源互不挤占、残留防护） | `mpv.com --idle=once --no-config --script=tests/history_merge_test.lua` |
 | `tests/pakku_bench.lua` | 万条弹幕合并性能压测 | `mpv.com --idle=once --no-config --script=tests/pakku_bench.lua` |
 
 ---

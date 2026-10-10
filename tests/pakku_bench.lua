@@ -53,4 +53,5 @@ for _, n in ipairs({ 3000, 12000 }) do
 end
 
 print("BENCH DONE")
-mp.commandv("quit")
+-- os.exit 直杀：mpv 正常 quit 的关机路径在 Windows 控制台代理下偶发挂起（测试环境已知问题）
+os.exit(0)

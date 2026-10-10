@@ -36,18 +36,30 @@ local function parse_set_cookie_headers(text)
     return cookies
 end
 
+-- 本地兜底 cna：优酷弹幕接口只把 cna 当请求体里的客户端标识回传、不校验其来源，
+-- log.mmstat.com 常被广告过滤/私人 DNS 拦截，取失败时用本地生成的等价格式值代替
+local function generate_local_cna()
+    local chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+    local out = {}
+    for _ = 1, 24 do
+        local r = math.random(#chars)
+        out[#out + 1] = chars:sub(r, r)
+    end
+    return table.concat(out)
+end
+
 local function get_cna(callback)
     local api = 'https://log.mmstat.com/eg.js'
     local args = build_curl_args(api)
     table.insert(args, #args, '-i')
     call_cmd_async(args, function(err, out)
         if err or not out or out == '' then
-            msg.warn('get_cna failed: ' .. tostring(err))
-            callback(nil)
+            msg.warn('get_cna 失败，使用本地生成值兜底: ' .. tostring(err))
+            callback(generate_local_cna())
             return
         end
         local cookies = parse_set_cookie_headers(out)
-        callback(cookies['cna'])
+        callback(cookies['cna'] or generate_local_cna())
     end)
 end
 

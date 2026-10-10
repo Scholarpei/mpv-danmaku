@@ -17,12 +17,19 @@ local FOOTNOTE = "使用enter或ctrl+enter进行搜索"
 M.HUB_DEADLINE = 10        -- 聚合整体时限：到点渲染已到结果，未完成组标「超时」
 M.PER_SOURCE_TIMEOUT = 9   -- 单源内部请求超时（须小于 HUB_DEADLINE）
 
-M.GROUP_ORDER = { "dandanplay", "tencent", "kan360", "maccms" }
+M.GROUP_ORDER = { "dandanplay", "tencent", "kan360", "maccms", "youku", "mgtv", "bilibili",
+    "bahamut", "animeko", "maiduidui" }
 local GROUP_LABEL = {
     dandanplay = "dandanplay",
     tencent = "腾讯",
     kan360 = "360kan",
     maccms = "maccms",
+    youku = "优酷",
+    mgtv = "芒果",
+    bilibili = "bilibili",
+    bahamut = "巴哈姆特",
+    animeko = "animeko",
+    maiduidui = "埋堆堆",
 }
 
 -- ============ 纯函数（构建分组菜单条目；单测直打，不触碰 mp.*） ============
@@ -386,6 +393,36 @@ function M.multi_source_search(query, filter_note)
             end, { concurrency = 3, per_request_timeout = M.PER_SOURCE_TIMEOUT })
         end)
     end
+    add_task("youku", function(sink)
+        return fetch_youku_search(zh_name, function(items, err)
+            sink.done(err ~= nil and { err = err } or { items = items or {} })
+        end, M.PER_SOURCE_TIMEOUT)
+    end)
+    add_task("mgtv", function(sink)
+        return fetch_mgtv_search(zh_name, function(items, err)
+            sink.done(err ~= nil and { err = err } or { items = items or {} })
+        end, M.PER_SOURCE_TIMEOUT)
+    end)
+    add_task("bilibili", function(sink)
+        return fetch_bilibili_search(zh_name, function(items, err)
+            sink.done(err ~= nil and { err = err } or { items = items or {} })
+        end, M.PER_SOURCE_TIMEOUT)
+    end)
+    add_task("bahamut", function(sink)
+        return fetch_bahamut_search(zh_name, function(items, err)
+            sink.done(err ~= nil and { err = err } or { items = items or {} })
+        end, M.PER_SOURCE_TIMEOUT)
+    end)
+    add_task("animeko", function(sink)
+        return fetch_animeko_search(zh_name, function(items, err)
+            sink.done(err ~= nil and { err = err } or { items = items or {} })
+        end, M.PER_SOURCE_TIMEOUT)
+    end)
+    add_task("maiduidui", function(sink)
+        return fetch_maiduidui_search(zh_name, function(items, err)
+            sink.done(err ~= nil and { err = err } or { items = items or {} })
+        end, M.PER_SOURCE_TIMEOUT)
+    end)
 
     -- 打开 loading 菜单并注册取消（on_close 走 update_menu_uosc 第 8 参；
     -- 先注册再开菜单，避免菜单刚开就被关闭时漏挂取消）
