@@ -28,6 +28,7 @@ local function build_args(url, ua, method, body)
         'curl',
         '-L',
         '-s',
+        '--ssl-no-revoke',
         '--compressed',
         '--user-agent',
         ua,

@@ -32,6 +32,7 @@ local function build_mg_args(url, ua, extra_headers)
         'curl',
         '-L',
         '-s',
+        '--ssl-no-revoke',
         '--compressed',
         '--user-agent',
         ua,

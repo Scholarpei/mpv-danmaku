@@ -75,6 +75,7 @@ local function stub_site_fetch(name)
     end
 end
 stub_site_fetch("youku")
+stub_site_fetch("iqiyi")
 stub_site_fetch("mgtv")
 stub_site_fetch("bilibili")
 stub_site_fetch("bahamut")

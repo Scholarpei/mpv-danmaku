@@ -11,7 +11,7 @@ local BARRAGE_PATH = "/api/barrage/vodBarrage396.action"
 
 local function build_curl_args(body_json)
     local args = {
-        'curl', '-L', '-s', '--compressed',
+        'curl', '-L', '-s', '--ssl-no-revoke', '--compressed',
         '--user-agent', 'Mdd/5.8.00 (Android+32+)',
         '-H', 'Content-Type: application/json',
         '-H', 'version: 5.8.00',

@@ -146,6 +146,7 @@
 | `\|ds` / `\|dy` / `\|dm` | 360kan 聚合 | 电视剧 / 电影 / 国漫，覆盖爱腾优芒B站源 |
 | `\|tx` 🆕 | 腾讯视频 | 腾讯公开搜索接口直连，搜剧 → 选集一步到位 |
 | `\|yk` 🆕 | 优酷 | 优酷版权内容直连（站外版权条目自动过滤），分集带原生正片判定（花絮/预告剔除） |
+| `\|iq` 🆕 | 爱奇艺 | 爱奇艺直连；分集列表直接取自搜索响应（航海王 1180 集实测无截断），无额外详情请求 |
 | `\|mg` 🆕 | 芒果TV | 芒果直连，综艺按月分页并发、预告与衍生内容（花絮/彩蛋/纯享等）剔除 |
 | `\|bili` 🆕 | B站 番剧 | WBI 签名搜索（番剧 + 影视两路），PGC 分集仅列正片；弹幕密度高的首选补充源 |
 | `\|baha` 🆕 | 巴哈姆特动画疯 | 台湾繁体番剧弹幕（关键词自动简→繁，分集按巴哈原始话数编号）；**分集接口对大陆直连按时段性开窗**——失败自动重试 3 次，撞上关闭窗口时菜单提示稍后重试（过几分钟通常可进），稳定使用需在 `proxy` 配置台湾/香港节点 |
@@ -475,6 +476,7 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 | `tests/animeko_items_test.lua` | 🆕 animeko 搜索/MAIN 过滤/弹幕解析（顶层 `danmakuList`、location→mode 映射） | `mpv.com --idle=once --no-config --script=tests/animeko_items_test.lua` |
 | `tests/maiduidui_items_test.lua` | 🆕 埋堆堆签名确定性、分组搜索/分集/弹幕解析（颜色兜底） | `mpv.com --idle=once --no-config --script=tests/maiduidui_items_test.lua` |
 | `tests/history_merge_test.lua` | 🆕 文件夹记忆多源合并（旧 extra 迁移、同 kind 替换、dandanplay/直连源互不挤占、残留防护） | `mpv.com --idle=once --no-config --script=tests/history_merge_test.lua` |
+| `tests/iqiyi_items_test.lua` | 🆕 爱奇艺搜索/分集解析（站外与短剧频道过滤、videos 分集提取与排序、专访/坏条目剔除） | `mpv.com --idle=once --no-config --script=tests/iqiyi_items_test.lua` |
 | `tests/pakku_bench.lua` | 万条弹幕合并性能压测 | `mpv.com --idle=once --no-config --script=tests/pakku_bench.lua` |
 
 ---

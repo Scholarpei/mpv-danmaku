@@ -31,6 +31,7 @@ local function build_baha_args(url)
         'curl',
         '-L',
         '-s',
+        '--ssl-no-revoke',
         '--compressed',
         '--user-agent',
         APP_UA,

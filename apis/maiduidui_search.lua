@@ -23,6 +23,7 @@ local function build_mdd_args(path, data)
         'curl',
         '-L',
         '-s',
+        '--ssl-no-revoke',
         '--compressed',
         '--user-agent', 'Mdd/5.8.00 (Android+32+)',
         '-H', 'Content-Type: application/json',

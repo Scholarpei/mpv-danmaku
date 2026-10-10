@@ -31,6 +31,7 @@ local function build_bili_args(url)
         'curl',
         '-L',
         '-s',
+        '--ssl-no-revoke',
         '--compressed',
         '--user-agent',
         UA,

@@ -18,7 +18,7 @@ local USER_AGENT = 'uosc-danmaku/1.0 (mpv danmaku plugin)'
 
 local function build_curl_args(url)
     local args = {
-        'curl', '-L', '-s', '--compressed',
+        'curl', '-L', '-s', '--ssl-no-revoke', '--compressed',
         '--user-agent', USER_AGENT,
     }
     if options.cookie_file and options.cookie_file ~= '' then

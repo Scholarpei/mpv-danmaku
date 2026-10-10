@@ -17,7 +17,7 @@ local FOOTNOTE = "使用enter或ctrl+enter进行搜索"
 M.HUB_DEADLINE = 10        -- 聚合整体时限：到点渲染已到结果，未完成组标「超时」
 M.PER_SOURCE_TIMEOUT = 9   -- 单源内部请求超时（须小于 HUB_DEADLINE）
 
-M.GROUP_ORDER = { "dandanplay", "tencent", "kan360", "maccms", "youku", "mgtv", "bilibili",
+M.GROUP_ORDER = { "dandanplay", "tencent", "kan360", "maccms", "youku", "iqiyi", "mgtv", "bilibili",
     "bahamut", "animeko", "maiduidui" }
 local GROUP_LABEL = {
     dandanplay = "dandanplay",
@@ -25,6 +25,7 @@ local GROUP_LABEL = {
     kan360 = "360kan",
     maccms = "maccms",
     youku = "优酷",
+    iqiyi = "爱奇艺",
     mgtv = "芒果",
     bilibili = "bilibili",
     bahamut = "巴哈姆特",
@@ -395,6 +396,11 @@ function M.multi_source_search(query, filter_note)
     end
     add_task("youku", function(sink)
         return fetch_youku_search(zh_name, function(items, err)
+            sink.done(err ~= nil and { err = err } or { items = items or {} })
+        end, M.PER_SOURCE_TIMEOUT)
+    end)
+    add_task("iqiyi", function(sink)
+        return fetch_iqiyi_search(zh_name, function(items, err)
             sink.done(err ~= nil and { err = err } or { items = items or {} })
         end, M.PER_SOURCE_TIMEOUT)
     end)

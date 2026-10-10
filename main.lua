@@ -29,6 +29,7 @@ require("apis/bilibili_search")
 require("apis/bahamut_search")
 require("apis/animeko_search")
 require("apis/maiduidui_search")
+require("apis/iqiyi_search")
 
 -- 多源聚合搜索（须在 apis 之后：运行时调用各 fetch/build 全局）
 search_hub = require("modules/search_hub")
@@ -750,6 +751,8 @@ function auto_load_danmaku(path, dir, filename, number)
                         resume_animeko_episode(ex, episodenum)
                     elseif kind == "maiduidui" then
                         resume_maiduidui_episode(ex, episodenum)
+                    elseif kind == "iqiyi" then
+                        resume_iqiyi_episode(ex, episodenum)
                     else
                         get_details(ex.class, ex.id, ex.site,
                             ex.title, ex.year, ex.number, episodenum)

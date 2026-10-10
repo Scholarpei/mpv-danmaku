@@ -25,6 +25,7 @@ local function build_yk_args(url, extra_headers)
         'curl',
         '-L',
         '-s',
+        '--ssl-no-revoke',
         '--compressed',
         '--user-agent',
         SEARCH_UA,
