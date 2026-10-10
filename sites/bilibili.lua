@@ -572,8 +572,15 @@ function autoload_bilibili_series(path, dir, records, fallback)
             if DANMAKU.episode == nil then
                 DANMAKU.episode = m.part
             end
+            -- 汇总登记（无会话时 no-op，走无会话回退显示）；标题随预建源条目落 runtime
+            -- （不持久化到 sources 记录：合集源按分P逐集重匹配，落盘会被 addon_danmaku
+            --  以旧集 URL 重放导致错集弹幕）
+            source_status.ensure("bilibili#" .. vid, "bilibili",
+                {anime = DANMAKU.anime, episode = m.part})
             local url = canonical_bilibili_url(vid, m.page)
             if bilibili_source_exists(url) then
+                source_status.mark_done("bilibili#" .. vid,
+                    {anime = DANMAKU.anime, episode = m.part, url = url})
                 done(true)  -- 已有同 (vid,page) 源（重放/手动添加过），交给 addon_danmaku
                 return
             end
@@ -584,7 +591,17 @@ function autoload_bilibili_series(path, dir, records, fallback)
                 blocked = rec.blocked or false,
                 delay_segments = rec.delay_segments and shallow_copy(rec.delay_segments) or nil,
             }
+            if DANMAKU.sources[url].anime_title == nil then
+                DANMAKU.sources[url].anime_title = DANMAKU.anime
+                DANMAKU.sources[url].episode_title = m.part
+            end
             load_bilibili_danmaku_by_page(vid, m.page, function(ok)
+                if ok then
+                    source_status.mark_done("bilibili#" .. vid,
+                        {anime = DANMAKU.anime, episode = m.part, url = url})
+                else
+                    source_status.mark_failed("bilibili#" .. vid, "弹幕下载失败", "B站合集")
+                end
                 done(ok)
             end)
         end)

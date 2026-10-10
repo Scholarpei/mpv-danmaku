@@ -55,7 +55,8 @@ local function load_extra_danmaku(url, episode, number, class, id, site, title, 
         episodenum = tonumber(episode),
     }
     write_history()
-    add_danmaku_source(play_url, true, extra_site_label(site))
+    add_danmaku_source(play_url, true, extra_site_label(site),
+        {anime = DANMAKU.anime, episode = DANMAKU.episode, kind = "360kan"})
 end
 
 -- 导出为全局供 apis/tencent_search.lua 复用（非中文关键词换中文译名）
@@ -532,7 +533,9 @@ mp.register_script_message("get-extra-event", function(cat, id, playlink, source
         DANMAKU.episode = "电影"
         DANMAKU.source = source_id
         write_history()
-        add_danmaku_source(playlink, true, extra_site_label(source_id))
+        -- 电影分支不设 DANMAKU.extra（无续载记忆），meta 不带 kind
+        add_danmaku_source(playlink, true, extra_site_label(source_id),
+            {anime = DANMAKU.anime, episode = DANMAKU.episode})
     else
         get_details(cat, id, source_id, title, year)
     end

@@ -124,21 +124,22 @@ local function load_animeko_danmaku(subject_id, episode_id, episodenum, title, y
         episodenum = tonumber(episodenum),
     }
     write_history()
-    add_danmaku_source(("https://api.animeko.org/episode/%s"):format(episode_id), true, "animeko")
+    add_danmaku_source(("https://api.animeko.org/episode/%s"):format(episode_id), true, "animeko",
+        {anime = DANMAKU.anime, episode = DANMAKU.episode, kind = "animeko"})
 end
 
 -- 历史续载入口：按 kind="animeko" 记录推算目标集数后由 main.lua 调入
 function resume_animeko_episode(extra, episodenum)
     fetch_ako_episodes(extra.subject_id, function(episodes)
         if not episodes then
-            show_message("animeko 弹幕续载失败：无法获取剧集列表", 3)
+            source_status.mark_failed("extra:animeko", "无法获取剧集列表", "animeko 弹幕续载失败")
             msg.warn("animeko 续载：剧集列表为空 subject_id=" .. tostring(extra.subject_id))
             return
         end
         local ep = episodes[episodenum]
         if not ep then
-            show_message(("animeko 弹幕续载失败：第 %d 话不存在（共 %d 话）")
-                :format(episodenum, #episodes), 3)
+            source_status.mark_failed("extra:animeko",
+                ("第 %d 话不存在（共 %d 话）"):format(episodenum, #episodes), "animeko 弹幕续载失败")
             return
         end
         load_animeko_danmaku(extra.subject_id, ep.episode_id, episodenum, extra.title, extra.year)

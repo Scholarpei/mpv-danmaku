@@ -111,20 +111,22 @@ local function load_maccms_danmaku(server, vod_id, group_idx, ep_idx, title, yea
         episodenum = tonumber(ep_idx),
     }
     write_history()
-    add_danmaku_source(ep.url, true, "maccms·" .. host_label(server))
+    add_danmaku_source(ep.url, true, "maccms·" .. host_label(server),
+        {anime = DANMAKU.anime, episode = DANMAKU.episode, kind = "maccms"})
 end
 
 -- 历史续载入口：按 kind="maccms" 记录推算目标集数后由 main.lua 调入
 function resume_maccms_episode(extra, episodenum)
     fetch_vod_by_id(extra.server, extra.vod_id, function(entry)
         if not entry then
-            show_message("采集站弹幕续载失败：无法获取剧集列表", 3)
+            source_status.mark_failed("extra:maccms", "无法获取剧集列表", "采集站弹幕续载失败")
             msg.warn("采集站续载：详情获取失败 " .. tostring(extra.server) .. " id=" .. tostring(extra.vod_id))
             return
         end
         local group = tonumber(extra.group) or 1
         if not mparse.get_episode(entry.play, group, episodenum) then
-            show_message(("采集站弹幕续载失败：第 %d 集不存在"):format(episodenum), 3)
+            source_status.mark_failed("extra:maccms",
+                ("第 %d 集不存在"):format(episodenum), "采集站弹幕续载失败")
             return
         end
         load_maccms_danmaku(extra.server, extra.vod_id, group, episodenum, extra.title, extra.year)

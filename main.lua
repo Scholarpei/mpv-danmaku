@@ -10,6 +10,7 @@ Base64 = require("modules/base64")
 MD5 = require("modules/md5")
 Sha256 = require("modules/hash")
 hmerge = require("modules/history_merge")
+source_status = require("modules/source_status")
 
 require("modules/options")
 require("modules/utils")
@@ -159,6 +160,12 @@ function show_loaded(init)
     if BLACKLIST_STATS and BLACKLIST_STATS.dropped > 0 then
         blacklist_line = ("黑名单：过滤 %d 条\\N"):format(BLACKLIST_STATS.dropped)
     end
+    -- 逐源标题汇总（会话模式含等待/失败条目，无会话模式列出已加载源；空表=无可显示源）
+    local source_lines = source_status.format_lines()
+    local source_part = ""
+    if #source_lines > 0 then
+        source_part = table.concat(source_lines, "\\N") .. "\\N"
+    end
     -- 缓存来源标注（读完即清，避免同会话后续非缓存加载误带标记；on_unload 重置 DANMAKU 为兜底）
     local cache_tag = ""
     if DANMAKU.cache_hit == "cache" then
@@ -167,16 +174,14 @@ function show_loaded(init)
         cache_tag = "（离线缓存）"
     end
     DANMAKU.cache_hit = nil
-    if DANMAKU.anime and DANMAKU.episode then
-        show_message("匹配内容：" .. DANMAKU.anime .. "-" .. DANMAKU.episode .. "\\N" .. merge_line
-            .. blacklist_line .. density_line
-            .. "弹幕加载成功" .. cache_tag .. "，共计" .. #COMMENTS .. "条弹幕", 3)
-        if init then
-            msg.info(DANMAKU.anime .. "-" .. DANMAKU.episode .. " 弹幕加载成功" .. cache_tag .. "，共计" .. #COMMENTS .. "条弹幕")
+    -- 有等待中的源 3s（随后到货会刷新），全部终态 6s（多源汇总留给用户核对标题）
+    show_message(source_part .. merge_line .. blacklist_line .. density_line
+        .. "共计" .. #COMMENTS .. "条弹幕", source_status.has_pending() and 3 or 6)
+    if init then
+        for _, line in ipairs(source_lines) do
+            msg.info(line)
         end
-    else
-        show_message(merge_line .. blacklist_line .. density_line
-            .. "弹幕加载成功" .. cache_tag .. "，共计" .. #COMMENTS .. "条弹幕", 3)
+        msg.info("弹幕加载成功" .. cache_tag .. "，共计" .. #COMMENTS .. "条弹幕")
     end
     mp.set_property_native(DANMAKU_COUNT, #COMMENTS)
 end
@@ -486,6 +491,13 @@ function add_source_to_history(add_url, add_source)
     if add_source.provider ~= nil then
         record.provider = add_source.provider
     end
+    -- 源标题（loader 同步段捕获经 add_danmaku_source 传入）：只补不擦，老记录无此字段回退显示 URL
+    if add_source.anime_title ~= nil then
+        record.anime_title = add_source.anime_title
+    end
+    if add_source.episode_title ~= nil then
+        record.episode_title = add_source.episode_title
+    end
 
    local delay_segments = shallow_copy(add_source.delay_segments or {})
     if #delay_segments > 0 then
@@ -542,6 +554,8 @@ function read_danmaku_source_record(path)
                 delay_segments = delay_segments,
                 from_history = true,
                 provider = data.provider,
+                anime_title = data.anime_title,
+                episode_title = data.episode_title,
             }
         end
     else
@@ -725,11 +739,23 @@ function auto_load_danmaku(path, dir, filename, number)
             local extras_list = hmerge.read_extras(history_dir)
 
             if history_id ~= nil or #extras_list > 0 then
-                show_message("自动加载上次匹配的弹幕", 3)
+                -- 汇总会话：extras 各源登记等待行（dandanplay 条目由 fetch_danmaku 以真实
+                -- comment URL 追加），到货/失败经 source_status 动态刷新同一 OSD 位置
+                local pending = {}
+                for _, ex in ipairs(extras_list) do
+                    local kind = ex.kind or "360kan"
+                    pending[#pending + 1] = {
+                        key = "extra:" .. kind,
+                        provider = source_status.kind_provider_label(kind),
+                        anime = ex.title,
+                    }
+                end
+                source_status.begin(pending)
                 msg.verbose("自动加载上次匹配的弹幕")
                 if history_id then
                     local tmp_id = tostring(x + history_id)
-                    set_episode_id(tmp_id)
+                    set_episode_id(tmp_id, nil, nil,
+                        {anime = DANMAKU.anime, episode = DANMAKU.episode})
                 end
                 for _, ex in ipairs(extras_list) do
                     local episodenum = ex.episodenum + x
@@ -802,6 +828,7 @@ function init(path)
 end
 
 mp.register_event("file-loaded", function()
+    source_status.reset()
     local path = mp.get_property("path")
     local dir = get_parent_directory(path)
     local filename = mp.get_property('filename/no-ext')

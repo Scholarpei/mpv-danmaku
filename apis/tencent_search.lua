@@ -154,21 +154,22 @@ local function load_tencent_danmaku(cid, vid, episodenum, title, year, type_name
         episodenum = tonumber(episodenum),
     }
     write_history()
-    add_danmaku_source(("https://v.qq.com/x/cover/%s/%s.html"):format(cid, vid), true, "腾讯视频")
+    add_danmaku_source(("https://v.qq.com/x/cover/%s/%s.html"):format(cid, vid), true, "腾讯视频",
+        {anime = DANMAKU.anime, episode = DANMAKU.episode, kind = "qq"})
 end
 
 -- 历史续载入口：按 kind="qq" 记录推算目标集数后由 main.lua 调入
 function resume_tencent_episode(extra, episodenum)
     fetch_tx_episodes(extra.cid, episodenum, function(episodes)
         if not episodes or #episodes == 0 then
-            show_message("腾讯弹幕续载失败：无法获取剧集列表", 3)
+            source_status.mark_failed("extra:qq", "无法获取剧集列表", "腾讯弹幕续载失败")
             msg.warn("腾讯续载：剧集列表为空 cid=" .. tostring(extra.cid))
             return
         end
         local ep = episodes[episodenum]
         if not ep then
-            show_message(("腾讯弹幕续载失败：第 %d 集不存在（共 %d 集）")
-                :format(episodenum, #episodes), 3)
+            source_status.mark_failed("extra:qq",
+                ("第 %d 集不存在（共 %d 集）"):format(episodenum, #episodes), "腾讯弹幕续载失败")
             return
         end
         load_tencent_danmaku(extra.cid, ep.vid, episodenum, extra.title, extra.year, extra.type_name)

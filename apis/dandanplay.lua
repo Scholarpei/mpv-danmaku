@@ -1,6 +1,7 @@
 local msg = require('mp.msg')
 local utils = require("mp.utils")
 local dcache = require("modules/danmaku_cache")
+local source_status = require("modules/source_status")
 
 local function extract_url(url)
     local path = url:match("^https?://[^/]+(/[^%?]*)")
@@ -22,7 +23,8 @@ end
 
 -- 写入history.json
 -- 读取episodeId获取danmaku
-function set_episode_id(input, from_menu, api_server)
+-- meta: {anime=, episode=} 标题快照（调用方同步段捕获，供源状态汇总显示）
+function set_episode_id(input, from_menu, api_server, meta)
     from_menu = from_menu or false
     DANMAKU.source = "dandanplay"
     local selected_server = api_server
@@ -52,7 +54,7 @@ function set_episode_id(input, from_menu, api_server)
     local episodeId = tonumber(input)
     write_history(episodeId, selected_server)
     set_danmaku_button()
-    fetch_danmaku(episodeId, from_menu, selected_server)
+    fetch_danmaku(episodeId, from_menu, selected_server, meta)
 end
 
 -- 回退使用额外的弹幕获取方式
@@ -78,7 +80,7 @@ function get_danmaku_fallback(query)
 
             if not data or not data["comments"] or data["count"] <= 1 then
                 msg.info("备用服务器无数据或返回格式不正确")
-                show_message("备用服务器无数据或返回格式不正确", 3)
+                source_status.mark_failed(query, "无数据或返回格式不正确", "备用服务器")
                 return
             end
 
@@ -276,7 +278,8 @@ local function match_episode(animeTitle, bangumiId, episode_num, api_server)
             if ep_num and ep_num == tonumber(episode_num) then
                 DANMAKU.anime = animeTitle
                 DANMAKU.episode = episode.episodeTitle
-                set_episode_id(episode.episodeId, nil, api_server)
+                set_episode_id(episode.episodeId, nil, api_server,
+                    {anime = DANMAKU.anime, episode = DANMAKU.episode})
                 break
             end
         end
@@ -436,7 +439,8 @@ local function match_file(file_path, file_name, callback)
         DANMAKU.anime = data.matches[1].animeTitle
         DANMAKU.episode = data.matches[1].episodeTitle
 
-        set_episode_id(data.matches[1].episodeId, nil, server)
+        set_episode_id(data.matches[1].episodeId, nil, server,
+            {anime = DANMAKU.anime, episode = DANMAKU.episode})
         if cancel_fn then pcall(cancel_fn) end
         if callback then pcall(callback) end
     end
@@ -518,14 +522,15 @@ function save_danmaku_downloaded(url, downloaded_file)
     end
 end
 
--- 处理获取到的数据
-function handle_fetched_danmaku(data, url, from_menu)
+-- 处理获取到的数据（meta: 标题快照，随数据落源条目供汇总/菜单显示）
+function handle_fetched_danmaku(data, url, from_menu, meta)
+    meta = meta or {}
     if data and data["comments"] then
         if data["count"] == 0 then
             if DANMAKU.sources[url] == nil then
                 DANMAKU.sources[url] = {from = "api_server"}
             end
-            show_message("该集弹幕内容为空，结束加载", 3)
+            source_status.mark_failed(url, "该集弹幕内容为空", "弹幕服务器")
             msg.info("该集弹幕内容为空，结束加载")
             if not from_menu then
                 mp.commandv("script-message", "auto_load_fallback")
@@ -533,9 +538,18 @@ function handle_fetched_danmaku(data, url, from_menu)
             return
         end
         save_danmaku_data(data["comments"], url, "api_server")
+        -- 标题随数据落源条目（只补不擦）
+        if DANMAKU.sources[url] ~= nil then
+            if meta.anime ~= nil and DANMAKU.sources[url].anime_title == nil then
+                DANMAKU.sources[url].anime_title = meta.anime
+            end
+            if meta.episode ~= nil and DANMAKU.sources[url].episode_title == nil then
+                DANMAKU.sources[url].episode_title = meta.episode
+            end
+        end
         load_danmaku(from_menu)
     else
-        show_message("无数据", 3)
+        source_status.mark_failed(url, "无数据", "弹幕服务器")
         msg.info("无数据")
         if not from_menu then
             mp.commandv("script-message", "auto_load_fallback")
@@ -546,13 +560,17 @@ end
 -- 匹配弹幕库 comment, 仅匹配dandan本身弹幕库
 -- 通过danmaku api（url）+id获取弹幕
 -- 优先读磁盘缓存（TTL 内不发网络包）；网络失败回退过期缓存（断网可看）；成功且非空写缓存
-function fetch_danmaku(episodeId, from_menu, api_server)
+-- meta: 标题快照，透传 handle_fetched_danmaku 落源条目
+function fetch_danmaku(episodeId, from_menu, api_server, meta)
     local url = api_server .. "/api/v2/comment/" .. episodeId .. "?withRelated=true&chConvert=0"
     local args = make_danmaku_request_args("GET", url)
 
     if args == nil then
         return
     end
+
+    -- 汇总登记：多源续载会话中该源显示为等待行；无会话（手动路径）为 no-op
+    source_status.ensure(url, "ddp", meta)
 
     local key = "ep:" .. episodeId
 
@@ -563,13 +581,16 @@ function fetch_danmaku(episodeId, from_menu, api_server)
         if data and type(data.comments) == "table" and #data.comments > 0 then
             DANMAKU.cache_hit = "cache"
             msg.verbose("弹幕缓存命中：" .. key)
-            handle_fetched_danmaku(data, url, from_menu)
+            handle_fetched_danmaku(data, url, from_menu, meta)
             return
         end
         dcache.remove(key)
     end
 
-    show_message("弹幕加载中...", 30)
+    -- 未命中走网络：先刷汇总等待行（无会话时保留原「弹幕加载中...」提示，缓存命中不闪此条）
+    if not source_status.refresh() then
+        show_message("弹幕加载中...", 30)
+    end
     msg.verbose("尝试获取弹幕：" .. url)
 
     -- 2) 网络失败 → 过期缓存兜底（断网可看）
@@ -580,7 +601,7 @@ function fetch_danmaku(episodeId, from_menu, api_server)
             if data and type(data.comments) == "table" and #data.comments > 0 then
                 DANMAKU.cache_hit = "stale"
                 show_message("网络失败，已使用过期弹幕缓存", 3)
-                handle_fetched_danmaku(data, url, from_menu)
+                handle_fetched_danmaku(data, url, from_menu, meta)
             end
         end
     end
@@ -593,7 +614,7 @@ function fetch_danmaku(episodeId, from_menu, api_server)
                 comments = data["comments"],
             }), { type = "json", count = data["count"] })
         end
-        handle_fetched_danmaku(data, url, from_menu)
+        handle_fetched_danmaku(data, url, from_menu, meta)
     end, on_error)
 end
 
@@ -616,13 +637,24 @@ end
 
 --通过输入源url获取弹幕库
 --provider: 源提供方显示名（腾讯视频/maccms·某站/bilibili 等），仅用于菜单标注，不参与取数逻辑
-function add_danmaku_source(query, from_menu, provider)
+--meta: {anime=, episode=, kind=} 标题快照（各 loader 在设完全局后的同一同步段传入，
+--  避免读 DANMAKU.anime 全局被并行源覆盖；kind 供汇总把 "extra:"..kind 占位条目换键为真实 URL）
+function add_danmaku_source(query, from_menu, provider, meta)
+    meta = meta or {}
     if DANMAKU.sources[query] == nil then
         DANMAKU.sources[query] = {from = "user_custom", provider = provider}
     elseif provider ~= nil and DANMAKU.sources[query].provider == nil then
         -- 历史遗留源补标：只补不覆盖（重放/续载时不带 provider 也不丢已有标注）
         DANMAKU.sources[query].provider = provider
     end
+    -- 标题捕获（只补不擦）：from_menu 路径随下方 add_source_to_history 同步落盘
+    if meta.anime ~= nil and DANMAKU.sources[query].anime_title == nil then
+        DANMAKU.sources[query].anime_title = meta.anime
+    end
+    if meta.episode ~= nil and DANMAKU.sources[query].episode_title == nil then
+        DANMAKU.sources[query].episode_title = meta.episode
+    end
+    source_status.ensure(query, provider, meta)
 
     from_menu = from_menu or false
     if from_menu then
@@ -652,15 +684,23 @@ function add_danmaku_source_local(query, from_menu)
         return
     end
 
+    -- 本地文件标题：文件名去扩展名（同步完成，登记即终态由完成检测接管）
+    local basename = path:match("([^/\\]+)$") or query
+    basename = basename:gsub("%.[^./\\]+$", "")
     if DANMAKU.sources[query] ~= nil then
         DANMAKU.sources[query]["from"] = "user_local"
         if DANMAKU.sources[query].provider == nil then
             DANMAKU.sources[query].provider = "本地文件"
         end
+        if DANMAKU.sources[query].anime_title == nil then
+            DANMAKU.sources[query].anime_title = basename
+        end
         DANMAKU.sources[query]["data"] = parse_danmaku_file(path)
     else
-        DANMAKU.sources[query] = {from = "user_local", provider = "本地文件", data = parse_danmaku_file(path)}
+        DANMAKU.sources[query] = {from = "user_local", provider = "本地文件",
+            anime_title = basename, data = parse_danmaku_file(path)}
     end
+    source_status.ensure(query, "本地文件", {anime = basename})
 
     set_danmaku_button()
     load_danmaku(from_menu)
@@ -669,7 +709,9 @@ end
 --通过输入源url获取弹幕库
 function add_danmaku_source_online(query, from_menu)
     set_danmaku_button()
-    show_message("弹幕加载中...", 30)
+    if not source_status.refresh() then
+        show_message("弹幕加载中...", 30)
+    end
     msg.verbose("尝试获取弹幕：" .. query)
 
     local servers = get_api_server_list(options.api_server)

@@ -352,14 +352,14 @@ function open_add_menu_get()
                 else
                     serial = serial + 1
                     local action1 = source.blocked and "unblock" or "block"
-                    local text1 = string.format("  [%02d] %s [来源：%s]%s  ", serial, url, source.provider or "用户添加", source.blocked and " (已屏蔽)" or "（未屏蔽）")
+                    local text1 = string.format("  [%02d] %s [来源：%s]%s  ", serial, source_display_title(source, url), source.provider or "用户添加", source.blocked and " (已屏蔽)" or "（未屏蔽）")
                     local style1 = (tonumber(select_num) == serial) and "{\\c&HFFDE7F&\\b1}" or (action1 == "unblock" and "{\\c&H4C4CC3&\\b0}" or "{\\c&HCCCCCC&\\b0}")
                     deal_value[serial] = {value = url, action = action1}
                     table.insert(menu_log, {text = text1, style = style1})
 
                     serial = serial + 1
                     local action2 = "delete"
-                    local text2 = string.format("  [%02d] %s [来源：%s] (删除)  ", serial, url, source.provider or "用户添加")
+                    local text2 = string.format("  [%02d] %s [来源：%s] (删除)  ", serial, source_display_title(source, url), source.provider or "用户添加")
                     local style2 = (tonumber(select_num) == serial) and "{\\c&HFFDE7F&\\b1}" or "{\\c&HCCCCCC&\\b0}"
                     deal_value[serial] = {value = url, action = action2}
                     table.insert(menu_log, {text = text2, style = style2})
@@ -452,7 +452,8 @@ function open_add_menu_uosc()
         if source.data then
             local count = #source.data  -- 弹幕条数
             local count_text = string.format("（%d条）弹幕", count)
-            local item = {title = utf8_sub(url, 1, 100), value = url, keep_open = true,}
+            -- 标题主、URL 缩略次之（有标题才附 URL 供排查；老记录无标题回退 URL 全显）
+            local item = {title = source_display_title(source, url), value = url, keep_open = true,}
             if source.from == "api_server" then
                 if source.blocked then
                     item.hint = "来源：弹幕服务器（已屏蔽）"
@@ -463,6 +464,9 @@ function open_add_menu_uosc()
                 end
             else
                 item.hint = "来源：" .. (source.provider or "用户添加")
+                if source.anime_title then
+                    item.hint = item.hint .. " ｜ " .. utf8_sub(remove_query(url), 1, 50)
+                end
                 if source.blocked then
                     item.actions = {
                         {icon = "check", name = "unblock", label = "解除屏蔽" .. count_text},
@@ -1325,11 +1329,49 @@ local total_menu_items_config = {
 function open_add_total_menu_uosc()
     local items = {}
 
-    if DANMAKU.anime and DANMAKU.episode then
-        local episode = DANMAKU.episode:gsub("%s.-$","")
-        episode = episode:match("^(第.*[话回集]+)%s*") or episode
+    -- 逐源列出已加载弹幕（与 OSD 汇总/源菜单口径一致）；无已加载源时回退记录级单行
+    local titled = {}
+    for url, source in pairs(DANMAKU.sources) do
+        if source.data and type(source.data) == "table" and #source.data > 0 then
+            titled[#titled + 1] = {url = url, source = source}
+        end
+    end
+    if #titled > 0 then
+        -- pairs 遍历序不稳定，按显示名排序保证确定性
+        table.sort(titled, function(a, b)
+            local ka = (a.source.provider or provider_label_from_url(a.url) or "弹幕源") .. a.url
+            local kb = (b.source.provider or provider_label_from_url(b.url) or "弹幕源") .. b.url
+            return ka < kb
+        end)
         items[#items + 1] = {
-            title = string.format("已关联弹幕：%s-%s", DANMAKU.anime, episode),
+            title = "已关联弹幕",
+            bold = true,
+            keep_open = true,
+            selectable = false,
+        }
+        local max_rows = 4
+        for i = 1, math.min(#titled, max_rows) do
+            local t = titled[i]
+            items[#items + 1] = {
+                title = string.format("  %s%s（%d条）",
+                    (t.source.provider or provider_label_from_url(t.url) or "弹幕源"),
+                    source_display_title(t.source, t.url), #t.source.data),
+                muted = true,
+                keep_open = true,
+                selectable = false,
+            }
+        end
+        if #titled > max_rows then
+            items[#items + 1] = {
+                title = string.format("  …等 %d 个弹幕源", #titled - max_rows),
+                muted = true,
+                keep_open = true,
+                selectable = false,
+            }
+        end
+    elseif DANMAKU.anime and DANMAKU.episode then
+        items[#items + 1] = {
+            title = string.format("已关联弹幕：%s-%s", DANMAKU.anime, short_episode_title(DANMAKU.episode)),
             bold = true,
             italic = true,
             keep_open = true,

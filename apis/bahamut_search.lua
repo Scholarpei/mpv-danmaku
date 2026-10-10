@@ -96,7 +96,8 @@ local function load_bahamut_danmaku(video_sn, ep_sn, episodenum, title, year)
         episodenum = tonumber(episodenum),
     }
     write_history()
-    add_danmaku_source(("https://ani.gamer.com.tw/animeVideo.php?sn=%s"):format(ep_sn), true, "巴哈姆特")
+    add_danmaku_source(("https://ani.gamer.com.tw/animeVideo.php?sn=%s"):format(ep_sn), true, "巴哈姆特",
+        {anime = DANMAKU.anime, episode = DANMAKU.episode, kind = "bahamut"})
 end
 
 -- 历史续载入口：按 kind="bahamut" 记录推算目标集数后由 main.lua 调入
@@ -105,16 +106,17 @@ function resume_bahamut_episode(extra, episodenum)
         if not episodes then
             if restricted then
                 show_message("巴哈分集接口当前受限（时段性），稍后重试或配置代理", 4)
+                source_status.mark_failed("extra:bahamut", "分集接口受限（时段性）", "巴哈弹幕续载失败")
             else
-                show_message("巴哈弹幕续载失败：无法获取剧集列表", 3)
+                source_status.mark_failed("extra:bahamut", "无法获取剧集列表", "巴哈弹幕续载失败")
             end
             msg.warn("巴哈续载：剧集列表为空 video_sn=" .. tostring(extra.video_sn))
             return
         end
         local ep = episodes[episodenum]
         if not ep then
-            show_message(("巴哈弹幕续载失败：第 %d 话不存在（共 %d 话）")
-                :format(episodenum, #episodes), 3)
+            source_status.mark_failed("extra:bahamut",
+                ("第 %d 话不存在（共 %d 话）"):format(episodenum, #episodes), "巴哈弹幕续载失败")
             return
         end
         load_bahamut_danmaku(extra.video_sn, ep.video_sn, episodenum, extra.title, extra.year)

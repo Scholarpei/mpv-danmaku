@@ -125,21 +125,22 @@ local function load_youku_danmaku(show_id, vid, episodenum, title, year, type_na
         episodenum = tonumber(episodenum),
     }
     write_history()
-    add_danmaku_source(("https://v.youku.com/v_show/id_%s.html"):format(vid), true, "优酷")
+    add_danmaku_source(("https://v.youku.com/v_show/id_%s.html"):format(vid), true, "优酷",
+        {anime = DANMAKU.anime, episode = DANMAKU.episode, kind = "youku"})
 end
 
 -- 历史续载入口：按 kind="youku" 记录推算目标集数后由 main.lua 调入
 function resume_youku_episode(extra, episodenum)
     fetch_yk_episodes(extra.show_id, episodenum, function(episodes)
         if not episodes or #episodes == 0 then
-            show_message("优酷弹幕续载失败：无法获取剧集列表", 3)
+            source_status.mark_failed("extra:youku", "无法获取剧集列表", "优酷弹幕续载失败")
             msg.warn("优酷续载：剧集列表为空 show_id=" .. tostring(extra.show_id))
             return
         end
         local ep = episodes[episodenum]
         if not ep then
-            show_message(("优酷弹幕续载失败：第 %d 集不存在（共 %d 集）")
-                :format(episodenum, #episodes), 3)
+            source_status.mark_failed("extra:youku",
+                ("第 %d 集不存在（共 %d 集）"):format(episodenum, #episodes), "优酷弹幕续载失败")
             return
         end
         load_youku_danmaku(extra.show_id, ep.vid, episodenum, extra.title, extra.year, extra.type_name)

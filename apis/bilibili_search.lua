@@ -105,21 +105,22 @@ local function load_bilibili_danmaku(season_id, ep_id, episodenum, title, year, 
         episodenum = tonumber(episodenum),
     }
     write_history()
-    add_danmaku_source(("https://www.bilibili.com/bangumi/play/ep%s"):format(ep_id), true, "bilibili")
+    add_danmaku_source(("https://www.bilibili.com/bangumi/play/ep%s"):format(ep_id), true, "bilibili",
+        {anime = DANMAKU.anime, episode = DANMAKU.episode, kind = "bilibili"})
 end
 
 -- 历史续载入口：按 kind="bilibili" 记录推算目标集数后由 main.lua 调入
 function resume_bilibili_episode(extra, episodenum)
     fetch_bili_episodes(extra.season_id, function(episodes)
         if not episodes then
-            show_message("B站弹幕续载失败：无法获取剧集列表", 3)
+            source_status.mark_failed("extra:bilibili", "无法获取剧集列表", "B站弹幕续载失败")
             msg.warn("B站续载：剧集列表为空 season_id=" .. tostring(extra.season_id))
             return
         end
         local ep = episodes[episodenum]
         if not ep then
-            show_message(("B站弹幕续载失败：第 %d 话不存在（共 %d 话）")
-                :format(episodenum, #episodes), 3)
+            source_status.mark_failed("extra:bilibili",
+                ("第 %d 话不存在（共 %d 话）"):format(episodenum, #episodes), "B站弹幕续载失败")
             return
         end
         load_bilibili_danmaku(extra.season_id, ep.ep_id, episodenum, extra.title, extra.year, extra.type_name)

@@ -104,21 +104,22 @@ local function load_iqiyi_danmaku(link_id, url, episodenum, title, year, type_na
         episodenum = tonumber(episodenum),
     }
     write_history()
-    add_danmaku_source(url, true, "爱奇艺")
+    add_danmaku_source(url, true, "爱奇艺",
+        {anime = DANMAKU.anime, episode = DANMAKU.episode, kind = "iqiyi"})
 end
 
 -- 历史续载入口：按 kind="iqiyi" 记录推算目标集数后由 main.lua 调入
 function resume_iqiyi_episode(extra, episodenum)
     fetch_iq_episodes(extra.link_id, extra.title, function(episodes)
         if not episodes or #episodes == 0 then
-            show_message("爱奇艺弹幕续载失败：无法获取剧集列表", 3)
+            source_status.mark_failed("extra:iqiyi", "无法获取剧集列表", "爱奇艺弹幕续载失败")
             msg.warn("爱奇艺续载：剧集列表为空 link_id=" .. tostring(extra.link_id))
             return
         end
         local ep = episodes[episodenum]
         if not ep then
-            show_message(("爱奇艺弹幕续载失败：第 %d 集不存在（共 %d 集）")
-                :format(episodenum, #episodes), 3)
+            source_status.mark_failed("extra:iqiyi",
+                ("第 %d 集不存在（共 %d 集）"):format(episodenum, #episodes), "爱奇艺弹幕续载失败")
             return
         end
         load_iqiyi_danmaku(extra.link_id,

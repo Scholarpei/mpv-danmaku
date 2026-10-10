@@ -146,21 +146,22 @@ local function load_mgtv_danmaku(collection_id, video_id, episodenum, title, yea
         episodenum = tonumber(episodenum),
     }
     write_history()
-    add_danmaku_source(("https://www.mgtv.com/b/%s/%s.html"):format(collection_id, video_id), true, "芒果TV")
+    add_danmaku_source(("https://www.mgtv.com/b/%s/%s.html"):format(collection_id, video_id), true, "芒果TV",
+        {anime = DANMAKU.anime, episode = DANMAKU.episode, kind = "mgtv"})
 end
 
 -- 历史续载入口：按 kind="mgtv" 记录推算目标集数后由 main.lua 调入
 function resume_mgtv_episode(extra, episodenum)
     fetch_mg_episodes(extra.collection_id, episodenum, function(episodes)
         if not episodes or #episodes == 0 then
-            show_message("芒果弹幕续载失败：无法获取剧集列表", 3)
+            source_status.mark_failed("extra:mgtv", "无法获取剧集列表", "芒果弹幕续载失败")
             msg.warn("芒果续载：剧集列表为空 collection_id=" .. tostring(extra.collection_id))
             return
         end
         local ep = episodes[episodenum]
         if not ep then
-            show_message(("芒果弹幕续载失败：第 %d 集不存在（共 %d 集）")
-                :format(episodenum, #episodes), 3)
+            source_status.mark_failed("extra:mgtv",
+                ("第 %d 集不存在（共 %d 集）"):format(episodenum, #episodes), "芒果弹幕续载失败")
             return
         end
         load_mgtv_danmaku(extra.collection_id, ep.video_id, episodenum, extra.title, extra.year, extra.type_name)

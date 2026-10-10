@@ -377,6 +377,30 @@ function provider_label_from_url(url)
     return nil
 end
 
+-- 截取集数标题的「第N话/回/集」前缀（OSD 汇总与总菜单共用；兼容繁体「話」）
+-- 仅当标题以「第…话/回/集」开头时截掉尾随副标题；其余格式（B站分P名「P2 xxx」等）原样保留
+function short_episode_title(ep)
+    if type(ep) ~= "string" or ep == "" then return ep end
+    return ep:match("^%s*(第.-[话話回集]+)%s*") or ep
+end
+
+-- 源条目的可读标题：《动画名（截断）》第N话；无标题回退 URL 截断（老记录）
+-- source: DANMAKU.sources[url] 条目（anime_title/episode_title 可缺省）
+-- url_len: 无标题回退时的 URL 截断长度（菜单 100 / OSD 汇总 50）
+function source_display_title(source, url, url_len)
+    source = source or {}
+    local anime = source.anime_title
+    if not anime or anime == "" then
+        return utf8_sub(url, 1, url_len or 100)
+    end
+    local line = "《" .. abbr_str(anime, 18) .. "》"
+    local ep = short_episode_title(source.episode_title or "")
+    if type(ep) == "string" and ep ~= "" then
+        line = line .. ep
+    end
+    return line
+end
+
 function file_exists(path)
     if path then
         local meta = utils.file_info(path)

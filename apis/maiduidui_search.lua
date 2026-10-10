@@ -80,21 +80,21 @@ local function load_maiduidui_danmaku(vod_uuid, ep_uuid, episodenum, title, mate
     }
     write_history()
     add_danmaku_source(("https://www.mddcloud.com.cn/video/%s.html?uuid=%s"):format(vod_uuid, ep_uuid),
-        true, "埋堆堆")
+        true, "埋堆堆", {anime = DANMAKU.anime, episode = DANMAKU.episode, kind = "maiduidui"})
 end
 
 -- 历史续载入口：按 kind="maiduidui" 记录推算目标集数后由 main.lua 调入
 function resume_maiduidui_episode(extra, episodenum)
     fetch_mdd_episodes(extra.vod_uuid, function(episodes)
         if not episodes then
-            show_message("埋堆堆弹幕续载失败：无法获取剧集列表", 3)
+            source_status.mark_failed("extra:maiduidui", "无法获取剧集列表", "埋堆堆弹幕续载失败")
             msg.warn("埋堆堆续载：剧集列表为空 vod_uuid=" .. tostring(extra.vod_uuid))
             return
         end
         local ep = episodes[episodenum]
         if not ep then
-            show_message(("埋堆堆弹幕续载失败：第 %d 集不存在（共 %d 集）")
-                :format(episodenum, #episodes), 3)
+            source_status.mark_failed("extra:maiduidui",
+                ("第 %d 集不存在（共 %d 集）"):format(episodenum, #episodes), "埋堆堆弹幕续载失败")
             return
         end
         load_maiduidui_danmaku(extra.vod_uuid, ep.uuid, episodenum, extra.title, extra.material_name)
