@@ -1,5 +1,6 @@
 -- extcomment 磁盘缓存集成测试：add_danmaku_source_online 的缓存命中不发网络、
--- 未命中走网络且写缓存、损坏条目回网络重写、空结果不写缓存并走兜底
+-- 未命中走网络且写缓存、损坏条目回网络重写、空结果不写缓存并走兜底、
+-- 断网（全服务器无响应）回退过期缓存、断网无缓存照常走兜底
 -- （自断言，输出 PASS/FAIL 行）
 -- 运行：mpv.com --idle=once --no-config --script=<本文件路径>
 -- 退出码非 0 或输出含 FAIL 即失败
@@ -166,6 +167,42 @@ steps[9] = function()
     check("同 URL 键稳定", k1 == k2 and #k1 > 8)
     check("异 URL 键不同", extcomment_cache_key(QQ_URL)
         ~= extcomment_cache_key("https://v.qq.com/x/cover/c1/v9.html?x=1"))
+end
+
+-- ---------- 用例 6：断网（全服务器无响应）→ 过期缓存兜底 ----------
+-- 时钟前移 2h 使用例 3 重写的条目过期（get 未命中、get_stale 命中），模拟「断网 + 仅有旧缓存」
+steps[10] = function()
+    dc.setup({
+        enabled = true, dir = TMP, ttl_seconds = 3600, max_bytes = 0,
+        platform = PLATFORM,
+        run_sync = function(cmd) return mp.command_native(cmd) end,
+        now = function() return os.time() + 7200 end,
+        log = function() end,
+    })
+    stub.net_calls = 0
+    stub.loads = 0
+    stub.fallbacks = 0
+    stub.fail = true
+    add_danmaku_source(QQ_URL, false)
+end
+
+steps[11] = function()
+    check("断网有网络尝试", stub.net_calls >= 1)
+    check("断网走过期缓存加载", stub.loads == 1)
+    check("断网标记 stale", DANMAKU.cache_hit == "stale")
+    check("断网不走兜底", stub.fallbacks == 0)
+    DANMAKU.cache_hit = nil
+end
+
+-- ---------- 用例 7：断网且无过期缓存 → 照常走兜底链 ----------
+steps[12] = function()
+    stub.net_calls = 0
+    add_danmaku_source("https://v.qq.com/x/cover/c1/v11.html", false)
+end
+
+steps[13] = function()
+    check("断网无缓存走兜底", stub.fallbacks == 1)
+    stub.fail = false
 end
 
 local function finish()

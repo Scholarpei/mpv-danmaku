@@ -2,7 +2,7 @@
 -- 运行：mpv.com --idle=once --no-config --script=<本文件路径>
 -- 退出码非 0 或输出含 FAIL 即失败
 -- 覆盖：触发门槛（auto_load/缓存/协议路径/无下一项/异文件夹/无记忆）/
---   全链路预取三类任务入缓存（ep:/ext:/cid:）与正式加载同键 /
+--   全链路预取五类任务入缓存（ep:/ext:/cid:/ako:/mdd:）与正式加载同键 /
 --   TTL 命中零网络 / armed 每文件仅评估一次 / bilibili_series_memory=off 剪裁 / 断网静默不崩
 
 local script_path = debug.getinfo(1, "S").source:sub(2)
@@ -75,6 +75,19 @@ local BILI_XML = '<?xml version="1.0" encoding="UTF-8"?><i>'
     .. '<d p="1.000,1,25,16777215,1,0,0,0">hi</d>'
     .. '<d p="2.000,4,25,9830415,1,0,0,0">yo</d></i>'
 local net = { calls = {}, fail_all = false }
+
+-- animeko 剧集列表（episodeId=80000+n，仅 MAIN）与埋堆堆分集列表（uuid=e<n>）桩载荷
+local AKO_SUBJECTS, MDD_SACTIONS
+do
+    local ako_eps, mdd_eps = {}, {}
+    for i = 1, 20 do
+        ako_eps[#ako_eps + 1] = ('{"episodeId":%d,"type":"MAIN","name":"%d"}'):format(80000 + i, i)
+        mdd_eps[#mdd_eps + 1] = ('{"uuid":"e%d","name":"第%d集"}'):format(i, i)
+    end
+    AKO_SUBJECTS = '{"nameCn":"测试","episodes":[' .. table.concat(ako_eps, ",") .. ']}'
+    MDD_SACTIONS = '{"status":true,"data":[' .. table.concat(mdd_eps, ",") .. ']}'
+end
+
 call_cmd_async = function(args, cb)
     local url
     for i = #args, 1, -1 do
@@ -94,6 +107,10 @@ call_cmd_async = function(args, cb)
                 .. '{"p":"2.00,4,9830415","m":"b"}]}')
         elseif url:find("comment%.bilibili%.com/") then
             cb(nil, BILI_XML)
+        elseif url:find("/v2/subjects/") then
+            cb(nil, AKO_SUBJECTS)
+        elseif url:find("listVodSactions") then
+            cb(nil, MDD_SACTIONS)
         else
             cb("unexpected url: " .. tostring(url), nil)
         end
@@ -114,6 +131,8 @@ require("modules/parse")
 require("modules/guess")  -- get_episode_number → get_series_episodes 依赖 format_filename
 require("apis/dandanplay")
 require("sites/bilibili")
+require("apis/animeko_search")
+require("apis/maiduidui_search")
 
 -- B站分P列表桩：20 页、cid=9000+page（预取与匹配真实链路，仅桩列表接口）
 fetch_bilibili_pagelist = function(vid, cb)
@@ -139,6 +158,19 @@ dc.setup({
     log = function() end,
 })
 
+-- 站点直连缓存源桩：apis 预取入口（prefetch_animeko_episode 等，真身链路到
+-- 剧集列表为止）最终调站点层取数函数，此处桩为「写对应缓存键」最小实现；
+-- 站点层真身的缓存读写由 tests/sites_cache_test.lua 覆盖
+local PF_PAYLOAD = '{"count":2,"comments":[{"p":"1.00,1,16777215","m":"pf"}]}'
+prefetch_animeko_danmaku = function(episode_id, cb)
+    dc.put("ako:" .. tostring(episode_id), PF_PAYLOAD, { type = "json", count = 2 })
+    mp.add_timeout(0.01, function() cb(true) end)
+end
+prefetch_maiduidui_danmaku = function(vod_uuid, ep_uuid, cb)
+    dc.put("mdd:" .. tostring(ep_uuid), PF_PAYLOAD, { type = "json", count = 2 })
+    mp.add_timeout(0.01, function() cb(true) end)
+end
+
 local prefetch_mod = require("modules/prefetch")
 
 -- 历史记录：键用真实 get_parent_directory 计算，规避路径规范化格式假设
@@ -158,13 +190,15 @@ local RECORD = {
     api_server = "https://api.example.com",
     extras = {
         { kind = "qq", cid = "c1", episodenum = 8, fname = "Show - 08" },
+        { kind = "animeko", subject_id = "42", episodenum = 8, fname = "Show - 08" },
+        { kind = "maiduidui", vod_uuid = "v1", episodenum = 8, fname = "Show - 08" },
     },
     bilibili = { BV123 = { page = 8, episode = 8, season = 1, ts = 1 } },
 }
 
 local steps = {}
 
--- ---------- 用例组 A：全链路（ddp + qq ext + B站合集 三类任务入缓存） ----------
+-- ---------- 用例组 A：全链路（ddp + qq ext + B站合集 + animeko + 埋堆堆 五类任务入缓存） ----------
 -- 注意：armed 每文件仅评估一次是正式语义，故各组场景用不同文件路径互不干扰
 steps[1] = function()
     write_history(RECORD)
@@ -176,9 +210,13 @@ steps[2] = function()
     check("ext: 腾讯 v9 已入缓存",
         dc.get(extcomment_cache_key("https://v.qq.com/x/cover/c1/v9.html")) ~= nil)
     check("cid:9009 已入缓存", dc.get("cid:9009") ~= nil)
+    check("ako:80009 已入缓存（剧集列表真链路）", dc.get("ako:80009") ~= nil)
+    check("mdd:e9 已入缓存（剧集列表真链路）", dc.get("mdd:e9") ~= nil)
     check("comment API 恰好一次", count_url("/api/v2/comment/") == 1)
     check("extcomment 恰好一次", count_url("/api/v2/extcomment") == 1)
     check("B站 XML 恰好一次", count_url("comment.bilibili.com") == 1)
+    check("animeko 剧集列表恰好一次", count_url("/v2/subjects/") == 1)
+    check("埋堆堆分集列表恰好一次", count_url("listVodSactions") == 1)
     -- 预取不产生任何渲染/DANMAKU 污染
     check("不写 DANMAKU.sources", next(DANMAKU.sources) == nil)
 end
@@ -231,9 +269,11 @@ steps[7] = function()
     write_history(RECORD)
 end
 
--- ---------- 用例组 D：TTL 命中零网络（换文件重新评估） ----------
+-- ---------- 用例组 D：TTL 命中零弹幕网络（换文件重新评估） ----------
 steps[8] = function()
-    -- 当前 Show - 10、下一集 Show - 11：对锚 Show - 08 差值 3 → ddp=100111、qq=11、B站=11
+    -- 当前 Show - 10、下一集 Show - 11：对锚 Show - 08 差值 3 → ddp=100111、qq=11、B站=11、
+    -- animeko=80011、埋堆堆=e11。animeko/埋堆堆预取入口须先拉剧集列表才能定位缓存键
+    -- （生产环境 ext 任务的 resolver 同理），故「零网络」只对弹幕取数端点断言
     STUB.path = TMP .. "/Show - 10.mkv"
     STUB.fname = "Show - 10"
     STUB.next_path = TMP .. "/Show - 11.mkv"
@@ -242,9 +282,18 @@ steps[8] = function()
     dc.put(extcomment_cache_key("https://v.qq.com/x/cover/c1/v11.html"),
         '{"count":1,"comments":[{"p":"1.00,1,16777215","m":"z"}]}', { type = "json", count = 1 })
     dc.put("cid:90011", BILI_XML, { type = "xml" })
+    dc.put("ako:80011", PF_PAYLOAD, { type = "json", count = 2 })
+    dc.put("mdd:e11", PF_PAYLOAD, { type = "json", count = 2 })
     local before = #net.calls
     prefetch_mod.maybe_prefetch()
-    check("全部缓存命中零网络", #net.calls == before)
+    local meta_calls = 0
+    for i = before + 1, #net.calls do
+        local u = net.calls[i]
+        if u:find("/v2/subjects/", 1, false) or u:find("listVodSactions", 1, false) then
+            meta_calls = meta_calls + 1
+        end
+    end
+    check("弹幕取数端点全部缓存命中零网络", #net.calls - before == meta_calls)
 end
 
 -- ---------- 用例组 E：bilibili_series_memory=off 剪裁 B站任务 ----------
@@ -260,7 +309,8 @@ end
 steps[10] = function()
     check("off 时 B站合集不预取", dc.get("cid:90013") == nil)
     check("off 时其余源照常预取", dc.get("ep:100113") ~= nil
-        and dc.get(extcomment_cache_key("https://v.qq.com/x/cover/c1/v13.html")) ~= nil)
+        and dc.get(extcomment_cache_key("https://v.qq.com/x/cover/c1/v13.html")) ~= nil
+        and dc.get("ako:80013") ~= nil and dc.get("mdd:e13") ~= nil)
     options.bilibili_series_memory = "add"
 end
 
@@ -276,7 +326,8 @@ end
 
 steps[12] = function()
     check("断网不写缓存", dc.get("ep:100115") == nil
-        and dc.get(extcomment_cache_key("https://v.qq.com/x/cover/c1/v15.html")) == nil)
+        and dc.get(extcomment_cache_key("https://v.qq.com/x/cover/c1/v15.html")) == nil
+        and dc.get("ako:80015") == nil and dc.get("mdd:e15") == nil)
     check("断网不产生 DANMAKU 污染", next(DANMAKU.sources) == nil)
     net.fail_all = false
 end

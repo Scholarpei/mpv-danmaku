@@ -61,7 +61,8 @@ local function count_by_type(tasks, typ)
     return n
 end
 
--- 全源记录：ddp + qq（锚=当前集）+ youku（慢源锚落后一集）+ animeko/360kan（不可预取）+ B站合集
+-- 全源记录：ddp + qq（锚=当前集）+ youku（慢源锚落后一集）+ animeko/埋堆堆（站点直连缓存源）
+--   + 360kan（不可预取）+ B站合集
 local RECORD = {
     fname = "Show - 08",
     episodeNumber = 8,
@@ -71,7 +72,8 @@ local RECORD = {
     extras = {
         { kind = "qq", cid = "c1", episodenum = 8, fname = "Show - 08" },
         { kind = "youku", show_id = "s1", episodenum = 8, fname = "Show - 07" },
-        { kind = "animeko", subject_id = "x", episodenum = 8, fname = "Show - 08" },
+        { kind = "animeko", subject_id = "42", episodenum = 8, fname = "Show - 08" },
+        { kind = "maiduidui", vod_uuid = "v1", episodenum = 8, fname = "Show - 08" },
         { kind = "360kan", id = 1, episodenum = 8 },
     },
     bilibili = { BV123 = { page = 8, episode = 8, season = 1, ts = 1 } },
@@ -91,7 +93,13 @@ do
     local yk = find_ext(tasks, "youku")
     check("youku 慢源锚落后仍排任务", yk ~= nil)
     check("youku 按自身锚推算（07 锚记 8 → 09 集）", yk and yk.episodenum == 10)
-    check("animeko 不可预取不排任务", find_ext(tasks, "animeko") == nil)
+    local ako = find_by_type(tasks, "ako")
+    check("animeko 站点缓存任务存在", ako ~= nil)
+    check("animeko 集数 = 锚差 +1", ako and ako.episodenum == 9)
+    check("animeko extra 引用透传", ako and ako.extra == RECORD.extras[3])
+    local mdd = find_by_type(tasks, "mdd")
+    check("埋堆堆站点缓存任务存在", mdd ~= nil)
+    check("埋堆堆集数 = 锚差 +1", mdd and mdd.episodenum == 9)
     check("360kan 不可预取不排任务", find_ext(tasks, "360kan") == nil)
     check("ext 任务共 2 项", count_by_type(tasks, "ext") == 2)
     local bl = find_by_type(tasks, "bili_series")
@@ -131,6 +139,10 @@ do
     check("重播时 qq 差值 0", qq and qq.episodenum == 8)
     local yk = find_ext(tasks, "youku")
     check("重播时慢源按自身锚推算（07→08）", yk and yk.episodenum == 9)
+    local ako = find_by_type(tasks, "ako")
+    check("重播时 ako 差值 0", ako and ako.episodenum == 8)
+    local mdd = find_by_type(tasks, "mdd")
+    check("重播时埋堆堆差值 0", mdd and mdd.episodenum == 8)
 end
 
 -- ---------- 用例 5：无 episodeId（纯直连源文件夹）→ 无 ddp 任务 ----------

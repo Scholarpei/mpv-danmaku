@@ -102,6 +102,20 @@ function resume_maiduidui_episode(extra, episodenum)
     end)
 end
 
+-- 下一集预取：目标集数 → 分集 uuid → 拉弹幕写 mdd: 磁盘缓存（sites/maiduidui.lua；
+-- 仅取剧集列表与弹幕，无 OSD/history/sources 副作用，uuid 与 resume 路径同源）
+function prefetch_maiduidui_episode(extra, episodenum, callback)
+    callback = callback or function() end
+    fetch_mdd_episodes(extra.vod_uuid, function(episodes)
+        local ep = episodes and episodes[episodenum]
+        if not ep or not ep.uuid then
+            callback(false)
+            return
+        end
+        prefetch_maiduidui_danmaku(extra.vod_uuid, ep.uuid, callback)
+    end)
+end
+
 -- 搜索解析结果 → menu_anime 条目（|mdd 单源流与聚合搜索共用）
 -- 埋堆堆无年份字段，hint 显示类型与集数
 function build_maiduidui_search_items(parsed_items)

@@ -9,7 +9,9 @@
 --   弹弹play   "ep:{episodeId}"    —— prefetch_dandanplay_episode（apis/dandanplay.lua）
 --   直连源     "ext:{url哈希}"      —— resolve_*_episode_url（各 apis）+ fetch_extcomment
 --   B站合集   "cid:{cid}"          —— fetch_bilibili_pagelist + 分P匹配 + prefetch_bilibili_danmaku
--- 360kan / animeko / maiduidui 的加载路径未接磁盘缓存，暂不预取（plan 直接不排任务）
+--   animeko   "ako:{episodeId}"    —— prefetch_animeko_episode（apis/animeko_search.lua）
+--   埋堆堆    "mdd:{分集uuid}"     —— prefetch_maiduidui_episode（apis/maiduidui_search.lua）
+-- 360kan 的加载路径未接磁盘缓存，暂不预取（plan 直接不排任务）
 --
 -- 纯函数 plan 与执行/触发分离：plan 无 mp.* 依赖供单元测试（tests/prefetch_plan_test.lua），
 -- 集数锚点推算逐式镜像 main.lua 的 dandanplay_flow（modules/history_merge.lua）。
@@ -70,12 +72,19 @@ function M.plan(record, next_filename, parse_fn)
             api_server = record.api_server }
     end
 
-    -- 各直连源 extras：逐锚推算目标集数；仅排有缓存触点的 kind
+    -- 各直连源 extras：逐锚推算目标集数；按 kind 落到对应任务类型（仅排有缓存触点的 kind）
     for _, ex in ipairs(hmerge.read_extras(record)) do
-        if type(ex) == "table" and ex.episodenum ~= nil and RESOLVERS[ex.kind or "360kan"] ~= nil then
+        if type(ex) == "table" and ex.episodenum ~= nil then
+            local kind = ex.kind or "360kan"
             local num = ex.episodenum + hmerge.anchor_delta(parse_fn, next_filename, ex.fname, x)
             if num >= 1 then
-                tasks[#tasks + 1] = { type = "ext", kind = ex.kind, extra = ex, episodenum = num }
+                if RESOLVERS[kind] ~= nil then
+                    tasks[#tasks + 1] = { type = "ext", kind = kind, extra = ex, episodenum = num }
+                elseif kind == "animeko" then
+                    tasks[#tasks + 1] = { type = "ako", extra = ex, episodenum = num }
+                elseif kind == "maiduidui" then
+                    tasks[#tasks + 1] = { type = "mdd", extra = ex, episodenum = num }
+                end
             end
         end
     end
@@ -161,6 +170,20 @@ local function execute(tasks, done)
                     if not url then one_done(false) return end
                     warm_extcomment(url, one_done)
                 end)
+            end
+        elseif task.type == "ako" then
+            -- 站点直连缓存源（animeko）：入口由 apis/animeko_search.lua 定义，单测部分加载时缺省容错
+            if type(prefetch_animeko_episode) ~= "function" then
+                one_done(false)
+            else
+                prefetch_animeko_episode(task.extra, task.episodenum, one_done)
+            end
+        elseif task.type == "mdd" then
+            -- 站点直连缓存源（埋堆堆）：入口由 apis/maiduidui_search.lua 定义，单测部分加载时缺省容错
+            if type(prefetch_maiduidui_episode) ~= "function" then
+                one_done(false)
+            else
+                prefetch_maiduidui_episode(task.extra, task.episodenum, one_done)
             end
         elseif task.type == "bili_series" then
             warm_bili_series(task, one_done)

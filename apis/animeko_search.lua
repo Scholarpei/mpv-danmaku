@@ -147,6 +147,20 @@ function resume_animeko_episode(extra, episodenum)
     end)
 end
 
+-- 下一集预取：目标集数 → episodeId → 拉 danmaku 写 ako: 磁盘缓存（sites/animeko.lua；
+-- 仅取剧集列表与弹幕，无 OSD/history/sources 副作用，episodeId 与 resume 路径同源）
+function prefetch_animeko_episode(extra, episodenum, callback)
+    callback = callback or function() end
+    fetch_ako_episodes(extra.subject_id, function(episodes)
+        local ep = episodes and episodes[episodenum]
+        if not ep or not ep.episode_id then
+            callback(false)
+            return
+        end
+        prefetch_animeko_danmaku(tostring(ep.episode_id), callback)
+    end)
+end
+
 -- 搜索原始响应文本 → menu_anime 条目
 function build_animeko_search_items(out)
     local parsed = aparse.parse_search(utils.parse_json(out))

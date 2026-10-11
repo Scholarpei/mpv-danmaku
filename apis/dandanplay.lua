@@ -682,8 +682,10 @@ function extcomment_cache_key(query)
 end
 
 -- extcomment 并发取数（在线加载与下一集预取共用）：过滤指向 dandanplay.net 的服务器后
--- 并发请求，首个有效载荷即取消其余并回调 callback(data)；全部失败或无可用服务器回调
--- callback(nil)。无 OSD、无 sources/缓存写入副作用（写缓存由调用方决定——在线路径写、
+-- 并发请求，首个有效载荷即取消其余并回调 callback(data, nil)；全部失败或无可用服务器回调
+-- callback(nil, offline)——offline=true 表示没有任何服务器给出响应（断网/服务器列表为空），
+-- 在线路径据此回退过期缓存；有响应但无有效数据时 offline=false（照常走兜底链）。
+-- 无 OSD、无 sources/缓存写入副作用（写缓存由调用方决定——在线路径写、
 -- 预取路径由预取模块写，键一致）
 function fetch_extcomment(query, callback)
     local servers = get_api_server_list(options.api_server)
@@ -696,11 +698,12 @@ function fetch_extcomment(query, callback)
         end
     end
     if #filtered == 0 then
-        callback(nil)
+        callback(nil, true)
         return
     end
 
     local matched = false
+    local any_response = false   -- 任一服务器返回过响应（区分「断网」与「服务器无数据」）
     local cancel_fn = nil
 
     local function build_args(server)
@@ -714,6 +717,7 @@ function fetch_extcomment(query, callback)
             msg.debug(("extcomment failed for %s: %s"):format(server, tostring(err)))
             return
         end
+        any_response = true
         local data = utils.parse_json(out)
         data = normalize_danmaku_response(data)
         -- 按 comments 数组实际条数判定有效性（count<=1 会把只有一条弹幕的合法源也静默丢弃）
@@ -727,7 +731,7 @@ function fetch_extcomment(query, callback)
     end
 
     local function final_cb()
-        if not matched then callback(nil) end
+        if not matched then callback(nil, not any_response) end
     end
 
     cancel_fn = parallel_requests(filtered, build_args, per_response, final_cb,
@@ -804,7 +808,7 @@ end
 
 --通过输入源url获取弹幕库
 --优先读 extcomment 磁盘缓存（TTL 内不发网络包，键为 URL 哈希——下一集预取写入同一键）；
---未命中走 fetch_extcomment 并发取数，成功且非空写缓存
+--未命中走 fetch_extcomment 并发取数，成功且非空写缓存；断网（全服务器无响应）回退过期缓存
 function add_danmaku_source_online(query, from_menu)
     set_danmaku_button()
 
@@ -834,8 +838,23 @@ function add_danmaku_source_online(query, from_menu)
         return
     end
 
-    fetch_extcomment(query, function(data)
+    fetch_extcomment(query, function(data, offline)
         if data == nil then
+            -- 断网（所有服务器都未响应）→ 过期缓存兜底（断网可看）；
+            -- 有响应但无数据不消费过期缓存，照常走站直连/兜底链
+            if offline then
+                local stale = dcache.get_stale(key)
+                if stale then
+                    local sdata = utils.parse_json(stale.payload)
+                    if sdata and type(sdata.comments) == "table" and #sdata.comments > 0 then
+                        DANMAKU.cache_hit = "stale"
+                        show_message("网络失败，已使用过期弹幕缓存", 3)
+                        save_danmaku_data(sdata.comments, query, "user_custom")
+                        load_danmaku(from_menu)
+                        return
+                    end
+                end
+            end
             -- 所有服务器都未返回有效弹幕，回退到备用服务器
             msg.info("所有服务器均无有效弹幕，尝试备用服务器")
             get_danmaku_fallback(query)
