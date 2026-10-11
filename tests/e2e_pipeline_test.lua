@@ -1,6 +1,7 @@
 -- 端到端管线测试：直接驱动 convert_danmaku_to_ass_events（模式转换 → pakku 合并 → 黑名单过滤 → 密度控制 → 布局）
--- 运行前写入 tests/black_e2e.txt（内容：敏感词 与 ^AAAAA$ 两行）
--- 运行：mpv.com --no-config --idle=once --script=<本文件> --script-opts=e2e_pipeline_test-blacklist_path=<black_e2e.txt 路径>
+-- 黑名单夹具 tests/black_e2e.txt（内容：敏感词 与 ^AAAAA$ 两行）已入库且自足加载，
+-- script-opts 指定 blacklist_path 可覆盖（路径存在时优先）
+-- 运行：mpv.com --no-config --idle=once --script=<本文件>
 
 local ROOT = "D:/software/mpv-lazy/portable_config/scripts/uosc_danmaku"
 package.path = ROOT .. "/?.lua;" .. package.path
@@ -9,6 +10,21 @@ package.path = ROOT .. "/?.lua;" .. package.path
 show_message = function() end
 
 require("modules/options")
+
+-- 黑名单夹具自足化：script-opts 漏传、或相对路径因运行目录不同而失配时，
+-- 回退仓库内绝对路径。否则黑名单静默空载，失败签名恰好是 D/E/H2/M2 而总数 G 仍通过
+-- （未过滤的 t=50 弹幕在 limit_danmaku 里顶掉满窗口中一条水果，窗口剩 4、总数不变），
+-- 极易误判为密度/黑名单管线回归；生产代码的空路径短路本身是正确设计，勿改
+do
+    local bl = options.blacklist_path or ""
+    bl = bl:match('^%s*"(.+)"%s*$') or bl:match("^%s*'(.+)'%s*$") or bl
+    local f = io.open(bl, "r")
+    if f then
+        f:close()
+    else
+        options.blacklist_path = ROOT .. "/tests/black_e2e.txt"
+    end
+end
 
 -- 模拟 conf 文件写法 blacklist_path="./black.txt" 的实际解析值：
 -- mp.options 从 conf 文件读值不剥引号（仅 CLI --script-opts 传参才剥），

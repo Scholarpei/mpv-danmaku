@@ -568,7 +568,7 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 | `tests/pakku_merge_test.lua` | 合并引擎四通道、归一化、×N、forcelist | `mpv.com --idle=once --no-config --script=tests/pakku_merge_test.lua` |
 | `tests/pakku_density_test.lua` | dispval、先缩后丢、×N 保护 | `mpv.com --idle=once --no-config --script=tests/pakku_density_test.lua` |
 | `tests/bilibili_match_test.lua` | 分P标题解析、匹配打分、锚点仲裁 | `mpv.com --idle=once --no-config --script=tests/bilibili_match_test.lua` |
-| `tests/e2e_pipeline_test.lua` | 模式转换→合并→黑名单→密度→布局全管线 | `mpv.com --idle=once --no-config --script=tests/e2e_pipeline_test.lua --script-opts=e2e_pipeline_test-blacklist_path=tests/black_e2e.txt` |
+| `tests/e2e_pipeline_test.lua` | 模式转换→合并→黑名单→密度→布局全管线（黑名单夹具 `tests/black_e2e.txt` 自足加载，script-opts 传 `blacklist_path` 可覆盖） | `mpv.com --idle=once --no-config --script=tests/e2e_pipeline_test.lua` |
 | `tests/menu_handler_test.lua` | 过滤菜单各项回调、内容菜单索引映射与屏蔽、延迟菜单合计口径 | `mpv.com --idle=once --no-config --script=tests/menu_handler_test.lua` |
 | `tests/danmaku_cache_test.lua` | 缓存读写/TTL/断网兜底/容量淘汰（B站路径的缓存读写由本测试覆盖） | `mpv.com --idle=once --no-config --script=tests/danmaku_cache_test.lua` |
 | `tests/danmaku_cache_fetch_test.lua` | 弹弹play 拉取链路缓存命中不发网络（B站下载函数为模块内局部，由单测+手动场景覆盖） | `mpv.com --idle=once --no-config --script=tests/danmaku_cache_fetch_test.lua` |
