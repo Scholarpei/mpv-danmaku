@@ -176,6 +176,15 @@ function resume_tencent_episode(extra, episodenum)
     end)
 end
 
+-- 预取解析：目标集数 → 规范播放页 URL（仅取剧集列表，无 OSD/history/sources 副作用；
+-- 与 resume 路径产出的 URL 完全一致，extcomment 缓存键据此对上）
+function resolve_tencent_episode_url(extra, episodenum, callback)
+    fetch_tx_episodes(extra.cid, episodenum, function(episodes)
+        local ep = episodes and episodes[episodenum]
+        callback(ep and ("https://v.qq.com/x/cover/%s/%s.html"):format(extra.cid, ep.vid) or nil)
+    end)
+end
+
 -- MbSearch 解析结果 → menu_anime 条目（|tx 单源流与聚合搜索共用）
 function build_tencent_search_items(parsed_items)
     local items = {}

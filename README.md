@@ -139,6 +139,22 @@ B站多分P合集（多季混排、剧场版夹杂的投稿）不用每集贴一
 - 在「从源获取弹幕」菜单中删除B站源时自动清除对应记忆；也可绑定快捷键一键清除（[`clear-bilibili-record`](#运行时菜单与脚本消息)）
 - 仅支持普通投稿（BV/av 链接）；番剧 `ep`、课程 `cheese` 链接与 `b23.tv` 短链仍按单集添加，不进入记忆
 
+**③ 下一集弹幕预取（追番零等待）—— [`prefetch_next_episode`](#prefetch_next_episode)**
+
+锚点机制既然能算出「下一集各源该加载什么」，就能提前把它拉回来：当前集播到 ~90% 且播放列表下一项在同文件夹时，提前把下一集全部源的弹幕拉进[磁盘缓存](#danmaku_cache)（不渲染、不写 sources/history）；换集时既有加载流程缓存命中秒载。
+
+```text
+当前集播放至 90%
+        │
+        ▼ 按文件夹记忆锚点推算下一集：弹弹play episodeId、各直连源集数、B站合集分P
+        │
+提前拉弹幕写入磁盘缓存 ──→ 换集时缓存命中秒载（OSD 标注「缓存」）
+```
+
+- 取数走各源正式加载的同款接口与缓存键（`ep:` / `ext:` / `cid:`），换集时必然对得上键；预取失败或某源无缓存触点（360kan / animeko / 埋堆堆）时换集照常走网络，不影响加载
+- 仅 `auto_load` 与弹幕磁盘缓存均开启时生效；仅本地文件夹场景（URL 播放不预取）；每文件只评估一次
+- 覆盖弹弹play、B站合集记忆、腾讯 / 优酷 / 爱奇艺 / 芒果 / B站番剧 / 巴哈 / 采集站（经 extcomment 缓存）
+
 ### pakku 式弹幕合并
 
 时间窗口内语义重复的弹幕合并为一条，以 **×N** 显示数量，字号随合并数对数放大——弹幕墙变成一条醒目的大字，而不是 20 条一模一样的小字：
@@ -247,7 +263,7 @@ api_server=http://192.168.1.5:9321
 - **固定弹幕转滚动**：顶部/底部弹幕可转换为滚动弹幕并加 `↑`/`↓` 前缀（pakku 惯例）；`auto` 模式只转宽度超过阈值的，短弹幕保留原样
 - **×N 字号对数增长**：合并数量越多字号越大，但增量递减，并受上限约束——`min(merge_fontsize_max, fontsize + round(merge_fontsize_growth × ln N))`
 - **简繁转换运行时切换**：弹幕文本默认转简体显示，可在过滤菜单三态切换；转换在收集阶段进行（合并与黑名单均作用于转换后文本，黑名单规则按屏幕显示的文字书写即可命中）；导出 XML 仍保留原文（源数据不参与转换）
-- **弹幕磁盘缓存**：网络弹幕按 episodeId/cid 落盘（[`danmaku_cache_*`](#danmaku_cache)），TTL 内二刷不发网络包秒加载、断网自动用过期缓存兜底；容量超限按最旧淘汰，总菜单可一键清空
+- **弹幕磁盘缓存**：网络弹幕按 episodeId/cid/extcomment URL 落盘（[`danmaku_cache_*`](#danmaku_cache)），TTL 内二刷不发网络包秒加载、断网自动用过期缓存兜底；容量超限按最旧淘汰，总菜单可一键清空；配合[下一集预取](#文件夹弹幕记忆)实现追番换集零等待
 - **多源加载状态汇总**：多源并行加载 / 续载时，同一 OSD 位置动态汇总各源状态——提供方 + 《标题》截断 + 集数 + 条数，未到标等待、失败折 ✗ 不再各自弹错；手动搜索 / 自动匹配 / URL 播放 / 本地 xml / 重放 / 兜底所有加载路径统一口径
 - **跨源时间轴对齐**：多源叠加时按「同文本弹幕出现时间差」投票统计全局偏移，把各源整体平移到弹幕数最多的基准源（[`timeline_align`](#timeline_align)）——不同平台的片头 / 剪辑差异（如巴哈源整体晚 90 秒）自动校正；投票基于含手动延迟的生效时间，已手动补偿过的源不会被二次平移；对齐量在源状态行以「时间轴±Ns」标注，弹幕源延迟菜单按「合计（对齐 + 手动）」口径显示
 - **源历史与菜单升级**：弹幕源历史记录补标题持久化（只补不擦，老记录回退显示 URL）——「从源添加弹幕」菜单以标题为主、URL 缩略为 hint；弹幕设置总菜单顶部逐源列出已关联弹幕（各源一行含条数，超过 4 个折叠显示）
@@ -265,6 +281,7 @@ api_server=http://192.168.1.5:9321
 | 重复弹幕 | 仅同文本精确合并 | 🔀 pakku 四通道相似度合并 ×N |
 | 弹幕过密 | 同屏上限 + 随机丢弃 | 📉 先缩字号再按权重丢弃，×N 双重保护 |
 | 换集弹幕记忆 | dandanplay + 单条 extra | 🔁 全源并行续载：各直连源独立记录、按集数差定位 |
+| 追番换集等待 | — | ⚡ 下一集弹幕预取：播到 ~90% 提前 warm 磁盘缓存，换集秒载 |
 | B站多分P合集 | 每集手动粘贴链接 | 📺 分P智能匹配（标题打分 / 时长 / 锚点），粘贴一次全季生效 |
 | 多源弹幕错位 | — | ⏱️ 跨源时间轴自动对齐（同文本投票，片头/剪辑偏移自动校正） |
 | 黑名单 | 配置文件开关 | 🧩 按簇过滤 + 热重载 + 打开位置 + 路径回退 |
@@ -354,6 +371,7 @@ density_level=medium           # 智能密度强度：loose / medium / strict
 bilibili_series_memory=add     # B站合集记忆：off / add / first
 chConvert=1                    # 弹幕统一转简体：0 不转 / 1 简体 / 2 繁体
 danmaku_cache_ttl_days=7       # 弹幕磁盘缓存有效期（天），0 永不过期
+prefetch_next_episode=90       # 下一集弹幕预取：播到该进度预热缓存，0 关闭
 
 # —— 常用上游功能 ——
 auto_load=yes                  # 全自动弹幕填装（文件夹内加载一集，其余自动匹配；多源续载与B站合集记忆随此开关生效）
@@ -413,6 +431,7 @@ auto_load=yes                  # 全自动弹幕填装（文件夹内加载一�
 | **`danmaku_cache_path`** | `~~/danmaku-cache` | 缓存目录（`~~/` 为 mpv 配置目录），不存在时自动创建 |
 | **`danmaku_cache_ttl_days`** | `7` | 有效期（天），`0` 永不过期；过期正常走网络刷新 |
 | **`danmaku_cache_max_mb`** | `300` | 容量上限（MB），超出按最旧优先淘汰，`0` 不限制 |
+| **`prefetch_next_episode`** | `90` | 下一集弹幕预取触发进度（%），`0` 关闭；见[特色功能](#文件夹弹幕记忆) |
 
 ### 跨源时间轴对齐
 
@@ -502,15 +521,39 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 <details>
 <summary><b>选项详解：弹幕磁盘缓存</b></summary>
 
-网络拉取的弹幕按 **episodeId**（弹弹play 库）/ **cid**（B站）落盘缓存（`~~/danmaku-cache/` 下 `ep_*.dcache` / `cid_*.dcache`，单文件 = 首行 JSON 元信息 + 原始载荷）：
+网络拉取的弹幕按 **episodeId**（弹弹play 库）/ **cid**（B站）/ **extcomment URL 哈希**（直连源经弹弹play extcomment 取数）落盘缓存（`~~/danmaku-cache/` 下 `ep_*.dcache` / `cid_*.dcache` / `ext_*.dcache`，单文件 = 首行 JSON 元信息 + 原始载荷）：
 
 - **二刷秒加载**：TTL 内再次播放同一集直接读盘，不发任何网络请求（OSD 标注「弹幕加载成功（缓存）」）
-- **断网可看**：网络请求失败时自动回退使用过期缓存（OSD 标注「（离线缓存）」）
+- **断网可看**：网络请求失败时自动回退使用过期缓存（OSD 标注「（离线缓存）」；extcomment 缓存无此回退，直连源断网时照常走站直连/兜底路径）
 - 过期条目不删除，正常走网络刷新，成功后覆盖并重置时间戳；空弹幕（count==0）不缓存
 - **离线覆盖范围**：弹弹play 路径下，只要 `danmaku-history.json` 有该文件夹的 episodeId 记录（加载过一次即有），即可完全离线秒载；B站 URL 在线播放时 **cid 解析本身仍需一次网络**（pagelist/season API 无缓存），断网命中仅覆盖外挂弹幕轨（文件名 `数字-.xml`）、`--cid=传参` 与 URL 内嵌 cid 三种情形
 - episodeId 是 dandanplay 全局库 ID，多个兼容服务器共享同一缓存（缓存不区分来源服务器）
 - 多个 mpv 实例并发写同一缓存目录时与 history JSON 同为非原子直写，最坏情况单条缓存损坏 → 自动视为未命中走网络
 - 缓存目录创建/写入失败时静默退化为不缓存，不影响正常播放；菜单「清空弹幕缓存」（或脚本消息 [`clear-danmaku-cache`](#运行时菜单与脚本消息)）一键清空
+
+</details>
+
+<a id="prefetch_next_episode"></a>
+<details>
+<summary><b>选项详解：prefetch_next_episode（下一集弹幕预取）</b></summary>
+
+当前集播放进度达到该百分比（默认 `90`，`0` 关闭）且满足以下全部条件时触发一次预取：
+
+- `auto_load` 与弹幕磁盘缓存（`danmaku_cache_enabled`）均开启
+- 播放列表存在下一项，且与当前文件在**同一文件夹**（URL 播放不预取）
+- 文件夹记忆（`danmaku-history.json` 的文件夹记录）可推算出下一集集数
+
+预取内容与键（与各源正式加载路径完全一致，换集时必然命中）：
+
+| 源 | 缓存键 | 说明 |
+| --- | --- | --- |
+| 弹弹play | `ep:{episodeId}` | 按 `episodeId_fname` 锚推算下一集 ID |
+| 腾讯/优酷/爱奇艺/芒果/B站番剧/巴哈/采集站 | `ext:{URL哈希}` | 各源解析下一集播放页 URL 后经 extcomment 取数 |
+| B站合集记忆 | `cid:{cid}` | 分P匹配下一集后直拉弹幕 XML |
+
+- 预取**只写缓存**：不渲染、不写 `DANMAKU.sources`、不写 history，对当前播放零影响；单项失败静默放弃，换集时该项照常走网络
+- 360kan / animeko / 埋堆堆的加载路径未接磁盘缓存，暂不预取（换集行为不变）
+- 每文件只评估一次（防进度回调重入）；触发与结果见控制台日志（`预取下一集弹幕：…`）
 
 </details>
 
@@ -572,6 +615,9 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 | `tests/menu_handler_test.lua` | 过滤菜单各项回调、内容菜单索引映射与屏蔽、延迟菜单合计口径 | `mpv.com --idle=once --no-config --script=tests/menu_handler_test.lua` |
 | `tests/danmaku_cache_test.lua` | 缓存读写/TTL/断网兜底/容量淘汰（B站路径的缓存读写由本测试覆盖） | `mpv.com --idle=once --no-config --script=tests/danmaku_cache_test.lua` |
 | `tests/danmaku_cache_fetch_test.lua` | 弹弹play 拉取链路缓存命中不发网络（B站下载函数为模块内局部，由单测+手动场景覆盖） | `mpv.com --idle=once --no-config --script=tests/danmaku_cache_fetch_test.lua` |
+| `tests/extcomment_cache_test.lua` | extcomment 直连源拉取链路缓存（命中零网络 / 未命中写缓存 / 损坏条目回网络重写 / 空结果走兜底不缓存 / 键稳定性） | `mpv.com --idle=once --no-config --script=tests/extcomment_cache_test.lua` |
+| `tests/prefetch_plan_test.lua` | 下一集预取任务规划纯函数（锚点推算镜像 dandanplay_flow：慢源独立锚 / 锚==下一集 / 无锚回退 / 重播 / 集数剪裁 / B站合集推算与回退 / 防御输入） | `mpv.com --idle=once --no-config --script=tests/prefetch_plan_test.lua` |
+| `tests/prefetch_flow_test.lua` | 下一集预取集成（触发门槛：auto_load/缓存/无下一项/异文件夹/无记忆；全链路三类任务入缓存且键与正式加载一致；TTL 命中零网络；armed 每文件一次；B站记忆 off 剪裁；断网静默） | `mpv.com --idle=once --no-config --script=tests/prefetch_flow_test.lua` |
 | `tests/tencent_parse_test.lua` | 腾讯搜索/剧集/弹幕条目解析（MainNeed 优先、预告过滤、content_style 字符串化 JSON 与渐变首色） | `mpv.com --idle=once --no-config --script=tests/tencent_parse_test.lua` |
 | `tests/tencent_items_test.lua` | 腾讯搜索条目构建（MbSearch 响应 → 菜单条目） | `mpv.com --idle=once --no-config --script=tests/tencent_items_test.lua` |
 | `tests/maccms_parse_test.lua` | MacCMS 采集接口解析（`$$$` 分组、`#` 分集、`标题$链接` 切分、字段类型容错） | `mpv.com --idle=once --no-config --script=tests/maccms_parse_test.lua` |

@@ -124,6 +124,15 @@ function resume_bahamut_episode(extra, episodenum)
     end)
 end
 
+-- 预取解析：目标集数 → 规范播放页 URL（仅取分集列表，无副作用；URL 与 resume 路径一致。
+-- 分集接口对大陆直连受限，受限时 callback(nil)，预取静默放弃不重试）
+function resolve_bahamut_episode_url(extra, episodenum, callback)
+    fetch_baha_episodes(extra.video_sn, function(episodes)
+        local ep = episodes and episodes[episodenum]
+        callback(ep and ("https://ani.gamer.com.tw/animeVideo.php?sn=%s"):format(ep.video_sn) or nil)
+    end)
+end
+
 -- 搜索解析结果 → menu_anime 条目（|baha 单源流与聚合搜索共用）
 function build_bahamut_search_items(parsed_items)
     local items = {}

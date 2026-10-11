@@ -45,6 +45,10 @@ require("sites/youku")
 require("sites/animeko")
 require("sites/maiduidui")
 
+-- 下一集弹幕预取（须在 apis 与 sites 之后：执行器引用 fetch_extcomment /
+-- resolve_*_episode_url / fetch_bilibili_pagelist 等运行时全局）
+prefetch = require("modules/prefetch")
+
 DANMAKU_PATH = os.getenv("TEMP") or "/tmp/"
 HISTORY_PATH = mp.command_native({"expand-path", options.history_path})
 PID = utils.getpid()

@@ -239,6 +239,28 @@ local function download_bilibili_danmaku(path, cid, from_menu, callback)
     end)
 end
 
+-- 下一集预取：按 cid 拉弹幕 XML 写入 cid: 磁盘缓存（与 download_bilibili_danmaku 同键，
+-- 但不写 sources/不渲染）。TTL 内命中跳过网络；callback(done: boolean)
+function prefetch_bilibili_danmaku(cid, callback)
+    callback = callback or function() end
+    local key = "cid:" .. cid
+    if dcache.get(key) then callback(true) return end
+    local url = "https://comment.bilibili.com/" .. cid .. ".xml"
+    call_cmd_async(build_curl_args(url), function(err, out)
+        if err or not out or out == "" then
+            callback(false)
+            return
+        end
+        -- 与正式路径同口径：解析为空（HTML 错误页/空 <i></i>）不缓存
+        if #parse_xml_danmaku(out) > 0 then
+            dcache.put(key, out, { type = "xml" })
+            callback(true)
+        else
+            callback(false)
+        end
+    end)
+end
+
 -- 为 bilibli 网站的视频播放加载弹幕
 function load_danmaku_for_bilibili(path, callback)
     callback = callback or function() end
@@ -312,7 +334,8 @@ local function parse_bilibili_vid(url)
 end
 
 -- 拉取分P列表（带会话级缓存）；callback(pages 数组或 nil)
-local function fetch_bilibili_pagelist(vid, callback)
+-- 全局导出：autoload_bilibili_series / maybe_record_bilibili_series 与下一集预取共用
+function fetch_bilibili_pagelist(vid, callback)
     local cached = BILIBILI_PAGELIST_CACHE[vid]
     if cached ~= nil then
         callback(cached)

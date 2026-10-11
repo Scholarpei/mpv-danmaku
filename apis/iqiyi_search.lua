@@ -129,6 +129,14 @@ function resume_iqiyi_episode(extra, episodenum)
     end)
 end
 
+-- 预取解析：目标集数 → 规范播放页 URL（仅取分集列表，无副作用；URL 与 resume 路径一致）
+function resolve_iqiyi_episode_url(extra, episodenum, callback)
+    fetch_iq_episodes(extra.link_id, extra.title, function(episodes)
+        local ep = episodes and episodes[episodenum]
+        callback(ep and ("https://www.iqiyi.com/v_%s.html"):format(ep.link_id) or nil)
+    end)
+end
+
 -- 搜索解析结果 → menu_anime 条目（|iq 单源流与聚合搜索共用）
 function build_iqiyi_search_items(parsed_items)
     local items = {}

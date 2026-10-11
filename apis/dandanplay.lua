@@ -676,6 +676,99 @@ function add_danmaku_source(query, from_menu, provider, meta)
     end
 end
 
+-- extcomment 结果的缓存键：URL 哈希（URL 直作键经缓存文件名折叠易碰撞）
+function extcomment_cache_key(query)
+    return "ext:" .. Sha256(tostring(query))
+end
+
+-- extcomment 并发取数（在线加载与下一集预取共用）：过滤指向 dandanplay.net 的服务器后
+-- 并发请求，首个有效载荷即取消其余并回调 callback(data)；全部失败或无可用服务器回调
+-- callback(nil)。无 OSD、无 sources/缓存写入副作用（写缓存由调用方决定——在线路径写、
+-- 预取路径由预取模块写，键一致）
+function fetch_extcomment(query, callback)
+    local servers = get_api_server_list(options.api_server)
+
+    -- 过滤掉指向 dandanplay.net 的服务器
+    local filtered = {}
+    for _, s in ipairs(servers) do
+        if type(s) == "string" and not s:lower():find("dandanplay%.net") then
+            table.insert(filtered, s)
+        end
+    end
+    if #filtered == 0 then
+        callback(nil)
+        return
+    end
+
+    local matched = false
+    local cancel_fn = nil
+
+    local function build_args(server)
+        local url = server .. "/api/v2/extcomment?url=" .. url_encode(query)
+        return make_danmaku_request_args("GET", url, nil, nil, 70)
+    end
+
+    local function per_response(server, err, out)
+        if matched then return end
+        if err then
+            msg.debug(("extcomment failed for %s: %s"):format(server, tostring(err)))
+            return
+        end
+        local data = utils.parse_json(out)
+        data = normalize_danmaku_response(data)
+        -- 按 comments 数组实际条数判定有效性（count<=1 会把只有一条弹幕的合法源也静默丢弃）
+        if not data or type(data["comments"]) ~= "table" or #data["comments"] < 1 then
+            return
+        end
+        matched = true
+        callback(data)
+        -- 取消其他未完成请求
+        if cancel_fn then pcall(cancel_fn) end
+    end
+
+    local function final_cb()
+        if not matched then callback(nil) end
+    end
+
+    cancel_fn = parallel_requests(filtered, build_args, per_response, final_cb,
+        { concurrency = 3, per_request_timeout = 60 })
+end
+
+-- 下一集预取：拉取指定 episodeId 的弹幕并写入 ep: 磁盘缓存（无 sources/OSD/渲染副作用，
+-- 与 fetch_danmaku 同 URL 同键，换集时正式加载路径直接命中）。TTL 内已命中则跳过网络。
+-- api_server 缺省沿用会话服务器或列表首位；callback(done: boolean)
+function prefetch_dandanplay_episode(episodeId, api_server, callback)
+    callback = callback or function() end
+    local server = api_server or DANMAKU.api_server
+    if not server then
+        local servers = get_api_server_list(options.api_server)
+        if servers and #servers > 0 then server = servers[1] end
+    end
+    if not server then callback(false) return end
+
+    local key = "ep:" .. episodeId
+    if dcache.get(key) then callback(true) return end
+
+    local url = server .. "/api/v2/comment/" .. episodeId .. "?withRelated=true&chConvert=0"
+    local args = make_danmaku_request_args("GET", url)
+    if not args then callback(false) return end
+
+    call_cmd_async(args, function(err, out)
+        if err then callback(false) return end
+        local data = utils.parse_json(out)
+        if data then data = normalize_danmaku_response(data) end
+        -- 与正式路径同口径：count==0 / 空弹幕不缓存
+        if data and type(data.comments) == "table" and (data.count or #data.comments) > 0 then
+            local n = data.count or #data.comments
+            dcache.put(key, utils.format_json({ count = n, comments = data.comments }),
+                { type = "json", count = n })
+            callback(true)
+        else
+            callback(false)
+        end
+    end)
+end
+
 function add_danmaku_source_local(query, from_menu)
     local path = normalize(query)
     if not file_exists(path) then
@@ -710,14 +803,29 @@ function add_danmaku_source_local(query, from_menu)
 end
 
 --通过输入源url获取弹幕库
+--优先读 extcomment 磁盘缓存（TTL 内不发网络包，键为 URL 哈希——下一集预取写入同一键）；
+--未命中走 fetch_extcomment 并发取数，成功且非空写缓存
 function add_danmaku_source_online(query, from_menu)
     set_danmaku_button()
+
+    local key = extcomment_cache_key(query)
+    local hit = dcache.get(key)
+    if hit then
+        local data = utils.parse_json(hit.payload)
+        if data and type(data.comments) == "table" and #data.comments > 0 then
+            DANMAKU.cache_hit = "cache"
+            msg.verbose("弹幕缓存命中：" .. key)
+            save_danmaku_data(data.comments, query, "user_custom")
+            load_danmaku(from_menu)
+            return
+        end
+        dcache.remove(key)
+    end
+
     if not source_status.refresh() then
         show_message("弹幕加载中...", 30)
     end
     msg.verbose("尝试获取弹幕：" .. query)
-
-    local servers = get_api_server_list(options.api_server)
 
     -- 自有直连域名（本地 sites/ 加载器独占，弹弹play extcomment 不支持）：
     -- 跳过 extcomment 直接走域名直连，避免整轮无效等待（extcomment 单请求超时高达 60s）
@@ -726,56 +834,21 @@ function add_danmaku_source_online(query, from_menu)
         return
     end
 
-    -- 过滤掉指向 dandanplay.net 的服务器
-    local filtered = {}
-    for _, s in ipairs(servers) do
-        if type(s) == "string" and not s:lower():find("dandanplay%.net") then
-            table.insert(filtered, s)
-        end
-    end
-    servers = filtered
-    if #servers == 0 then
-        get_danmaku_fallback(query)
-        return
-    end
-
-    local matched = false
-    local cancel_fn = nil
-
-    local function build_args(server)
-        local url = server .. "/api/v2/extcomment?url=" .. url_encode(query)
-        return make_danmaku_request_args("GET", url, nil, nil, 70)
-    end
-
-    local function per_response(server, err, out)
-        if matched then return end
-        if err then
-            msg.debug(("extcomment failed for %s: %s"):format(server, tostring(err)))
-            return
-        end
-        local data = utils.parse_json(out)
-        data = normalize_danmaku_response(data)
-        -- 按 comments 数组实际条数判定有效性（count<=1 会把只有一条弹幕的合法源也静默丢弃）
-        if not data or type(data["comments"]) ~= "table" or #data["comments"] < 1 then
-            return
-        end
-        matched = true
-        -- 保存并加载弹幕
-        save_danmaku_data(data["comments"], query, "user_custom")
-        load_danmaku(from_menu)
-        -- 取消其他未完成请求
-        if cancel_fn then pcall(cancel_fn) end
-    end
-
-    local function final_cb()
-        if not matched then
+    fetch_extcomment(query, function(data)
+        if data == nil then
             -- 所有服务器都未返回有效弹幕，回退到备用服务器
             msg.info("所有服务器均无有效弹幕，尝试备用服务器")
             get_danmaku_fallback(query)
+            return
         end
-    end
-
-    cancel_fn = parallel_requests(servers, build_args, per_response, final_cb, { concurrency = 3, per_request_timeout = 60 })
+        local n = data["count"] or #data["comments"]
+        save_danmaku_data(data["comments"], query, "user_custom")
+        dcache.put(key, utils.format_json({
+            count = n,
+            comments = data["comments"],
+        }), { type = "json", count = n })
+        load_danmaku(from_menu)
+    end)
 end
 
 -- 将弹幕转换为 Lua table

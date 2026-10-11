@@ -169,6 +169,14 @@ function resume_mgtv_episode(extra, episodenum)
     end)
 end
 
+-- 预取解析：目标集数 → 规范播放页 URL（仅取剧集列表，无副作用；URL 与 resume 路径一致）
+function resolve_mgtv_episode_url(extra, episodenum, callback)
+    fetch_mg_episodes(extra.collection_id, episodenum, function(episodes)
+        local ep = episodes and episodes[episodenum]
+        callback(ep and ("https://www.mgtv.com/b/%s/%s.html"):format(extra.collection_id, ep.video_id) or nil)
+    end)
+end
+
 -- 搜索解析结果 → menu_anime 条目（|mg 单源流与聚合搜索共用）
 function build_mgtv_search_items(parsed_items)
     local items = {}

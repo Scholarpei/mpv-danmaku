@@ -133,6 +133,17 @@ function resume_maccms_episode(extra, episodenum)
     end)
 end
 
+-- 预取解析：目标集数 → 剧集播放页 URL（仅按 id 重取详情，无副作用；URL 与 resume 路径一致。
+-- 详情在 cached_vod 会话缓存命中时不发包）
+function resolve_maccms_episode_url(extra, episodenum, callback)
+    fetch_vod_by_id(extra.server, extra.vod_id, function(entry)
+        if not entry then callback(nil) return end
+        local group = tonumber(extra.group) or 1
+        local ep = mparse.get_episode(entry.play, group, episodenum)
+        callback(ep and ep.url or nil)
+    end)
+end
+
 -- 剧集菜单（单播放组直接进入；多组先经 get-maccms-event 的「播放来源」菜单）
 local function show_episode_menu(server, vod_id, group_idx)
     local entry = cached_vod[cache_key(server, vod_id)]

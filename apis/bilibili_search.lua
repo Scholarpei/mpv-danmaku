@@ -128,6 +128,14 @@ function resume_bilibili_episode(extra, episodenum)
     end)
 end
 
+-- 预取解析：目标集数 → 规范番剧播放页 URL（仅取剧集列表，无副作用；URL 与 resume 路径一致）
+function resolve_bilibili_episode_url(extra, episodenum, callback)
+    fetch_bili_episodes(extra.season_id, function(episodes)
+        local ep = episodes and episodes[episodenum]
+        callback(ep and ("https://www.bilibili.com/bangumi/play/ep%s"):format(ep.ep_id) or nil)
+    end)
+end
+
 -- 搜索解析结果 → menu_anime 条目（|bili 单源流与聚合搜索共用）
 -- hint 附加 index_show（"全28话"/"更新至第195话"）与 org_title 日文原名
 function build_bilibili_search_items(parsed_items)
