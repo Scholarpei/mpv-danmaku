@@ -117,7 +117,7 @@ do
     check("9 模式提升为底部", #out == 1 and out[1].type == 4 and out[1].merge_count == 3)
 end
 
--- 10. 输出有序性：代表项(第20百分位)时间可晚于后簇，输出必须非降
+-- 10. 输出有序性：代表项(第10百分位)时间可晚于后簇，输出必须非降
 do
     local list = {
         dm(10.0, "AAAAA"), dm(10.05, "BBBBB"), dm(10.1, "AAAAA"),

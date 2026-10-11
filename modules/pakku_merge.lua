@@ -4,14 +4,17 @@
 --
 -- 流程：文本归一化 → 滑动时间窗聚类
 -- 相似判定四通道（首中即停）：完全相同 / 字符多重集距离 / 拼音多重集距离 / 环形二元组余弦
--- 簇输出：第 20 百分位成员为代表项，最高频归一化文本为显示文本，模式提升（底部>顶部>滚动）
+-- 簇输出：第 10 百分位成员为代表项，最高频归一化文本为显示文本，模式提升（底部>顶部>滚动）
 
 local UTF8_PATTERN = '[%z\1-\127\194-\244][\128-\191]*'
 
 -- pakku 默认常量（pakkujs/background/config.ts）
 local MAX_DIST = 5                -- 字符/拼音多重集距离阈值（pakku「中等」档）
 local MAX_COSINE = 45             -- 环形二元组 cos² 阈值（百分比，pakku「中等」档）
-local REPRESENTATIVE_PERCENT = 20 -- 代表项取簇内第 N 百分位成员
+-- 代表项取簇内第 N 百分位成员。pakku.js 原值 20；此处降到 10：实抓「哦？(⊙o⊙)」类
+-- 玩梗接龙波可持续 30 秒以上，20 百分位代表时间落在波体中段、合并后的 ×N 单条看
+-- 起来比内容节拍晚近 10 秒（波头准时条目被吸收不可见），取更靠波头的成员缓解
+local REPRESENTATIVE_PERCENT = 10
 local HASH_MOD = 1007             -- 二元组哈希系数
 -- 性能护栏：每条弹幕至多回看最近 N 个活跃簇。偏离 pakku（pakku 用 2^19-3），
 -- 防止同窗口内大量唯一文本的病理性弹幕墙拖慢加载
@@ -334,7 +337,7 @@ local function merge(danmakus, cfg)
     local function emit(cluster)
         local peers = cluster.records
         local n = #peers
-        -- 代表项：按时间第 20 百分位成员（pakku REPRESENTATIVE_PERCENT，0 基转 1 基）
+        -- 代表项：按时间第 10 百分位成员（REPRESENTATIVE_PERCENT，0 基转 1 基）
         local ridx = math.min(math.floor(n * REPRESENTATIVE_PERCENT / 100), n - 1) + 1
         local rep = peers[ridx].obj
 
