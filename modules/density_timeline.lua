@@ -886,8 +886,12 @@ local function evaluate()
 end
 
 mp.register_script_message("toggle_density_timeline", density_timeline_toggle)
--- uosc 加载广播：此刻 options/script-opts 必已就绪，重试在场判定
+-- uosc 加载广播：此刻 options/script-opts 必已就绪，重试在场判定。
+-- 注意：mpv 同一脚本内同名 script-message 只保留最后一次注册（后注册覆盖先注册），
+-- 本注册会顶掉 menu.lua 的同名注册，因此必须在此一并置位 uosc_available——
+-- 否则所有 uosc 菜单静默退回 input.select 原生小菜单
 mp.register_script_message("uosc-version", function()
+    uosc_available = true
     ensure_uosc()
     evaluate()
 end)

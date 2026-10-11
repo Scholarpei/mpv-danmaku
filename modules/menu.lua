@@ -1496,6 +1496,8 @@ mp.commandv(
 )
 
 
+-- 勿在此重复依赖唯一注册：density_timeline.lua 在本模块之后加载，其对 uosc-version
+-- 的接管注册已含置位 uosc_available（mpv 同一脚本内同名消息仅一处理器、后注册覆盖）
 mp.register_script_message('uosc-version', function()
     uosc_available = true
 end)
