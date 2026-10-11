@@ -66,13 +66,12 @@ function query_tmdb(title, class, menu, silent)
     local url = string.format("https://api.tmdb.org/3/search/%s?api_key=%s&query=%s&language=zh-CN",
     class, Base64.decode(options.tmdb_api_key), encoded_title)
 
-    local cmd = {
+    local cmd = append_curl_timeout({
         "curl",
         "-s",
-        "--max-time", "8",
         "-H", "accept: application/json",
         url
-    }
+    }, 8)
 
     if options.proxy ~= "" then
         table.insert(cmd, '-x')
@@ -135,7 +134,7 @@ local function get_number(cat, id, site)
     local url = string.format("https://api.web.360kan.com/v1/detail?cat=%s&id=%s&site=%s",
         cat, id, site)
 
-    local cmd = { "curl", "-s", url }
+    local cmd = append_curl_timeout({ "curl", "-s", url })
     local res = mp.command_native({
         name = "subprocess",
         args = cmd,
@@ -169,7 +168,7 @@ local function get_episodes_v1(cat, id, site, number)
         local url = string.format("https://api.web.360kan.com/v1/detail?cat=%s&id=%s&start=%s&end=%s&site=%s",
             cat, id, start_idx, end_idx, site)
 
-        local cmd = { "curl", "-s", url }
+        local cmd = append_curl_timeout({ "curl", "-s", url })
         local res = mp.command_native({
             name = "subprocess",
             args = cmd,
@@ -207,7 +206,7 @@ local function get_episodes_v2(cat, id, site)
 
     local url = string.format("https://api.so.360kan.com/episodesv2?v_ap=1&s=%s", url_encode(s_param))
 
-    local cmd = { "curl", "-s", url }
+    local cmd = append_curl_timeout({ "curl", "-s", url })
     local res = mp.command_native({
         name = "subprocess",
         args = cmd,
@@ -426,7 +425,8 @@ end
 -- 仅取数：360kan 搜索异步版（|ds 等后缀流保持同步不走此路；timeout 为 nil 时不设超时）；
 -- callback(items, err)，返回取消函数
 function fetch_360kan_search(query, class, callback, timeout)
-    return call_cmd_async_with_timeout({ "curl", "-s", build_360kan_search_url(query, class) }, timeout, function(err, out)
+    -- timeout 为 nil 时无 Lua 侧定时器，curl 自身超时兜底
+    return call_cmd_async_with_timeout(append_curl_timeout({ "curl", "-s", build_360kan_search_url(query, class) }), timeout, function(err, out)
         if err then
             callback(nil, "请求失败")
             return
@@ -438,7 +438,7 @@ end
 local function search_query(query, class, menu)
     local res = mp.command_native({
         name = "subprocess",
-        args = { "curl", "-s", build_360kan_search_url(query, class) },
+        args = append_curl_timeout({ "curl", "-s", build_360kan_search_url(query, class) }),
         capture_stdout = true,
         capture_stderr = true,
     })

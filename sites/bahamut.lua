@@ -83,6 +83,7 @@ function load_danmaku_for_bahamut(path, callback)
         table.insert(arg, '-b')
         table.insert(arg, mp.command_native({"expand-path", options.cookie_file}))
     end
+    append_curl_timeout(arg)
 
     -- 保存弹幕条目（danmuGet.php 与 danmu.php 的条目字段同构：color/position/time/text）
     local function save_comments(comments)
@@ -123,6 +124,7 @@ function load_danmaku_for_bahamut(path, callback)
             table.insert(api_arg, '-b')
             table.insert(api_arg, mp.command_native({"expand-path", options.cookie_file}))
         end
+        append_curl_timeout(api_arg)
         table.insert(api_arg, api_url)
 
         call_cmd_async(api_arg, function(api_err, api_out)

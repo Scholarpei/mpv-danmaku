@@ -152,7 +152,9 @@ function get_danmaku_fallback(query)
 end
 
 -- 返回弹幕请求参数
-function make_danmaku_request_args(method, url, headers, body)
+-- max_time 可选：curl --max-time 预算，默认 30s；配 60s Lua 侧定时器的
+-- parallel_requests 流程（search/match/extcomment）传 70 保持定时器先生效
+function make_danmaku_request_args(method, url, headers, body, max_time)
     local args = {
         "curl",
         "--ssl-no-revoke",
@@ -198,6 +200,7 @@ function make_danmaku_request_args(method, url, headers, body)
         table.insert(args, options.proxy)
     end
 
+    append_curl_timeout(args, max_time)
     table.insert(args, url)
 
     return args
@@ -309,7 +312,7 @@ local function match_anime()
     local function build_args(server)
         local url = server .. "/api/v2/search/anime"
         local full_url = url .. "?keyword=" .. encoded_query
-        return make_danmaku_request_args("GET", full_url)
+        return make_danmaku_request_args("GET", full_url, nil, nil, 70)
     end
 
     local function per_response(server, err, out)
@@ -422,7 +425,7 @@ local function match_file(file_path, file_name, callback)
             fileName = file_name,
             fileHash = hash or "a1b2c3d4e5f67890abcd1234ef567890",
             matchMode = "hashAndFileName"
-        })
+        }, 70)
     end
 
     local function per_response(server, err, out)
@@ -741,7 +744,7 @@ function add_danmaku_source_online(query, from_menu)
 
     local function build_args(server)
         local url = server .. "/api/v2/extcomment?url=" .. url_encode(query)
-        return make_danmaku_request_args("GET", url)
+        return make_danmaku_request_args("GET", url, nil, nil, 70)
     end
 
     local function per_response(server, err, out)
@@ -820,10 +823,6 @@ function get_danmaku_with_hash(file_name, file_path)
         local temp_file = "temp-" .. PID .. ".mp4"
         local arg = {
             "curl",
-            "--connect-timeout",
-            "10",
-            "--max-time",
-            "30",
             "--range",
             "0-16777215",
             "--user-agent",
@@ -838,6 +837,8 @@ function get_danmaku_with_hash(file_name, file_path)
             table.insert(arg, '-x')
             table.insert(arg, options.proxy)
         end
+
+        append_curl_timeout(arg)
 
         call_cmd_async(arg, function(error)
             file_path = utils.join_path(DANMAKU_PATH, temp_file)

@@ -21,7 +21,7 @@ end
 
 local function get_latest_release(repo)
     local url = "https://api.github.com/repos/" .. repo .. "/releases/latest"
-    local cmd = { "curl", "-sL", url }
+    local cmd = append_curl_timeout({ "curl", "-sL", url })
     local res = mp.command_native({
         name = "subprocess",
         args = cmd,
@@ -138,7 +138,8 @@ function check_for_update()
     show_message("⬇️ 发现新版本: " .. latest_version .. "，正在下载...")
     msg.info("⬇️ 发现新版本: " .. latest_version .. "，地址: " .. download_url)
 
-    local cmd = { "curl", "-L", "-o", zip_file, download_url }
+    -- 压缩包下载给足总时长（默认 30s 对慢链路偏紧）
+    local cmd = append_curl_timeout({ "curl", "-L", "-o", zip_file, download_url }, 300)
     local res = mp.command_native({
         name = "subprocess",
         args = cmd,

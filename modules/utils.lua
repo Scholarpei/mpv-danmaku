@@ -845,6 +845,18 @@ function is_async_running()
     return async_running_count > 0
 end
 
+-- 统一 curl 超时兜底：所有外发 curl 都应带上，坏源（连接黑洞、响应悬挂）不再挂住
+-- 无 Lua 侧定时器的请求路径（直连源加载、同步 command_native、聚合搜索选集后的补拉）；
+-- 已有更短 Lua 定时器的路径定时器先触发、行为不变，需要更长预算的调用方传 max_time 覆盖。
+-- curl 接受位于 URL 两侧的选项，追加在 args 末尾即可。返回 args 便于链式书写。
+function append_curl_timeout(args, max_time)
+    args[#args + 1] = "--connect-timeout"
+    args[#args + 1] = "10"
+    args[#args + 1] = "--max-time"
+    args[#args + 1] = tostring(max_time or 30)
+    return args
+end
+
 -- 异步执行命令
 -- 同时返回 abort 函数，用于取消异步命令
 function call_cmd_async(args, callback)

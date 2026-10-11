@@ -13,6 +13,7 @@ local function build_curl_args(url, extra_headers)
         table.insert(args, '-H')
         table.insert(args, h)
     end
+    append_curl_timeout(args)
     table.insert(args, url)
     if options.cookie_file and options.cookie_file ~= '' then
         table.insert(args, '-b')

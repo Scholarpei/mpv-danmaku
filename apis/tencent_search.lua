@@ -43,7 +43,7 @@ local function build_pb_args(url, body)
         table.insert(args, '-x')
         table.insert(args, options.proxy)
     end
-    return args
+    return append_curl_timeout(args)
 end
 
 -- MbSearch 请求体（固定字段照抄 danmaku-anywhere，仅 query 变化）

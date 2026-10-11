@@ -27,6 +27,7 @@ local function build_curl_args(body_json)
         table.insert(args, '-x')
         table.insert(args, options.proxy)
     end
+    append_curl_timeout(args)
     table.insert(args, BASE .. BARRAGE_PATH)
     return args
 end

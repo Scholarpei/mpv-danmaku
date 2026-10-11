@@ -14,6 +14,7 @@ local function build_curl_args(url, extra_headers)
         table.insert(args, '-b')
         table.insert(args, mp.command_native({'expand-path', options.cookie_file}))
     end
+    append_curl_timeout(args)
     table.insert(args, url)
     return args
 end

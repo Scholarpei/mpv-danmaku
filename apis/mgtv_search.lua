@@ -49,6 +49,7 @@ local function build_mg_args(url, ua, extra_headers)
         args[#args + 1] = '-x'
         args[#args + 1] = options.proxy
     end
+    append_curl_timeout(args)
     args[#args + 1] = url
     return args
 end

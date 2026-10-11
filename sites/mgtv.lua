@@ -37,8 +37,9 @@ local function build_mgtv_curl_args(target_url)
         'curl', '-s', '-L', '--compressed',
         '--user-agent', user_agent,
         '-H', 'Accept: application/json',
-        target_url,
     }
+    append_curl_timeout(args)
+    args[#args + 1] = target_url
     return args
 end
 

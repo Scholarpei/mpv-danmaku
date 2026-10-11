@@ -35,13 +35,14 @@ local function build_curl_args(target_url)
         '--compressed',
         '--user-agent',
         user_agent,
-        target_url,
     }
 
     if options.cookie_file and options.cookie_file ~= '' then
         table.insert(args, '-b')
         table.insert(args, mp.command_native({'expand-path', options.cookie_file}))
     end
+    append_curl_timeout(args)
+    table.insert(args, target_url)
     return args
 end
 

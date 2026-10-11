@@ -23,6 +23,7 @@ local function build_curl_args(url, extra_headers)
         table.insert(args, '-x')
         table.insert(args, options.proxy)
     end
+    append_curl_timeout(args)
     table.insert(args, url)
     return args
 end
