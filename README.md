@@ -521,8 +521,9 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 多源叠加时，不同平台的片头 / 剪辑差异会使各源弹幕时间戳整体错位（如巴哈源比本地晚 90 秒，同一句「前方高能」两边差出一分半）。开启后每次弹幕重建时自动对齐：
 
 - **投票**：取弹幕数最多的源为基准，建立「归一化文本 → 最早出现时间」锚点表（归一化会去除标点 / 空白并做简繁归一，`哈哈哈！！！` 与 `哈哈哈` 视为同文本）；其他源每条弹幕文本命中锚点，就给「两边出现时间差（取整）」投一票，得票最多的偏移即为该源的整体漂移
-- **防误对齐**：文本重合率（≥ `timeline_align_min_match`）、有效票率（≥5%）、偏移集中度（≥15%）三重门槛，任一不足即跳过该源——完全不同内容的两源不会被强行拉齐
-- **门槛默认值 0.3 为实抓校准**：巴哈与弹弹池同一集的归一化文本重合实测仅 ~46%（两岸社区弹幕本就不同），参考实现 danmu_api 的 0.8 面向大陆源池、会把巴哈整源挡在对齐之外；重合率门槛降到 0.3 后巴哈可用，小体量/低重合源（如实测 17% 重合的 animeko 单集样本）仍被有效票率与集中度门槛拦下。真实三源（弹弹play+巴哈+animeko 同集实抓）行为由 `tests/timeline_align_real_test.lua` 固定
+- **防误对齐**：文本重合率（≥ `timeline_align_min_match`）、有效票率（≥5%）、偏移集中度（≥15%）、支持时间跨度（≥25%）四重门槛，任一不足即跳过该源——完全不同内容的两源不会被强行拉齐
+- **支持跨度门槛防「片尾附加内容」假偏移**：真实的全片恒定剪辑差（片头说明 / 删减 / 片头贴广告，偏移可正可负且方向由投票实测、不预设平台剪辑模型——实测 bilibili 官方番剧片头加 5s 说明的同时剪掉更多正文，净效果是全片时间戳恒定早 5s，按时长差推方向会得到相反符号）支持弹幕从片头到片尾全程分布；而用户视频「尾部塞料」（如下一集预告、无关内容）拉出的假偏移只有尾部窄簇支持、正文命中都投 0 秒——支持跨度不足即拒绝整源平移，正文保持原位（尾部多出的弹幕本就超出本地片长不可见）
+- **门槛默认值 0.3 为实抓校准**：巴哈与弹弹池同一集的归一化文本重合实测仅 ~46%（两岸社区弹幕本就不同），参考实现 danmu_api 的 0.8 面向大陆源池、会把巴哈整源挡在对齐之外；重合率门槛降到 0.3 后巴哈可用，小体量/低重合源（如实测 17% 重合的 animeko 单集样本）仍被有效票率与集中度门槛拦下。真实三源（弹弹play+巴哈+animeko 同集实抓）与 bilibili 官方番剧片头差异（E09 实抓，-5s 漂移 +5s 校正）行为由 `tests/timeline_align_real_test.lua` 固定
 - **只整源平移**：通过全部门槛且漂移 ≥1s 才把该源全部弹幕整体前移 / 后移（早期弹幕平移为负时落 0），单条弹幕的相对时序不受影响
 - **与手动延迟的关系**：投票基于含手动延迟的「生效时间」，对齐介入前已手动补偿过的源检出漂移≈0，不会被二次平移；对齐介入后再用延迟菜单微调的源会固定当前校正量、不再参与重投票（否则手动增量会被当成新漂移平移回基准、微调静默失效），增量原样叠加生效，对该源输入 `0` 清空延迟则恢复自动对齐
 - **瞬态与反馈**：校正值每次重建从原始数据重算（不落历史记录），弹幕源延迟菜单以「合计（对齐 + 手动）+ 分项」口径显示实际生效偏移，源状态行以「时间轴±Ns」标注实际平移量，控制台日志记录每个源的检出漂移 / 票数或跳过原因；导出 XML 同口径对齐
@@ -587,8 +588,8 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 | `tests/search_hub_flow_test.lua` | 聚合搜索编排流（stub 各源 fetch，验证聚合 / 超时 / 取消 / @备注过滤） | `mpv.com --idle=once --no-config --script=tests/search_hub_flow_test.lua` |
 | `tests/history_merge_test.lua` | 文件夹记忆多源合并（旧 extra 迁移、同 kind 替换、dandanplay/直连源互不挤占、残留防护） | `mpv.com --idle=once --no-config --script=tests/history_merge_test.lua` |
 | `tests/source_status_test.lua` | 多源加载状态聚合器（会话生命周期、逐源汇总格式化，44 用例） | `mpv.com --idle=once --no-config --script=tests/source_status_test.lua` |
-| `tests/timeline_align_test.lua` | 跨源时间轴对齐（投票/三重门槛/归一化/基准选择/双重校正防护/skip 固定 + 管线集成、手动微调 pin 流程与 XML 导出） | `mpv.com --idle=once --no-config --script=tests/timeline_align_test.lua` |
-| `tests/timeline_align_real_test.lua` | 真实多源场景（弹弹play+巴哈+animeko 同集实抓 fixtures：门槛实抓校准、模拟片头差异校正、双源共享文本收敛） | `mpv.com --idle=once --no-config --script=tests/timeline_align_real_test.lua` |
+| `tests/timeline_align_test.lua` | 跨源时间轴对齐（投票/四重门槛含支持跨度/归一化/基准选择/双重校正防护/skip 固定/片尾附加内容防护 + 管线集成、手动微调 pin 流程与 XML 导出） | `mpv.com --idle=once --no-config --script=tests/timeline_align_test.lua` |
+| `tests/timeline_align_real_test.lua` | 真实多源场景（弹弹play+巴哈+animeko 同集实抓 fixtures：门槛实抓校准、模拟片头差异校正、双源共享文本收敛；bilibili 官方番剧片头差异 E09 实抓：-5s 漂移检出与 +5s 收敛） | `mpv.com --idle=once --no-config --script=tests/timeline_align_real_test.lua` |
 | `tests/density_timeline_test.lua` | 高能时间轴（分桶/双指标/自适应放宽/峰值检测与回贴、ASS 渲染确定性与淡出、uosc 时间轴同步复刻纯函数、回退/在场两种 UI 冒烟、实抓 fixture 行为固定） | `mpv.com --idle=once --no-config --script=tests/density_timeline_test.lua` |
 | `tests/pakku_bench.lua` | 万条弹幕合并性能压测 | `mpv.com --idle=once --no-config --script=tests/pakku_bench.lua` |
 

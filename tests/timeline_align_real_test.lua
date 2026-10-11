@@ -3,6 +3,7 @@
 --   seihantai_ddp_e06.json  弹弹play镜像 comment API episodeId=190100006（5249 条，含 withRelated 聚合）
 --   seihantai_baha_e06.json 巴哈 danmu.php App API videoSn=47472（1210 条，繁体，time 单位 0.1s）
 --   seihantai_ako_e06.json  animeko danmaku API episodeId=1587649（76 条，playTime 单位 ms）
+--   seihantai_bili_e09.xml / seihantai_ddp_e09.json（S01E09）：bilibili 官方番剧片头差异场景
 -- 实测要点：巴哈↔弹弹池归一化文本重合仅 552/1210≈46%（两岸社区弹幕本就不同），
 --   但重合部分 391/552=71% 集中投 0 秒（本集两边时间轴天然一致）；据此把默认门槛
 --   timeline_align_min_match 校准为 0.3（danmu_api 的 0.8 面向大陆源池，会整源跳过巴哈）
@@ -223,6 +224,81 @@ do
         if math.floor(ev.start_time + 0.5) == 680 then at_680 = true end
     end
     check("C2 关闭对齐时巴哈 kksk 停留 680s", at_680)
+end
+
+-- ============ D. 真实数据 · bilibili 官方番剧片头差异（E09 实抓）============
+-- 实测结构（BD 内嵌字幕地标验证）：ddp 池与本地 BDrip 正文同轴（OP 歌词逐行弹幕与 BD
+-- 字幕全程 -1s 跟踪；池子比 BD 多出的 ~11s 只是 BD 没有的下集预告区），bilibili 官方版
+-- 片头加 5s 说明的同时剪掉了更多正文，净效果 = 全片时间戳比基准恒定早 5s（-5s 漂移
+-- 1744 票 / 2984 重合，前/后半集 828/917 票全程均匀），对齐按实测方向 +5s 拉回基准——
+-- 方向由投票测得，不预设「官方番剧=前面插了说明」的剪辑模型（时长差推方向会得到相反符号）
+local BILI09_URL = "https://www.bilibili.com/bangumi/play/ep3270468"
+
+-- ddp：同 load_ddp 的字段序，读 E09 fixture（5384 条，2026-10-11 实抓）
+local function load_ddp09()
+    local d = utils.parse_json(read_fixture("seihantai_ddp_e09.json"))
+    local out = {}
+    for _, cm in ipairs(d.comments or {}) do
+        local fields = {}
+        local i = 1
+        for val in (cm.p or ""):gmatch("([^,]+)") do
+            fields[i] = tonumber(val)
+            i = i + 1
+        end
+        out[#out + 1] = { time = fields[1], type = fields[2], color = fields[3] or 0xFFFFFF,
+            size = 25, text = cm.m or "" }
+    end
+    return out
+end
+
+local function load_bili09()
+    return parse_xml_danmaku(read_fixture("seihantai_bili_e09.xml"))
+end
+
+-- D1 直调模块：检出 -5s 漂移并整源 +5s 平移（支持跨度 0.2~1403s 全程分布，过门槛）
+do
+    local ddp09, bili09 = load_ddp09(), load_bili09()
+    local r = talign.compute({
+        { url = DDP_URL, provider = "ddp", entries = ddp09 },
+        { url = BILI09_URL, provider = "bilibili", entries = bili09 },
+    }, { transform = to_simplified })
+    local diag09 = r.diag[1] -- ddp 为基准，仅 bilibili 一项诊断
+    check("D1a E09 实抓条数", #ddp09 == 5384 and #bili09 == 3600)
+    check("D1b 基准取弹弹池", r.baseline == DDP_URL)
+    check("D1c bilibili 检出 -5s 漂移（2984 重合 / 1744 票）",
+        diag09 and diag09.drift == -5 and diag09.votes == 1744 and diag09.match_count == 2984)
+    check("D1d 应用 +5s 平移", r.shifts[BILI09_URL] == 5 and diag09.applied)
+end
+
+-- D2 管线（chConvert 默认 0=identity）：写回 +5，台词锚点「店长：嗯，偷店里东西？」
+--    bilibili 源 701.7s → 收敛到池子同条的 706.7s（关闭对齐则早 5s）
+do
+    local ddp09 = load_ddp09()
+    local sources = {
+        [DDP_URL] = { from = "api_server", provider = "ddp", data = ddp09 },
+        [BILI09_URL] = { from = "user_custom", provider = "bilibili", data = load_bili09() },
+    }
+    DANMAKU = { sources = sources, count = 2 }
+    COMMENTS = {}
+    convert_danmaku_to_ass_events(true)
+    check("D2a align_shift 写回（bilibili +5 / ddp 0）",
+        DANMAKU.sources[BILI09_URL].align_shift == 5
+            and DANMAKU.sources[DDP_URL].align_shift == 0)
+    local hit_bili, ddp_anchor = nil, nil
+    for _, ev in ipairs(COMMENTS) do
+        -- 子串匹配：pakku 合并可能给文本追加 xN 后缀
+        if ev.clean_text and ev.clean_text:find("偷店里东西", 1, true)
+            and tostring(ev.source) == BILI09_URL then
+            hit_bili = ev
+        end
+    end
+    for _, d in ipairs(ddp09) do
+        if d.text and d.text:find("偷店里东西", 1, true) then ddp_anchor = d.time end
+    end
+    check("D2b 池子原始数据同条锚点 706.7s",
+        ddp_anchor ~= nil and math.abs(ddp_anchor - 706.7) < 0.05)
+    check("D2c bilibili 该条从未对齐 701.7s 收敛到 706.7s",
+        hit_bili ~= nil and math.abs(hit_bili.start_time - 706.7) < 0.05)
 end
 
 if failures > 0 then

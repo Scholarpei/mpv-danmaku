@@ -2,7 +2,7 @@
 -- 多源叠加时不同平台的片头/剪辑差异会使各源弹幕时间戳整体错位（如巴哈源比本地
 -- 晚 90 秒）。本模块按「同文本弹幕的出现时间差」投票统计全局偏移量，把各源时间轴
 -- 对齐到同一基准：基准源建 归一化文本→最早时间 锚点表，其他源每条弹幕文本命中
--- 锚点即给 round(t_src - t_base) 投一票，得票最多的偏移过三重门槛后整源平移。
+-- 锚点即给 round(t_src - t_base) 投一票，得票最多的偏移过四重门槛后整源平移。
 --
 -- 算法思路参考 huangxd-/danmu_api 的 alignSourceTimelines（AGPL-3.0），此处为独立
 -- Lua 重实现：基准源从「固定 dandan」推广为「弹幕条数最多的源」（锚点统计最稳，
@@ -24,6 +24,12 @@ local M = {}
 local EFFECTIVE_RATIO  = 0.05  -- 有效票率：最佳偏移票数 / 两源较小条数
 local CONSENSUS_RATIO  = 0.15  -- 集中度：最佳偏移票数 / 文本命中条数
 local OFFSET_THRESHOLD = 1     -- 触发整源平移的最小偏移（秒）
+local SPREAD_RATIO     = 0.25  -- 支持跨度：最佳偏移支持弹幕的时间宽度 / 源弹幕总跨度。
+                               -- 真实的全片恒定剪辑差（片头说明/删减，含大偏移如片头贴
+                               -- 广告）支持弹幕从片头到片尾全程分布；而「片尾附加内容」
+                               -- （用户视频尾部塞下一集预告等）拉出的假偏移只有尾部窄簇
+                               -- 支持、正文命中都投 0 秒——支持跨度不足即拒绝平移，正文
+                               -- 保持原位（尾部多出的弹幕本来就超出本地时长不可见）
 
 -- CJK 标点/引号/括号/全角空格。多字节字符不能进 Lua 字节字符类（会把 UTF-8 字节
 -- 拆开误伤汉字），须逐字面 gsub；UTF-8 连续字节均 >=0x80，不含 pattern 魔法字符
@@ -98,18 +104,29 @@ function M.compute(lists, opts)
     for _, item in ipairs(active) do
         if item.url ~= baseline.url and not (opts.skip and opts.skip[item.url]) then
             local votes, offsets = {}, {}
+            -- 各偏移支持弹幕的源内最早/最晚时间（支持跨度门槛用）
+            local votes_min_t, votes_max_t = {}, {}
             local match_count = 0
+            -- 源弹幕总时间跨度（含未命中条目）：尾部附加内容会把它拉长，
+            -- 支持跨度必须相对它衡量才不会被长尾稀释
+            local src_span = 0
             for _, e in ipairs(item.entries) do
+                local t = tonumber(e.time) or 0
+                if t > src_span then src_span = t end
                 local key = normalize_text(e.text, opts.transform)
                 if key and base_map[key] ~= nil then
                     match_count = match_count + 1
                     -- floor(x+0.5) 与 JS Math.round 一致（含负数 .5 边界）
-                    local drift = math.floor((tonumber(e.time) or 0) - base_map[key] + 0.5)
+                    local drift = math.floor(t - base_map[key] + 0.5)
                     if votes[drift] == nil then
                         votes[drift] = 0
                         offsets[#offsets + 1] = drift
+                        votes_min_t[drift] = t
+                        votes_max_t[drift] = t
                     end
                     votes[drift] = votes[drift] + 1
+                    if t < votes_min_t[drift] then votes_min_t[drift] = t end
+                    if t > votes_max_t[drift] then votes_max_t[drift] = t end
                 end
             end
 
@@ -120,7 +137,7 @@ function M.compute(lists, opts)
                 if votes[off] > best_votes then best_offset, best_votes = off, votes[off] end
             end
 
-            -- 三重门槛 + 触发阈值（min_count 为两源总条数较小者，同参考实现）
+            -- 门槛 + 触发阈值（min_count 为两源总条数较小者，同参考实现）
             local min_count = math.min(#baseline.entries, #item.entries)
             local diag = {
                 url = item.url,
@@ -130,12 +147,15 @@ function M.compute(lists, opts)
                 match_count = match_count,
                 applied = false,
             }
+            local sup_span = best_votes > 0 and (votes_max_t[best_offset] - votes_min_t[best_offset]) or 0
             if match_count / min_count < min_match_ratio then
                 diag.reason = string.format("文本重合率过低（%d/%d）", match_count, min_count)
             elseif best_votes / min_count < EFFECTIVE_RATIO then
                 diag.reason = string.format("有效票率过低（%d/%d）", best_votes, min_count)
             elseif best_votes / match_count < CONSENSUS_RATIO then
                 diag.reason = string.format("偏移集中度过低（%d/%d）", best_votes, match_count)
+            elseif src_span > 0 and sup_span / src_span < SPREAD_RATIO then
+                diag.reason = string.format("支持时间跨度过窄（%.0f/%.0f 秒，疑尾部附加内容）", sup_span, src_span)
             elseif math.abs(best_offset) < OFFSET_THRESHOLD then
                 diag.reason = string.format("偏移 %ds 低于阈值", best_offset)
             else

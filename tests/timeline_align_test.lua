@@ -368,6 +368,45 @@ do
             and DANMAKU.sources["test://other"].align_shift == 0)
 end
 
+-- 17. 片尾附加内容不动正文：源 = 正文（与基准同轴）+ 尾部塞同番剧窄簇内容（如下一集
+--     预告，簇内文本与基准预告文本逐条同构）→ 尾簇票数虽压过正文的 0 秒票，但支持
+--     弹幕只集中在尾部窄窗（宽度 29s / 跨度 2029s），支持跨度门槛拒绝整源平移，
+--     正文保持原位。若无此门槛，源会被整体 -570s 拉到预告簇时间轴上（正文全毁）。
+do
+    local texts, times = shared_pool(150)
+    local base = make_base(texts, times, 0)
+    for j = 1, 30 do
+        base[#base + 1] = entry(1430 + j, string.format("预告弹幕%02d", j)) -- 基准侧预告簇
+    end
+    local other = {}
+    for i = 1, 10 do other[#other + 1] = entry(times[i], texts[i]) end -- 正文同轴：10 票投 0
+    for j = 1, 30 do -- 尾部窄簇：预告文本 ×4 重复，同构偏移 +570，120 票
+        for _ = 1, 4 do other[#other + 1] = entry(2000 + j, string.format("预告弹幕%02d", j)) end
+    end
+    local result = talign.compute({
+        { url = "http://base", entries = base },
+        { url = "http://other", entries = other },
+    })
+    local diag = result.diag[1]
+    check("17a 尾部窄簇假偏移被检出（drift/votes 反映簇结构）",
+        diag and diag.drift == 570 and diag.votes == 120 and diag.match_count == 130)
+    check("17b 支持跨度过窄拒绝平移，正文保持原位",
+        result.shifts["http://other"] == nil and not diag.applied
+            and diag.reason and diag.reason:find("跨度过窄", 1, true))
+end
+
+-- 17c. 对照：真实的全片恒定大偏移（片头贴长广告等）支持弹幕从早到晚全程分布，
+--      支持跨度门槛不拦截，仍整源平移
+do
+    local texts, times = shared_pool(100)
+    local result = talign.compute({
+        { url = "http://base", entries = make_base(texts, times, 0) },
+        { url = "http://other", entries = make_other(texts, times, 1400) },
+    })
+    check("17c 大偏移全片支持仍平移",
+        result.shifts["http://other"] == -1400 and result.diag[1].applied)
+end
+
 if failures > 0 then
     print(failures .. " FAILURES")
     os.exit(1)
