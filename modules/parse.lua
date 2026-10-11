@@ -4,6 +4,7 @@ local s2t   = require("dicts/s2t_chars")
 local t2s   = require("dicts/t2s_chars")
 local pakku_merge = require("modules/pakku_merge")
 local pakku_density = require("modules/pakku_density")
+local talign = require("modules/timeline_align")
 
 -- mpv 的 Lua 环境不自动播种随机数（弹幕超限随机丢弃用）
 math.randomseed(os.time() + os.clock())
@@ -224,6 +225,65 @@ local function ch_convert_cached(text)
     end
 
     return converted
+end
+
+-- 跨源时间轴对齐：按同文本弹幕出现时间差投票，把各源整体平移到弹幕数最多的基准源
+-- （算法见 modules/timeline_align.lua）。投票输入为「生效时间」（orig_time + 手动
+-- 延迟）：用户已手动补偿过的源检出漂移≈0，不会被二次平移；校正值每次管线重建从
+-- 原始数据重算（瞬态、不落历史），源异步到达逐个收敛。align_shift 写回源记录供
+-- 收集/导出与状态行取用（数值 0=已对齐无需平移，nil=未参与/功能关闭）
+local function compute_timeline_alignment()
+    local shifts = {}
+    if not options.timeline_align then
+        for _, source in pairs(DANMAKU.sources) do
+            source.align_shift = nil
+        end
+        return shifts
+    end
+
+    local lists = {}
+    for url, source in pairs(DANMAKU.sources) do
+        source.align_shift = nil -- 先清残留，被门槛跳过的源不显示旧值
+        if not source.blocked and source.data and #source.data > 0 then
+            local get_cached_delay = make_delay_lookup(source)
+            local entries = {}
+            for _, d in ipairs(source.data) do
+                local base_time = d.orig_time or d.time
+                entries[#entries + 1] = {
+                    time = base_time + get_cached_delay(base_time),
+                    text = d.text,
+                }
+            end
+            lists[#lists + 1] = { url = url, provider = source.provider, entries = entries }
+        end
+    end
+
+    local result = talign.compute(lists, {
+        -- 与收集期同一条归一路径（ch_convert_cached 有缓存，双次转换廉价）
+        transform = function(text)
+            if type(text) == "string" and text ~= "" then
+                return ch_convert_cached(decode_html_entities(text))
+            end
+            return text
+        end,
+        min_match_ratio = options.timeline_align_min_match,
+    })
+
+    for _, item in ipairs(lists) do
+        local shift = result.shifts[item.url] or 0
+        shifts[item.url] = shift
+        DANMAKU.sources[item.url].align_shift = shift
+    end
+    for _, diag in ipairs(result.diag) do
+        local label = diag.provider or diag.url
+        if diag.applied then
+            msg.info(string.format("时间轴对齐：%s 应用平移 %+d 秒（检出漂移 %+ds，%d 票，基准 %s）",
+                label, -diag.drift, diag.drift, diag.votes, result.baseline))
+        else
+            msg.info(string.format("时间轴对齐：%s 跳过（%s）", label, diag.reason))
+        end
+    end
+    return shifts
 end
 
 -- 合并重复弹幕
@@ -509,6 +569,7 @@ end
 -- 将弹幕转换为 XML 格式
 function convert_danmaku_to_xml(danmaku_out)
     local danmakus = {}
+    local align_shifts = compute_timeline_alignment()
     for url, source in pairs(DANMAKU.sources) do
         if not source.blocked and source.data then
             local get_cached_delay = make_delay_lookup(source)
@@ -516,6 +577,8 @@ function convert_danmaku_to_xml(danmaku_out)
             for _, d in ipairs(source.data) do
                 local base_time = d.orig_time or d.time
                 local adjusted_time = base_time + get_cached_delay(base_time)
+                local shift = align_shifts[url] or 0
+                if shift ~= 0 then adjusted_time = math.max(0, adjusted_time + shift) end
                 table.insert(danmakus, {
                     orig_time = d.orig_time,
                     time = adjusted_time,
@@ -593,6 +656,7 @@ function convert_danmaku_to_ass_events(force)
     DENSITY_STATS = nil -- 同上，智能密度统计
     BLACKLIST_STATS = nil -- 同上，黑名单过滤统计
     local per_source_lists = {}
+    local align_shifts = compute_timeline_alignment()
     for url, source in pairs(DANMAKU.sources) do
         if not source.blocked and source.data then
             local get_cached_delay = make_delay_lookup(source)
@@ -602,6 +666,8 @@ function convert_danmaku_to_ass_events(force)
                 local base_time = d.orig_time or d.time
                 if d.orig_time == nil then d.orig_time = base_time end
                 local adjusted_time = base_time + get_cached_delay(base_time)
+                local shift = align_shifts[url] or 0
+                if shift ~= 0 then adjusted_time = math.max(0, adjusted_time + shift) end
                 -- 实体解码 + 简繁转换提前到收集阶段（此前在布局输出阶段）：
                 -- ① 合并引擎比较转换后文本，繁简互为变体的弹幕（淚目/泪目）同文可合并，
                 --    不再依赖拼音字典恰好覆盖两种字形；② 黑名单匹配对象与显示文本一致，

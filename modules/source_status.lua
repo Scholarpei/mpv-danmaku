@@ -149,7 +149,15 @@ local function entry_line(e)
         return "· " .. provider .. title .. " 等待中…"
     end
     local count = (e.count ~= nil) and (" " .. e.count .. "条") or ""
-    return "· " .. provider .. title .. count
+    local line = "· " .. provider .. title .. count
+    -- 时间轴对齐标注：管线写入源记录的瞬态校正量（非 0 时显示整源平移秒数）
+    if type(DANMAKU) == "table" and type(DANMAKU.sources) == "table" then
+        local s = DANMAKU.sources[e.key]
+        if type(s) == "table" and type(s.align_shift) == "number" and s.align_shift ~= 0 then
+            line = line .. string.format(" 时间轴%+ds", s.align_shift)
+        end
+    end
+    return line
 end
 
 -- 自动完成检测：pending 条目在 DANMAKU.sources[key] 有数据即转 done（标题/条数就地取）

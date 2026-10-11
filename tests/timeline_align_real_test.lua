@@ -1,0 +1,233 @@
+-- 跨源时间轴对齐·真实多源场景测试：用实抓弹幕 fixture（同一集三个平台）验证对齐行为
+-- fixture 来源（2026-10-11 实抓，相反的你和我 / Seihantai na Kimi to Boku 2026 S01E06）：
+--   seihantai_ddp_e06.json  弹弹play镜像 comment API episodeId=190100006（5249 条，含 withRelated 聚合）
+--   seihantai_baha_e06.json 巴哈 danmu.php App API videoSn=47472（1210 条，繁体，time 单位 0.1s）
+--   seihantai_ako_e06.json  animeko danmaku API episodeId=1587649（76 条，playTime 单位 ms）
+-- 实测要点：巴哈↔弹弹池归一化文本重合仅 552/1210≈46%（两岸社区弹幕本就不同），
+--   但重合部分 391/552=71% 集中投 0 秒（本集两边时间轴天然一致）；据此把默认门槛
+--   timeline_align_min_match 校准为 0.3（danmu_api 的 0.8 面向大陆源池，会整源跳过巴哈）
+-- 运行：mpv.com --no-config --idle=once --script=<本文件>
+
+local ROOT = "D:/software/mpv-lazy/portable_config/scripts/uosc_danmaku"
+package.path = ROOT .. "/?.lua;" .. package.path
+local utils = require("mp.utils")
+show_message = function() end -- parse 空弹幕分支/导出提示会调 OSD，测试环境打桩
+require("modules/options")
+require("modules/utils")
+require("modules/parse")
+local talign = require("modules/timeline_align")
+local aparse = require("modules/animeko_parse")
+local t2s = require("dicts/t2s_chars")
+
+local failures = 0
+local function check(name, cond)
+    if cond then
+        print("PASS " .. name)
+    else
+        failures = failures + 1
+        print("FAIL " .. name)
+    end
+end
+
+local DDP_URL = "https://danmaku-api.152468.xyz/api/v2/comment/190100006?withRelated=true&chConvert=0"
+local BAHA_URL = "https://ani.gamer.com.tw/animeVideo.php?sn=47472"
+local AKO_URL = "https://api.animeko.org/episode/1587649"
+
+local function read_fixture(name)
+    local f = io.open(ROOT .. "/tests/fixtures/" .. name, "r")
+    if not f then return nil end
+    local c = f:read("*a")
+    f:close()
+    return c
+end
+
+-- dandanplay：镜像 apis/dandanplay.lua save_danmaku_to_list 的字段序（p = time,type,color,uid）
+local function load_ddp()
+    local d = utils.parse_json(read_fixture("seihantai_ddp_e06.json"))
+    local out = {}
+    for _, cm in ipairs(d.comments or {}) do
+        local fields = {}
+        local i = 1
+        for val in (cm.p or ""):gmatch("([^,]+)") do
+            fields[i] = tonumber(val)
+            i = i + 1
+        end
+        out[#out + 1] = { time = fields[1], type = fields[2], color = fields[3] or 0xFFFFFF,
+            size = 25, text = cm.m or "" }
+    end
+    return out
+end
+
+-- 巴哈：镜像 sites/bahamut.lua save_comments（time/10、hex 色、position→mode），
+-- 产出 {c,m} 数组后走真实 parse_json_danmaku（与插件 save_danmaku_json 同路径）
+local function load_baha()
+    local d = utils.parse_json(read_fixture("seihantai_baha_e06.json"))
+    local arr = {}
+    for _, cm in ipairs((d.data and d.data.danmu) or {}) do
+        local mode = cm.position == 0 and 1 or (cm.position == 1 and 4 or 5)
+        arr[#arr + 1] = {
+            c = string.format("%s,%s,%s,25", tonumber(cm.time) / 10, hex_to_int_color(cm.color), mode),
+            m = cm.text,
+        }
+    end
+    return parse_json_danmaku(utils.format_json(arr))
+end
+
+-- animeko：真实模块解析（modules/animeko_parse.lua parse_danmaku_list）
+local function load_ako()
+    local out = {}
+    for _, c in ipairs(aparse.parse_danmaku_list(utils.parse_json(read_fixture("seihantai_ako_e06.json")))) do
+        out[#out + 1] = { time = c.time, type = c.mode, color = c.color, size = 25, text = c.text }
+    end
+    return out
+end
+
+-- 直调 talign.compute 用的 transform：镜像 parse.lua 局部 ch_convert（同 dicts/t2s_chars 表；
+-- 管线内部走 compute_timeline_alignment 的真实 transform，由 C 节 e2e 覆盖）
+local function to_simplified(text)
+    if type(text) ~= "string" or text == "" then return text end
+    return text:gsub("[%z\1-\127\194-\244][\128-\191]*", function(c) return t2s[c] or c end)
+end
+
+local ddp, baha, ako = load_ddp(), load_baha(), load_ako()
+
+-- ============ A. 真实数据 · 纯模块（确定性参考值，fixture 固定即稳定） ============
+
+check("A0 实抓条数", #ddp == 5249 and #baha == 1210 and #ako == 76)
+
+local function compute_real(opts)
+    return talign.compute({
+        { url = DDP_URL, provider = "ddp", entries = ddp },
+        { url = BAHA_URL, provider = "巴哈姆特", entries = baha },
+        { url = AKO_URL, provider = "animeko", entries = ako },
+    }, opts)
+end
+
+-- A1 默认门槛 0.3：基准=弹弹池（条数最多）；巴哈过门槛且漂移 0（本集两边天然同轴，
+--    kksk/4hit/miomiomio 等共享文本两边时间戳逐字相同）→ 不平移；ako 重合 13/76 跳过
+local result = compute_real({ transform = to_simplified })
+local diag_by_url = {}
+for _, diag in ipairs(result.diag) do diag_by_url[diag.url] = diag end
+
+check("A1a 基准取弹弹池", result.baseline == DDP_URL)
+local baha_diag = diag_by_url[BAHA_URL]
+check("A1b 巴哈重合/漂移参考值（46% 重合、71% 集中投 0 秒）",
+    baha_diag and baha_diag.match_count == 552 and baha_diag.drift == 0 and baha_diag.votes == 391)
+check("A1c 巴哈漂移 0 无需平移",
+    result.shifts[BAHA_URL] == nil and baha_diag.applied == false)
+local ako_diag = diag_by_url[AKO_URL]
+check("A1d ako 小池跳过（重合 13/76）",
+    result.shifts[AKO_URL] == nil and ako_diag and not ako_diag.applied
+        and ako_diag.reason and ako_diag.reason:find("重合率", 1, true))
+
+-- A2 严格门槛 0.8（danmu_api 原值）：巴哈 552/1210 被重合率整源挡下——默认值的校准依据
+local strict = compute_real({ transform = to_simplified, min_match_ratio = 0.8 })
+local strict_baha
+for _, diag in ipairs(strict.diag) do
+    if diag.url == BAHA_URL then strict_baha = diag end
+end
+check("A2 门槛 0.8 会跳过巴哈（默认 0.3 的校准依据）",
+    strict_baha and not strict_baha.applied
+        and strict_baha.reason and strict_baha.reason:find("重合率", 1, true))
+
+-- ============ B. 真实数据 + 模拟片头差异（巴哈整体晚 90 秒）============
+
+local baha_plus90 = {}
+for i, c in ipairs(baha) do
+    baha_plus90[i] = { time = c.time + 90, type = c.type, color = c.color, size = c.size, text = c.text }
+end
+
+local shifted = talign.compute({
+    { url = DDP_URL, provider = "ddp", entries = ddp },
+    { url = BAHA_URL, provider = "巴哈姆特", entries = baha_plus90 },
+}, { transform = to_simplified })
+local shift_diag
+for _, diag in ipairs(shifted.diag) do
+    if diag.url == BAHA_URL then shift_diag = diag end
+end
+check("B1 检出 +90s 漂移并整源前移",
+    shifted.shifts[BAHA_URL] == -90 and shift_diag and shift_diag.applied
+        and shift_diag.drift == 90 and shift_diag.votes == 391)
+
+-- ============ C. 真实数据 e2e：管线收集期应用平移，共享文本双源收敛 ============
+
+options.density_control = "off" -- 断言存在性/时间，规避智能密度随机丢弃的不确定性（合并保持默认开）
+
+local function build_sources(baha_data)
+    return {
+        [DDP_URL] = { from = "api_server", provider = "ddp", data = ddp },
+        [BAHA_URL] = { from = "user_custom", provider = "巴哈姆特", data = baha_data },
+        [AKO_URL] = { from = "user_custom", provider = "animeko", data = ako },
+    }
+end
+
+-- 收敛锚点（实抓双源同文本同时间戳）：kksk@590.00 / XDD@486.60 / Richt@739.40
+local function kksk_events()
+    local evs = {}
+    for _, ev in ipairs(COMMENTS) do
+        if ev.text and ev.text:lower():find("kksk", 1, true) then evs[#evs + 1] = ev end
+    end
+    return evs
+end
+
+-- C1 开启对齐（默认）：巴哈+90s 被校正回基准时间轴
+DANMAKU = { sources = build_sources(baha_plus90), count = 3 }
+COMMENTS = {}
+convert_danmaku_to_ass_events(true)
+check("C1a align_shift 写回（校正 -90 / 基准 0 / 跳过源 0）",
+    DANMAKU.sources[BAHA_URL].align_shift == -90
+        and DANMAKU.sources[DDP_URL].align_shift == 0
+        and DANMAKU.sources[AKO_URL].align_shift == 0)
+do
+    local evs = kksk_events()
+    local at_590 = false
+    for _, ev in ipairs(evs) do
+        if math.floor(ev.start_time + 0.5) == 590 then at_590 = true end
+    end
+    check("C1b 双源 kksk 收敛到 590s", at_590)
+end
+
+-- C1c/d 收敛断言走 XML 导出路径：真实数据同屏弹幕密集，布局车道不足会静默丢事件
+--（get_position_y 返回 nil），而导出无布局/无取整，时间戳原样落盘，是更强的收敛证明。
+-- 锚点取双源原文精确一致的 ASCII 文本（kksk@590 / XDD@486.6 / Richt@739.4）；
+-- 时间数值比较带容差（+90-90 浮点往返可能有 1ulp 尾差）
+do
+    local tmp = ROOT .. "/tests/talign_real_tmp_export.xml"
+    DANMAKU = { sources = build_sources(baha_plus90), count = 3 }
+    local ok = convert_danmaku_to_xml(tmp)
+    local content = ok and read_file(tmp) or ""
+    os.remove(tmp)
+    local function line_at(tag, want_time)
+        for line in content:gmatch("<d [^\n]*</d>\n") do
+            local p = line:match('^<d p="([^,]+),')
+            if p and line:lower():find(tag, 1, true)
+                and math.abs(tonumber(p) - want_time) <= 0.05 then
+                return true
+            end
+        end
+        return false
+    end
+    check("C1c XDD 收敛到 486.6s", line_at("xdd", 486.6))
+    check("C1d Richt 收敛到 739.4s", line_at("richt", 739.4))
+end
+
+-- C2 对照：关闭对齐，巴哈 kksk 停在 680s（590+90，未校正）
+options.timeline_align = false
+DANMAKU = { sources = build_sources(baha_plus90), count = 3 }
+COMMENTS = {}
+convert_danmaku_to_ass_events(true)
+options.timeline_align = true
+do
+    local at_680 = false
+    for _, ev in ipairs(kksk_events()) do
+        if math.floor(ev.start_time + 0.5) == 680 then at_680 = true end
+    end
+    check("C2 关闭对齐时巴哈 kksk 停留 680s", at_680)
+end
+
+if failures > 0 then
+    print(failures .. " FAILURES")
+    os.exit(1)
+end
+print("ALL PASS")
+os.exit(0)
