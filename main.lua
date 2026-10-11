@@ -417,8 +417,11 @@ function write_history(episodeid, api_server)
         -- 多源并行记忆：直连源选择记入 extras 表（同 kind 替换），旧格式单 extra 迁移；
         -- dandanplay 选择（episodeid 非 nil）不合并当前 DANMAKU.extra（防全局残留污染新文件夹），
         -- 详见 modules/history_merge.lua（含单元测试）
+        -- extras[].fname / episodeId_fname 为各记忆条目的文件名锚点：多源异步续载时快源先
+        -- 到先写会把全局 fname 移到当前集，慢源 episodenum/episodeId 仍停在旧集，续载差值
+        -- 必须逐锚推算（见 dandanplay_flow 的 anchor_delta）
         local extras = hmerge.merge_extras(old,
-            episodeid and nil or DANMAKU.extra)
+            episodeid and nil or DANMAKU.extra, fname)
         history[dir] = {}
         history[dir].fname = fname
         history[dir].source = DANMAKU.source
@@ -427,9 +430,12 @@ function write_history(episodeid, api_server)
         history[dir].episodeNumber = episodeNumber
         if episodeid then
             history[dir].episodeId = episodeid
+            history[dir].episodeId_fname = fname
         elseif old.episodeId then
-            -- 直连源选择不挤掉 dandanplay 的集数记录（多源并存续载的依据）
+            -- 直连源选择不挤掉 dandanplay 的集数记录（多源并存续载的依据）；
+            -- 锚点也保持 dandanplay 自己的（episodeId 未变，锚不得随直连源移动）
             history[dir].episodeId = old.episodeId
+            history[dir].episodeId_fname = old.episodeId_fname
         end
         if #extras > 0 then
             history[dir].extras = extras
@@ -729,13 +735,22 @@ function auto_load_danmaku(path, dir, filename, number)
             playing_number = get_episode_number(filename)
         end
         if playing_number ~= nil then
-            local x = playing_number - history_number --获取集数差值
-            DANMAKU.episode = episode_number and string.format("第%s话", episode_number + x) or history_dir.episodeTitle
+            local x = playing_number - history_number --获取集数差值（全局锚：fname/episodeNumber）
+            -- 每源锚点差值：多源异步续载时快源先 write_history 已把全局锚移到当前集，
+            -- 慢源的 episodenum/episodeId 仍停在旧集（重载/换集后全局差值对慢源失效），
+            -- 故逐条按各自 fname 锚独立推算；老记录无锚回退全局差值（URL 场景 number
+            -- 显式给出时同样走全局，行为与旧版一致）
+            local function anchor_delta(anchor_fname)
+                if number then return x end
+                return hmerge.anchor_delta(get_episode_number, filename, anchor_fname, x)
+            end
+            local x_ddp = anchor_delta(history_dir.episodeId_fname)
+            DANMAKU.episode = episode_number and string.format("第%s话", episode_number + x_ddp) or history_dir.episodeTitle
             DANMAKU.api_server = history_api_server or nil
 
             -- 多源并行续载：extras 表（各直连源一条）+ dandanplay 的 episodeId 同时恢复；
             -- 旧格式单 extra 迁移为单元素表（modules/history_merge.lua）。各源集数编号语义一致
-            --（列表序），共用同一差值推算
+            --（列表序），差值按各源 fname 锚独立推算（anchor_delta）
             local extras_list = hmerge.read_extras(history_dir)
 
             if history_id ~= nil or #extras_list > 0 then
@@ -753,12 +768,12 @@ function auto_load_danmaku(path, dir, filename, number)
                 source_status.begin(pending)
                 msg.verbose("自动加载上次匹配的弹幕")
                 if history_id then
-                    local tmp_id = tostring(x + history_id)
+                    local tmp_id = tostring(x_ddp + history_id)
                     set_episode_id(tmp_id, nil, nil,
                         {anime = DANMAKU.anime, episode = DANMAKU.episode})
                 end
                 for _, ex in ipairs(extras_list) do
-                    local episodenum = ex.episodenum + x
+                    local episodenum = ex.episodenum + anchor_delta(ex.fname)
                     -- extra 记录按 kind 分发：旧记录无 kind 等价 360kan（向后兼容）
                     local kind = ex.kind or "360kan"
                     if kind == "qq" then

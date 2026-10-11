@@ -52,6 +52,51 @@ do -- 写侧合并：追加/替换/顺序保持
         #hmerge.merge_extras({ extras = {} }, nil) == 0)
 end
 
+do -- 锚点注入：merge_extras 第三参
+    local cur = { kind = "animeko", episodenum = 5 }
+    local merged = hmerge.merge_extras({}, cur, "Show S01E05")
+    check("写入条目注入fname锚", merged[1].fname == "Show S01E05")
+
+    -- 副本注入：不污染全局 DANMAKU.extra（write_history 的 current 引用）
+    check("锚注入不改动current_extra", cur.fname == nil and next(cur) ~= nil)
+
+    -- 替换同 kind 时新条目带新锚，未触碰条目锚保持
+    local old = { extras = { { kind = "qq", episodenum = 5, fname = "Show S01E04" } } }
+    local m2 = hmerge.merge_extras(old, { kind = "qq", episodenum = 6 }, "Show S01E05")
+    check("替换条目锚更新", m2[1].fname == "Show S01E05" and m2[1].episodenum == 6)
+
+    -- anchor_fname 为 nil（如测试/兼容路径）：不注入，条目无锚
+    local m3 = hmerge.merge_extras({}, { kind = "qq", episodenum = 1 }, nil)
+    check("无锚参数不注入", m3[1].fname == nil)
+end
+
+do -- anchor_delta：每源锚点差值推算
+    local function fake_parse(filename, anchor)
+        -- 模拟 get_episode_number(filename, fname)：返回 (锚侧集数, 当前集数)
+        local a = tonumber(anchor:match("E(%d+)"))
+        local c = tonumber(filename:match("E(%d+)"))
+        if a and c then return a, c end
+        return nil, nil
+    end
+
+    -- 场景还原（E06 竞态）：快源 bili 已把全局锚移到 E06，二次触发时全局 x=0；
+    -- 慢源 ako 的锚还在 E05 → 应按自身锚 +1 而非 +0
+    local filename = "Seihantai na Kimi to Boku 2026 S01E06-[1080p]"
+    local global_x = 0
+    check("慢源锚在旧集按锚推算",
+        hmerge.anchor_delta(fake_parse, filename, "Seihantai na Kimi to Boku 2026 S01E05-[1080p]", global_x) == 1)
+    check("快源锚已移至当前集差值为0",
+        hmerge.anchor_delta(fake_parse, filename, filename, global_x) == 0)
+    check("无锚回退全局差值",
+        hmerge.anchor_delta(fake_parse, filename, nil, 1) == 1)
+    check("锚解析失败回退全局差值",
+        hmerge.anchor_delta(fake_parse, filename, "完全不同的名字", 2) == 2)
+
+    -- 常规换集：全局锚 E05→E06，慢源锚 E04（上上次）→ 差值 2
+    check("跨多集锚推算",
+        hmerge.anchor_delta(fake_parse, filename, "Show S01E04", 1) == 2)
+end
+
 do -- 端到端场景：多源续载时逐源 write_history 的合并链
     -- 场景：旧记录 episodeId+qq；先 resume animeko（extra=animeko），再 resume qq（extra=qq）
     local history_record = { episodeId = 1001, extras = { { kind = "qq", episodenum = 5 } } }
