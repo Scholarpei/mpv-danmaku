@@ -18,6 +18,7 @@ require("modules/parse")
 require("modules/guess")
 require('modules/render')
 require('modules/menu')
+require('modules/density_timeline')
 require("modules/update")
 
 require("apis/dandanplay")
@@ -290,6 +291,14 @@ local function set_danmaku_delay(dly, time, specific_source)
     if specific_source then
         local source = DANMAKU.sources[specific_source]
         if source and source.data and not source.blocked then
+            -- 时间轴对齐已介入的源（align_shift 为数字）被手动设延迟：置 pin 让后续
+            -- 管线重建保留当前校正量不再重投票——否则手动增量会被当成新漂移整源平移
+            -- 回基准、微调静默失效；输入 0 清空延迟同时解除 pin，恢复自动对齐
+            if dly == 0 then
+                source.align_pinned = nil
+            elseif type(source.align_shift) == "number" then
+                source.align_pinned = true
+            end
             source.delay_segments = source.delay_segments or {}
             if dly == 0 then
                 source.delay_segments = {}
@@ -307,6 +316,11 @@ local function set_danmaku_delay(dly, time, specific_source)
     else
         for url, source in pairs(DANMAKU.sources) do
             if source.data and not source.blocked then
+                if dly == 0 then
+                    source.align_pinned = nil
+                elseif type(source.align_shift) == "number" then
+                    source.align_pinned = true
+                end
                 source.delay_segments = source.delay_segments or {}
                 if dly == 0 then
                     source.delay_segments = {}
@@ -352,7 +366,11 @@ local function set_danmaku_delay(dly, time, specific_source)
     if specific_source then
         local source = DANMAKU.sources[specific_source]
         local source_delay = get_delay_for_time(source and source.delay_segments, time or 0)
-        show_message('设置弹幕源延迟: ' .. string.format("%.1f", source_delay + 1e-10) .. ' s')
+        -- 与延迟菜单同口径：显示手动延迟 + 时间轴对齐校正量的合计（对齐介入时
+        -- 只报手动段会仍是 0.0 秒，看不出该源实际被整体平移过）
+        local align = (source and type(source.align_shift) == "number") and source.align_shift or 0
+        local suffix = align ~= 0 and string.format('（含时间轴对齐%+.1f）', align) or ''
+        show_message('设置弹幕源延迟: ' .. string.format("%.1f", source_delay + align + 1e-10) .. ' s' .. suffix)
     else
         show_message('设置弹幕延迟: ' .. string.format("%.1f", DELAY + 1e-10) .. ' s')
         mp.set_property_native(DELAY_PROPERTY, DELAY)
@@ -896,6 +914,11 @@ end)
 mp.add_key_binding(options.show_danmaku_keyboard_key, "show_danmaku_keyboard", function()
     mp.commandv("script-message", "show_danmaku_keyboard")
 end)
+if options.density_timeline_key ~= nil and options.density_timeline_key ~= "" then
+    mp.add_key_binding(options.density_timeline_key, "toggle_density_timeline_key", function()
+        mp.commandv("script-message", "toggle_density_timeline")
+    end)
+end
 
 -------------- 事件注册 --------------
 mp.register_script_message("danmaku-delay", function(...)

@@ -68,6 +68,8 @@
 | 四通道相似度合并，重复刷屏收拢为一条 **×N** | 弹幕过密先自动缩小字号，仍超限才按权重丢弃 |
 | 🎛️ [弹幕过滤菜单](#弹幕过滤菜单) | 🖥️ [自建弹幕服务器](#自建弹幕服务器danmu-api-兼容) |
 | 合并 / 密度 / 简繁 / 黑名单播放中实时调节 | danmu-api 兼容服务一行配置接入 |
+| 🔥 [高能时间轴](#高能时间轴) | |
+| 淡淡的高能曲线吸附在进度条上方、同进同出（几何/显隐/淡出同步复刻），点击即跳名场面 | |
 
 ### 多源聚合搜索
 
@@ -179,6 +181,25 @@ B站多分P合集（多季混排、剧场版夹杂的投稿）不用每集贴一
 - 上游原有的「同屏上限 + 随机丢弃」（B站播放器行为）保留为 `simple` 简单模式，`off` 完全关闭
 - 加载完成 OSD 提示干预统计：「智能密度：缩小 N 条，丢弃 M 条」
 
+### 高能时间轴
+
+一条**淡淡的弹幕密度平滑曲线**吸附在 uosc 进度条上方，与进度条同进同出——不占注意力，但一眼看清全片哪里在刷屏，找名场面不再靠拖进度条碰运气：
+
+```text
+                                            ① 21:20
+        ②            ③ ④          ⑤        ▏
+▂▄▆▄▂▁▁▂▄████▆▄▂▁▁▂▄▆█▆▄▂▁▁▂▄▆▅▄▂▁▁▂▄▆▆▄▂▁▁▂▄ ← 淡淡的热度曲线
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ← uosc 进度条
+```
+
+- **与进度条同步吸附**：uosc 不对外暴露时间轴状态，本模块按其源码在本地复刻 Timeline 模型——曲线基线贴进度条条带顶（含边条），横向铺满条带左右缘，尺寸随 `timeline_size` / 全屏 `scale_fullscreen` / 窗口边框等 uosc 配置实时跟随；条带从常驻 progress 线展开到全高时曲线随之升降，如同从进度条里「长出来」
+- **显隐同步**：鼠标邻近渐入渐出（`proximity_in/out`，controls 按钮行同计）、`timeline_persistency` 持久化（如暂停常显）同样点亮曲线、uosc 菜单打开（curtain）即隐、无时长（直播）即隐；uosc 缺席时回退「底部条带触发 + 0.4s 宽限」旧模型
+- **极简形态**：无面板底/表头/轴刻度/常驻文字——只有低透明度填充曲线、一条细描边、①②③… 峰值小旗标；当前进度由进度条自身指示，不重复。视觉风格三选一（[`density_timeline_style`](#高能时间轴-1)）：**融彩**（默认，去饱和热度渐变：钢灰→雾青→沙金→珊瑚）/ **静墨**（近白单色，透明度编码强度）/ **月白**（淡青单色）
+- **鼠标直达**：悬停曲线区出现 1px 提示线与时间浮签（靠近峰值时显示 ①+时间），**点击即跳转到该处**（峰值 16px 内自动吸附）；`m` 切换弹幕量↔视觉密度口径（合并 ×N 计回社区刷屏量），为仅存的键盘操作
+- **入口**：随进度条悬停出现（主要）、弹幕设置总菜单「高能时间轴」、`toggle_density_timeline` 脚本消息（可绑 `input.conf`，或设 `density_timeline_key`）固定显示——手动固定不受显隐驱动，但几何仍跟随进度条（收起时曲线落座于常驻 progress 线之上）
+- 点击路由与 uosc 兼容：曲线可见期间注册非强制 `MBTN_LEFT` 绑定，uosc 在场时经其点击转发链抵达、缺席时直接命中；点在 uosc 元素上仍由 uosc 处理
+- 显隐瞬间取弹幕池快照：播放中调整延迟 / 过滤后，重新唤出即刷新；智能密度控制在极密处的丢弃会低估绝对峰值数，但高能点排名不受影响
+
 ### 弹幕过滤菜单
 
 新增的 uosc 子菜单（也可从弹幕设置总菜单进入），播放中随时调整、立即生效，无需改配置重启：
@@ -228,7 +249,7 @@ api_server=http://192.168.1.5:9321
 - **简繁转换运行时切换**：弹幕文本默认转简体显示，可在过滤菜单三态切换；转换在收集阶段进行（合并与黑名单均作用于转换后文本，黑名单规则按屏幕显示的文字书写即可命中）；导出 XML 仍保留原文（源数据不参与转换）
 - **弹幕磁盘缓存**：网络弹幕按 episodeId/cid 落盘（[`danmaku_cache_*`](#danmaku_cache)），TTL 内二刷不发网络包秒加载、断网自动用过期缓存兜底；容量超限按最旧淘汰，总菜单可一键清空
 - **多源加载状态汇总**：多源并行加载 / 续载时，同一 OSD 位置动态汇总各源状态——提供方 + 《标题》截断 + 集数 + 条数，未到标等待、失败折 ✗ 不再各自弹错；手动搜索 / 自动匹配 / URL 播放 / 本地 xml / 重放 / 兜底所有加载路径统一口径
-- **跨源时间轴对齐**：多源叠加时按「同文本弹幕出现时间差」投票统计全局偏移，把各源整体平移到弹幕数最多的基准源（[`timeline_align`](#timeline_align)）——不同平台的片头 / 剪辑差异（如巴哈源整体晚 90 秒）自动校正；投票基于含手动延迟的生效时间，已手动补偿过的源不会被二次平移；对齐量在源状态行以「时间轴±Ns」标注
+- **跨源时间轴对齐**：多源叠加时按「同文本弹幕出现时间差」投票统计全局偏移，把各源整体平移到弹幕数最多的基准源（[`timeline_align`](#timeline_align)）——不同平台的片头 / 剪辑差异（如巴哈源整体晚 90 秒）自动校正；投票基于含手动延迟的生效时间，已手动补偿过的源不会被二次平移；对齐量在源状态行以「时间轴±Ns」标注，弹幕源延迟菜单按「合计（对齐 + 手动）」口径显示
 - **源历史与菜单升级**：弹幕源历史记录补标题持久化（只补不擦，老记录回退显示 URL）——「从源添加弹幕」菜单以标题为主、URL 缩略为 hint；弹幕设置总菜单顶部逐源列出已关联弹幕（各源一行含条数，超过 4 个折叠显示）
 
 ---
@@ -365,6 +386,17 @@ auto_load=yes                  # 全自动弹幕填装（文件夹内加载一�
 | **`density_level`** | `medium` | 智能模式强度三档，见下表 |
 | `max_screen_danmaku` | `0` | 同屏弹幕上限，**仅 `simple` 模式生效** |
 
+### 高能时间轴
+
+| 选项 | 默认值 | 说明 |
+| --- | --- | --- |
+| **`density_timeline_show_on_hover`** | `yes` | 高能曲线随进度条显隐同步出现（uosc 邻近/持久化模型复刻，见[特色功能](#高能时间轴)） |
+| **`density_timeline_hover_zone`** | `40` | 仅 uosc 缺席时的回退触发区高度（像素，底部条带）；uosc 在场时不参与 |
+| **`density_timeline_style`** | `blend` | 视觉风格：`blend` 融彩（去饱和热度渐变）/ `ink` 静墨（近白单色）/ `moon` 月白（淡青单色） |
+| **`density_timeline_key`** | 空 | 可选快捷键（手动固定显示，再次触发关闭）；留空不绑定，亦可绑 `input.conf` 脚本消息 |
+| **`density_timeline_bucket`** | `10` | 分桶宽度（秒）；超长视频自动按整倍放宽至 ≤600 桶 |
+| **`density_timeline_peaks`** | `5` | 标注的峰值数量（1~10） |
+
 ### B站合集记忆
 
 文件夹弹幕记忆的**全源并行续载**（见[特色功能](#文件夹弹幕记忆)）没有独立配置项，随上游 `auto_load` 开关生效；下表选项只控制其中的B站分P智能匹配：
@@ -492,8 +524,8 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 - **防误对齐**：文本重合率（≥ `timeline_align_min_match`）、有效票率（≥5%）、偏移集中度（≥15%）三重门槛，任一不足即跳过该源——完全不同内容的两源不会被强行拉齐
 - **门槛默认值 0.3 为实抓校准**：巴哈与弹弹池同一集的归一化文本重合实测仅 ~46%（两岸社区弹幕本就不同），参考实现 danmu_api 的 0.8 面向大陆源池、会把巴哈整源挡在对齐之外；重合率门槛降到 0.3 后巴哈可用，小体量/低重合源（如实测 17% 重合的 animeko 单集样本）仍被有效票率与集中度门槛拦下。真实三源（弹弹play+巴哈+animeko 同集实抓）行为由 `tests/timeline_align_real_test.lua` 固定
 - **只整源平移**：通过全部门槛且漂移 ≥1s 才把该源全部弹幕整体前移 / 后移（早期弹幕平移为负时落 0），单条弹幕的相对时序不受影响
-- **与手动延迟的关系**：投票基于含手动延迟的「生效时间」，已手动补偿过的源检出漂移≈0，不会被二次平移；对齐后仍可继续用延迟菜单微调，两者叠加生效
-- **瞬态与反馈**：校正值每次重建从原始数据重算（不落历史记录），源状态行以「时间轴±Ns」标注实际平移量，控制台日志记录每个源的检出漂移 / 票数或跳过原因；导出 XML 同口径对齐
+- **与手动延迟的关系**：投票基于含手动延迟的「生效时间」，对齐介入前已手动补偿过的源检出漂移≈0，不会被二次平移；对齐介入后再用延迟菜单微调的源会固定当前校正量、不再参与重投票（否则手动增量会被当成新漂移平移回基准、微调静默失效），增量原样叠加生效，对该源输入 `0` 清空延迟则恢复自动对齐
+- **瞬态与反馈**：校正值每次重建从原始数据重算（不落历史记录），弹幕源延迟菜单以「合计（对齐 + 手动）+ 分项」口径显示实际生效偏移，源状态行以「时间轴±Ns」标注实际平移量，控制台日志记录每个源的检出漂移 / 票数或跳过原因；导出 XML 同口径对齐
 
 </details>
 
@@ -512,6 +544,7 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 | `open_danmaku_style_menu` | 弹幕样式菜单 |
 | `open_source_delay_menu` | 弹幕源延迟菜单 |
 | `open_add_total_menu` | 弹幕设置总菜单 |
+| `toggle_density_timeline` | 🆕 高能时间轴（弹幕密度曲线，亦随底部悬停出现） |
 | `show_danmaku_count` | 显示弹幕加载状态汇总（各源条数） |
 | `clear-bilibili-record` | 🆕 清除当前文件夹的B站弹幕记忆 |
 | `clear-danmaku-cache` | 🆕 清空弹幕磁盘缓存（总菜单亦有入口） |
@@ -535,7 +568,7 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 | `tests/pakku_density_test.lua` | dispval、先缩后丢、×N 保护 | `mpv.com --idle=once --no-config --script=tests/pakku_density_test.lua` |
 | `tests/bilibili_match_test.lua` | 分P标题解析、匹配打分、锚点仲裁 | `mpv.com --idle=once --no-config --script=tests/bilibili_match_test.lua` |
 | `tests/e2e_pipeline_test.lua` | 模式转换→合并→黑名单→密度→布局全管线 | `mpv.com --idle=once --no-config --script=tests/e2e_pipeline_test.lua --script-opts=e2e_pipeline_test-blacklist_path=tests/black_e2e.txt` |
-| `tests/menu_handler_test.lua` | 过滤菜单各项回调 | `mpv.com --idle=once --no-config --script=tests/menu_handler_test.lua` |
+| `tests/menu_handler_test.lua` | 过滤菜单各项回调、内容菜单索引映射与屏蔽、延迟菜单合计口径 | `mpv.com --idle=once --no-config --script=tests/menu_handler_test.lua` |
 | `tests/danmaku_cache_test.lua` | 缓存读写/TTL/断网兜底/容量淘汰（B站路径的缓存读写由本测试覆盖） | `mpv.com --idle=once --no-config --script=tests/danmaku_cache_test.lua` |
 | `tests/danmaku_cache_fetch_test.lua` | 弹弹play 拉取链路缓存命中不发网络（B站下载函数为模块内局部，由单测+手动场景覆盖） | `mpv.com --idle=once --no-config --script=tests/danmaku_cache_fetch_test.lua` |
 | `tests/tencent_parse_test.lua` | 腾讯搜索/剧集/弹幕条目解析（MainNeed 优先、预告过滤、content_style 字符串化 JSON 与渐变首色） | `mpv.com --idle=once --no-config --script=tests/tencent_parse_test.lua` |
@@ -554,8 +587,9 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 | `tests/search_hub_flow_test.lua` | 聚合搜索编排流（stub 各源 fetch，验证聚合 / 超时 / 取消 / @备注过滤） | `mpv.com --idle=once --no-config --script=tests/search_hub_flow_test.lua` |
 | `tests/history_merge_test.lua` | 文件夹记忆多源合并（旧 extra 迁移、同 kind 替换、dandanplay/直连源互不挤占、残留防护） | `mpv.com --idle=once --no-config --script=tests/history_merge_test.lua` |
 | `tests/source_status_test.lua` | 多源加载状态聚合器（会话生命周期、逐源汇总格式化，44 用例） | `mpv.com --idle=once --no-config --script=tests/source_status_test.lua` |
-| `tests/timeline_align_test.lua` | 跨源时间轴对齐（投票/三重门槛/归一化/基准选择/双重校正防护 + 管线集成与 XML 导出） | `mpv.com --idle=once --no-config --script=tests/timeline_align_test.lua` |
+| `tests/timeline_align_test.lua` | 跨源时间轴对齐（投票/三重门槛/归一化/基准选择/双重校正防护/skip 固定 + 管线集成、手动微调 pin 流程与 XML 导出） | `mpv.com --idle=once --no-config --script=tests/timeline_align_test.lua` |
 | `tests/timeline_align_real_test.lua` | 真实多源场景（弹弹play+巴哈+animeko 同集实抓 fixtures：门槛实抓校准、模拟片头差异校正、双源共享文本收敛） | `mpv.com --idle=once --no-config --script=tests/timeline_align_real_test.lua` |
+| `tests/density_timeline_test.lua` | 高能时间轴（分桶/双指标/自适应放宽/峰值检测与回贴、ASS 渲染确定性与淡出、uosc 时间轴同步复刻纯函数、回退/在场两种 UI 冒烟、实抓 fixture 行为固定） | `mpv.com --idle=once --no-config --script=tests/density_timeline_test.lua` |
 | `tests/pakku_bench.lua` | 万条弹幕合并性能压测 | `mpv.com --idle=once --no-config --script=tests/pakku_bench.lua` |
 
 ---

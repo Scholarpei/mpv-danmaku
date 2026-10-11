@@ -80,6 +80,23 @@ options = {
     -- 自定义插件快捷键，若 mpv.conf 里设置 input-default-bindings=no 将禁用以下两个选项
     open_search_danmaku_menu_key = "Ctrl+d",
     show_danmaku_keyboard_key = "j",
+    -- 高能时间轴：淡淡的弹幕密度平滑曲线吸附在 uosc 进度条条带顶之上，显隐/几何/淡出
+    -- 与进度条同步（本地复刻 uosc 时间轴可见度模型：邻近渐入渐出、controls 按钮行、
+    -- 持久化、菜单打开即隐、全屏 scale 跟随）；悬停出现提示线/时间浮签，点击曲线跳转；
+    -- m 切换指标（弹幕量↔视觉密度）
+    density_timeline_show_on_hover = true,
+    -- 仅 uosc 缺席时的回退触发区高度（像素，底部条带）；uosc 在场时显隐完全跟随
+    -- 进度条（proximity_in/out 取自 uosc 自身配置），本项不参与
+    density_timeline_hover_zone = 40,
+    -- 视觉风格：blend-融彩（去饱和热度渐变）/ ink-静墨（近白单色，透明度编码强度）/
+    -- moon-月白（淡青单色）。非法值回落 blend
+    density_timeline_style = "blend",
+    -- 可选的高能时间轴快捷键（手动固定显示模式）；空串不绑定，亦可经总菜单/脚本消息打开
+    density_timeline_key = "",
+    -- 高能时间轴分桶宽度（秒），clamp [5,60]；超长视频自动按整倍放宽至 ≤600 桶
+    density_timeline_bucket = 10,
+    -- 高能时间轴标注的峰值数量，clamp [1,10]
+    density_timeline_peaks = 5,
     -- 中文简繁转换。0-不转换，1-转换为简体，2-转换为繁体（默认转简体，可在弹幕过滤菜单运行时切换）
     chConvert = 1,
     --滚动弹幕的显示时间

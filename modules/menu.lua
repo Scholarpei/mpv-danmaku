@@ -1144,6 +1144,27 @@ function open_delay_from_time(source, time, status)
     end
 end
 
+-- 弹幕源延迟菜单行 hint：手动延迟 + 时间轴对齐校正量的合计与分项。
+-- 对齐介入的源实际生效偏移 = 手动段 + align_shift（管线整源平移，瞬态不落
+-- delay_segments），只列手动段会恒显 0.0 秒、看不出该源被自动平移过
+function format_source_delay_hint(source)
+    local delay = 0
+    if source.delay_segments then
+        for _, seg in ipairs(source.delay_segments) do
+            if seg.start == 0 then
+                delay = seg.delay or 0
+                break
+            end
+        end
+    end
+    local align = type(source.align_shift) == "number" and source.align_shift or 0
+    if align ~= 0 then
+        return string.format("当前弹幕源延迟:%.1f秒(对齐%+.1f/手动%+.1f)",
+            delay + align + 1e-10, align, delay)
+    end
+    return "当前弹幕源延迟:" .. string.format("%.1f", delay + 1e-10) .. "秒"
+end
+
 -- 设置弹幕源延迟菜单
 function open_delay_menu_get(source, status)
     mp.commandv('script-message-to', 'console', 'disable')
@@ -1165,18 +1186,9 @@ function open_delay_menu_get(source, status)
         serial, select_num = 0, 0
         for url, src in pairs(DANMAKU.sources) do
             if src.data and not src.blocked then
-                local delay = 0
                 serial = serial + 1
                 select_num = (url == source) and serial or select_num
-                if src.delay_segments then
-                    for _, seg in ipairs(src.delay_segments) do
-                        if seg.start == 0 then
-                            delay = seg.delay or 0
-                            break
-                        end
-                    end
-                end
-                local hint = "当前弹幕源延迟: " .. string.format("%.1f", delay + 1e-10) .. "秒"
+                local hint = format_source_delay_hint(src)
                 local text = string.format("  [%02d] %s   [%s] ", serial, url, hint)
                 local style = (serial == select_num) and "{\\c&HFFDE7F&}" or "{\\c&HCCCCCC&}"
                 table.insert(menu_log, { text = text, style = style })
@@ -1263,17 +1275,8 @@ function open_delay_menu_uosc(source_url, status)
     local sources = {}
     for url, source in pairs(DANMAKU.sources) do
         if source.data and not source.blocked then
-            local delay = 0
-            if source.delay_segments then
-                for _, seg in ipairs(source.delay_segments) do
-                    if seg.start == 0 then
-                        delay = seg.delay or 0
-                        break
-                    end
-                end
-            end
             local item = {title = utf8_sub(url, 1, 100), value = url, keep_open = true,}
-            item.hint = "当前弹幕源延迟:" .. string.format("%.1f", delay + 1e-10) .. "秒"
+            item.hint = format_source_delay_hint(source)
             item.active = url == source_url
             table.insert(sources, item)
         end
@@ -1323,6 +1326,7 @@ local total_menu_items_config = {
     { title = "弹幕样式", action = "open_danmaku_style_menu" },
     { title = "弹幕过滤", action = "open_filter_danmaku_menu" },
     { title = "弹幕内容", action = "open_content_danmaku_menu" },
+    { title = "高能时间轴", action = "toggle_density_timeline" },
     { title = "清空弹幕缓存", action = "clear-danmaku-cache" },
 }
 

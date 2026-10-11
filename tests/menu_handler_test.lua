@@ -237,6 +237,37 @@ local steps = {
             and stub.msgs[1]:find("已在黑名单", 1, true) and n == 1)
         os.remove(BLACK_TMP)
         mp.commandv = stub.real_commandv
+
+        -- ===== 弹幕源延迟菜单：合计口径（手动 + 时间轴对齐分项） =====
+        DANMAKU = { sources = {
+            srcA = { data = { { time = 1 } } },
+            srcB = { data = { { time = 1 } }, align_shift = -90 },
+            srcC = { data = { { time = 1 } }, align_shift = -90,
+                delay_segments = { { start = 0, delay = 10 } } },
+        }, count = 3 }
+        stub.real_commandv, stub.menu_json = mp.commandv, nil
+        mp.commandv = function(...)
+            local args = { ... }
+            if args[1] == "script-message-to" and args[2] == "uosc" and args[3] == "open-menu" then
+                stub.menu_json = args[4]
+            end
+            return stub.real_commandv(...)
+        end
+        open_delay_menu_uosc()
+    end,
+    function()
+        local props = stub.menu_json and utils.parse_json(stub.menu_json)
+        local hints = {}
+        if props then
+            for _, it in ipairs(props.items) do hints[it.value] = it.hint end
+        end
+        check("D1 无对齐源仅显手动延迟",
+            hints.srcA == "当前弹幕源延迟:0.0秒")
+        check("D2 对齐源显示合计与对齐分项",
+            hints.srcB == "当前弹幕源延迟:-90.0秒(对齐-90.0/手动+0.0)")
+        check("D3 对齐+手动显示合计与分项",
+            hints.srcC == "当前弹幕源延迟:-80.0秒(对齐-90.0/手动+10.0)")
+        mp.commandv = stub.real_commandv
         print(failures == 0 and "ALL PASS" or (failures .. " FAILED"))
         -- os.exit 直杀：mpv 正常 quit 的关机路径在 Windows 控制台代理下偶发挂起（测试环境已知问题）
         os.exit(failures > 0 and 1 or 0)

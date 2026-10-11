@@ -191,6 +191,25 @@ do
         result.shifts["http://other"] == nil)
 end
 
+-- 15. opts.skip：跳过的源不产生平移/诊断（调用方保留旧校正量），但仍参与基准选择
+do
+    local texts, times = shared_pool(100)
+    local result = talign.compute({
+        { url = "http://base", entries = make_base(texts, times, 50) },
+        { url = "http://other", entries = make_other(texts, times, 90) },
+    }, { skip = { ["http://other"] = true } })
+    check("15 skip 源不参与平移计算",
+        result.shifts["http://other"] == nil and #result.diag == 0)
+
+    -- skip 条数最多的源 → 仍当选基准，另一源照常对齐到它
+    local result2 = talign.compute({
+        { url = "http://small", entries = make_other(texts, times, 30, 60) },
+        { url = "http://big", entries = make_base(texts, times, 100) },
+    }, { skip = { ["http://big"] = true } })
+    check("15b skip 源仍可当选基准",
+        result2.baseline == "http://big" and result2.shifts["http://small"] == -30)
+end
+
 -- ============ 管线集成 ============
 
 show_message = function() end -- parse 空弹幕分支/导出提示会调 OSD，测试环境打桩
@@ -300,6 +319,53 @@ do
         and content:find("B源独有弹幕", 1, true) ~= nil
     check("14 XML 导出按对齐时间轴", hit)
     os.remove(tmp)
+end
+
+-- 16. pin 流程：对齐介入后手动设延迟的源保留校正量，增量不被投票抹平；输入 0 恢复自动
+do
+    DANMAKU = { sources = build_two_sources(), count = 2 }
+    COMMENTS = {}
+    convert_danmaku_to_ass_events(true)
+    check("16a 首次对齐写回校正量",
+        DANMAKU.sources["test://other"].align_shift == -90)
+
+    -- 模拟 set_danmaku_delay 在对齐介入后的行为：输入 +10 → 置 pin + 写手动段
+    local other = DANMAKU.sources["test://other"]
+    other.delay_segments = { { start = 0, delay = 10 } }
+    other.align_pinned = true
+    convert_danmaku_to_ass_events(true)
+    local marker = find_event(function(ev)
+        return ev.text and ev.text:find("B源独有弹幕", 1, true)
+    end)
+    check("16b pin 后手动增量叠加生效",
+        marker ~= nil and math.floor((marker.start_time or -1) + 0.5) == 1244
+            and other.align_shift == -90)
+
+    -- 模拟输入 0：清空手动段并解除 pin → 恢复自动对齐
+    other.delay_segments = {}
+    other.align_pinned = nil
+    convert_danmaku_to_ass_events(true)
+    marker = find_event(function(ev)
+        return ev.text and ev.text:find("B源独有弹幕", 1, true)
+    end)
+    check("16c 输入 0 重置回自动对齐",
+        marker ~= nil and math.floor((marker.start_time or -1) + 0.5) == 1234
+            and other.align_shift == -90 and other.align_pinned == nil)
+end
+
+-- 16d. 对齐介入前已有的手动补偿（如历史记录带入，无 pin）：漂移≈0 不产生新平移
+do
+    local sources = build_two_sources()
+    sources["test://other"].delay_segments = { { start = 0, delay = -90 } }
+    DANMAKU = { sources = sources, count = 2 }
+    COMMENTS = {}
+    convert_danmaku_to_ass_events(true)
+    local marker = find_event(function(ev)
+        return ev.text and ev.text:find("B源独有弹幕", 1, true)
+    end)
+    check("16d 对齐前手动补偿不二次平移",
+        marker ~= nil and math.floor((marker.start_time or -1) + 0.5) == 1234
+            and DANMAKU.sources["test://other"].align_shift == 0)
 end
 
 if failures > 0 then

@@ -229,28 +229,41 @@ end
 
 -- 跨源时间轴对齐：按同文本弹幕出现时间差投票，把各源整体平移到弹幕数最多的基准源
 -- （算法见 modules/timeline_align.lua）。投票输入为「生效时间」（orig_time + 手动
--- 延迟）：用户已手动补偿过的源检出漂移≈0，不会被二次平移；校正值每次管线重建从
--- 原始数据重算（瞬态、不落历史），源异步到达逐个收敛。align_shift 写回源记录供
--- 收集/导出与状态行取用（数值 0=已对齐无需平移，nil=未参与/功能关闭）
+-- 延迟 + 已保留的对齐校正）：用户已手动补偿过的源检出漂移≈0，不会被二次平移；
+-- 校正值每次管线重建从原始数据重算（瞬态、不落历史），源异步到达逐个收敛。
+-- align_shift 写回源记录供收集/导出与状态行取用（数值 0=已对齐无需平移，
+-- nil=未参与/功能关闭）。
+-- align_pinned（main.lua set_danmaku_delay 置位）：对齐已介入后用户又手动设过延迟
+-- 的源——若照常重投票，手动增量会被当成新漂移整源平移回基准（微调失效），故保留
+-- 当前校正量不再重算、手动增量原样叠加生效；输入 0 清空延迟时 main.lua 同步清 pin
+-- 恢复自动对齐
 local function compute_timeline_alignment()
     local shifts = {}
     if not options.timeline_align then
         for _, source in pairs(DANMAKU.sources) do
             source.align_shift = nil
+            source.align_pinned = nil -- 功能关闭全量复位，重开后重新投票
         end
         return shifts
     end
 
-    local lists = {}
+    local lists, skip = {}, {}
     for url, source in pairs(DANMAKU.sources) do
-        source.align_shift = nil -- 先清残留，被门槛跳过的源不显示旧值
+        local pinned = source.align_pinned == true and type(source.align_shift) == "number"
+        if not pinned then
+            source.align_shift = nil -- 先清残留，被门槛跳过的源不显示旧值
+        end
         if not source.blocked and source.data and #source.data > 0 then
+            if pinned then skip[url] = true end
             local get_cached_delay = make_delay_lookup(source)
+            -- pinned 源的投票时间须含保留的校正量（即其实际落点），供其他源
+            -- 以真实位置投票/选基准；非 pinned 源校正量本来就从生效时间重算
+            local stale = pinned and source.align_shift or 0
             local entries = {}
             for _, d in ipairs(source.data) do
                 local base_time = d.orig_time or d.time
                 entries[#entries + 1] = {
-                    time = base_time + get_cached_delay(base_time),
+                    time = base_time + stale + get_cached_delay(base_time),
                     text = d.text,
                 }
             end
@@ -267,12 +280,21 @@ local function compute_timeline_alignment()
             return text
         end,
         min_match_ratio = options.timeline_align_min_match,
+        skip = skip,
     })
 
     for _, item in ipairs(lists) do
-        local shift = result.shifts[item.url] or 0
-        shifts[item.url] = shift
-        DANMAKU.sources[item.url].align_shift = shift
+        local src = DANMAKU.sources[item.url]
+        if skip[item.url] then
+            -- pin 源沿用保留校正量：手动延迟增量叠加其上原样生效
+            shifts[item.url] = src.align_shift
+            msg.info(string.format("时间轴对齐：%s 保持用户手动延迟（校正量 %+d 秒不再重算）",
+                src.provider or item.url, src.align_shift))
+        else
+            local shift = result.shifts[item.url] or 0
+            shifts[item.url] = shift
+            src.align_shift = shift
+        end
     end
     for _, diag in ipairs(result.diag) do
         local label = diag.provider or diag.url

@@ -9,9 +9,12 @@
 -- 且无需在数据结构里标记主源）；JS Map 先插入者胜的平票规则改为取最小偏移，
 -- 保证 pairs 序不定环境下的确定性。
 --
--- 输入约定：entries 的 time 为「生效时间」（调用方已叠加手动延迟），因此用户手动
--- 补偿过的源漂移≈0 不会被二次平移；输出 shifts 为瞬态校正值（+于生效时间），
--- 由调用方应用并钳 0，不落历史。
+-- 输入约定：entries 的 time 为「生效时间」（调用方已叠加手动延迟与已保留的对齐
+-- 校正），因此用户手动补偿过的源漂移≈0 不会被二次平移；输出 shifts 为瞬态校正值
+-- （+于生效时间），由调用方应用并钳 0，不落历史。
+--
+-- opts.skip = {[url]=true}：跳过这些源的平移计算（用户手动微调过的源，校正值由
+-- 调用方保留旧值），但仍参与基准选择与被其他源投票比对。
 --
 -- 调用方：modules/parse.lua（收集/导出前的 compute_timeline_alignment）
 
@@ -50,7 +53,8 @@ end
 
 -- 计算各源对齐校正量。
 -- lists: { {url=..., provider=..., entries={{time=生效秒, text=原文}, ...}}, ... }
--- opts : { transform=fn(文本归一回调,可选), min_match_ratio=0~1(默认 0.3，实抓校准) }
+-- opts : { transform=fn(文本归一回调,可选), min_match_ratio=0~1(默认 0.3，实抓校准),
+--          skip={[url]=boolean(跳过该源平移计算,可选)} }
 -- 返回 : { shifts = {[url]=平移秒(负=提前)}, baseline = url, diag = {...} }
 --        diag 每源一项：{url, provider, drift(检出漂移), votes, match_count,
 --                        applied, reason}，供调用方写日志
@@ -92,7 +96,7 @@ function M.compute(lists, opts)
     end
 
     for _, item in ipairs(active) do
-        if item.url ~= baseline.url then
+        if item.url ~= baseline.url and not (opts.skip and opts.skip[item.url]) then
             local votes, offsets = {}, {}
             local match_count = 0
             for _, e in ipairs(item.entries) do
