@@ -527,6 +527,7 @@ function DanmakuArray:new(max_y)
     local obj = {
         max_y = positive_integer(max_y, 1),
         danmakus = {},
+        head = 1, -- 活跃前缀头指针：head 之前为已过期条目（见 remove_expired 不变量说明）
     }
     setmetatable(obj, self)
     return obj
@@ -534,11 +535,14 @@ end
 
 -- 弹幕按出现时间递增的顺序处理。滚动弹幕完全移出屏幕后，或固定弹幕的
 -- 显示时间结束后，它便不可能与当前及之后的弹幕碰撞，因此可以安全删除。
+-- 头指针推进而非逐个 table.remove（倒序删除每个过期项都要 O(n) 搬移尾部）。
+-- 不变量：同一数组内 duration 恒定（roll 恒 scrolltime、fixed 恒 fixtime，见调用处），
+-- 且插入按 start_time 非降序 → end_time 非降序 → 过期项恒为前缀，头指针语义等价。
+-- 若未来引入可变 duration 的弹幕类型，此实现需回退为逐项删除。
 function DanmakuArray:remove_expired(now)
-    for i = #self.danmakus, 1, -1 do
-        if self.danmakus[i].end_time <= now then
-            table.remove(self.danmakus, i)
-        end
+    local danmakus = self.danmakus
+    while danmakus[self.head] and danmakus[self.head].end_time <= now do
+        self.head = self.head + 1
     end
 end
 
@@ -573,7 +577,10 @@ local function find_y_from_top(array, height, collides)
     local y = 1
     while y + height - 1 <= array.max_y do
         local next_y = nil
-        for _, danmaku in ipairs(array.danmakus) do
+        -- 从 head 起扫活跃前缀之后的条目（head 之前已被 remove_expired 判过期）
+        local danmakus = array.danmakus
+        for i = array.head, #danmakus do
+            local danmaku = danmakus[i]
             if y_intersects(y, height, danmaku.y, danmaku.height) and collides(danmaku) then
                 local below = danmaku.y + danmaku.height
                 next_y = next_y and math.max(next_y, below) or below
@@ -623,7 +630,9 @@ function DanmakuArray:get_fixed_y(start_time, height, duration, from_top)
         y = self.max_y - height + 1
         while y >= 1 do
             local next_y = nil
-            for _, danmaku in ipairs(self.danmakus) do
+            local danmakus = self.danmakus
+            for i = self.head, #danmakus do
+                local danmaku = danmakus[i]
                 if y_intersects(y, height, danmaku.y, danmaku.height) then
                     local above = danmaku.y - height
                     next_y = next_y and math.min(next_y, above) or above
