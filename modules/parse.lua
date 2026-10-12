@@ -1,7 +1,22 @@
 local msg   = require 'mp.msg'
 local utils = require 'mp.utils'
-local s2t   = require("dicts/s2t_chars")
-local t2s   = require("dicts/t2s_chars")
+-- 简繁字典懒加载（仿 pakku_merge.lua 拼音字典范本）：chConvert=0 且黑名单无规则时两表全免，
+-- mode 恒 1（默认转简体）时 s2t 全免；缺失/损坏回退空表 → convert 恒等，仅收窄功能不报错
+local s2t, t2s = nil, nil
+local function get_t2s()
+    if t2s == nil then
+        local ok, d = pcall(require, "dicts/t2s_chars")
+        t2s = (ok and type(d) == "table") and d or {}
+    end
+    return t2s
+end
+local function get_s2t()
+    if s2t == nil then
+        local ok, d = pcall(require, "dicts/s2t_chars")
+        s2t = (ok and type(d) == "table") and d or {}
+    end
+    return s2t
+end
 local pakku_merge = require("modules/pakku_merge")
 local pakku_density = require("modules/pakku_density")
 local talign = require("modules/timeline_align")
@@ -51,14 +66,33 @@ local function xml_unescape(str)
               :gsub("&amp;", "&")
 end
 
+-- 实体解码缓存（文本级 FIFO，镜像 ch_convert_cache 模式）：收集与时间轴对齐 transform
+-- 每次重建对同一源文本各调一次，缓存后第二次起全命中；与 chConvert 档位正交故独立成表
+local entity_cache = {}
+local entity_cache_keys = {}
+local entity_cache_max = 5000
+
 local function decode_html_entities(text)
-    return text:gsub("&#x([%x]+);", function(hex)
-        local codepoint = tonumber(hex, 16)
-        return unicode_to_utf8(codepoint)
-    end):gsub("&#(%d+);", function(dec)
-        local codepoint = tonumber(dec, 10)
-        return unicode_to_utf8(codepoint)
-    end)
+    if type(text) ~= "string" or text == "" then return text end
+    local cached = entity_cache[text]
+    if cached ~= nil then return cached end
+    local decoded = text
+    if decoded:find('&', 1, true) then
+        decoded = decoded:gsub("&#x([%x]+);", function(hex)
+            local codepoint = tonumber(hex, 16)
+            return unicode_to_utf8(codepoint)
+        end):gsub("&#(%d+);", function(dec)
+            local codepoint = tonumber(dec, 10)
+            return unicode_to_utf8(codepoint)
+        end)
+    end
+    entity_cache[text] = decoded
+    entity_cache_keys[#entity_cache_keys + 1] = text
+    if #entity_cache_keys > entity_cache_max then
+        local old_key = table.remove(entity_cache_keys, 1)
+        entity_cache[old_key] = nil
+    end
+    return decoded
 end
 
 -- 简繁转换（字符级字典替换）。定义前移：黑名单规则加载时即需做繁→简规范化
@@ -74,7 +108,7 @@ end
 -- chConvert=1（默认）收集阶段已统一转简体，此处恒等返回零开销
 local function blacklist_match_text(text)
     if (tonumber(options.chConvert) or 0) == 1 then return text end
-    return convert(text, t2s)
+    return convert(text, get_t2s())
 end
 
 -- 加载黑名单模式
@@ -140,7 +174,7 @@ local function load_blacklist_patterns(filepath)
 
     -- 规则统一繁→简规范化：繁体书写的规则与（匹配时规范化的）弹幕文本同域可比
     for i = 1, #patterns do
-        patterns[i] = convert(patterns[i], t2s)
+        patterns[i] = convert(patterns[i], get_t2s())
     end
     -- 加载期一次性校验规则合法性（探针串试匹配，pattern 编译错误在此拦截），
     -- is_blacklisted 热循环即可裸跑 match，省去每规则×每弹幕的 pcall+闭包分配
@@ -212,9 +246,9 @@ end
 local function ch_convert(str)
     local mode = tonumber(options.chConvert) or 0
     if mode == 1 then
-        return convert(str, t2s)
+        return convert(str, get_t2s())
     elseif mode == 2 then
-        return convert(str, s2t)
+        return convert(str, get_s2t())
     end
     return str
 end
