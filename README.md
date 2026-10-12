@@ -135,6 +135,7 @@ B站多分P合集（多季混排、剧场版夹杂的投稿）不用每集贴一
 | ③ 集数差锚点 | 以最近一次匹配到的（分P页号, 当时集数）为锚，按集数差推算页号仲裁歧义——应对本地文件名解析不出季数、或合集投稿把多季混排的情况；落点编号按「锚点处分P编号 ↔ 本地集数」的相对偏移校验，两季合并合集（分P按合集内序号、本地文件按全局集数，或反之）亦能对上 |
 
 - 三种模式（[`bilibili_series_memory`](#bilibili_series_memory)）：`off` 关闭 / `add`（默认，与弹弹play弹幕叠加）/ `first`（B站优先，匹配失败自动回退弹弹play）
+- 汇总显示B站投稿自己的标题与分P标题（`bilibili《【XX字幕组】某番合集》03 2694条`），核对是否匹配到正确分P：分P标题应与当前集数对应（与其它源显示的 `第N话` 对照）——投稿标题来自B站 view 接口，取不到时回退本地文件夹标题
 - 各B站源的延迟与屏蔽状态写入记忆，跨集自动继承
 - 在「从源获取弹幕」菜单中删除B站源时自动清除对应记忆；也可绑定快捷键一键清除（[`clear-bilibili-record`](#运行时菜单与脚本消息)）
 - 仅支持普通投稿（BV/av 链接）；番剧 `ep`、课程 `cheese` 链接与 `b23.tv` 短链仍按单集添加，不进入记忆
@@ -613,7 +614,7 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 | `tests/pakku_merge_test.lua` | 合并引擎四通道、归一化、×N、forcelist | `mpv.com --idle=once --no-config --script=tests/pakku_merge_test.lua` |
 | `tests/pakku_density_test.lua` | dispval、先缩后丢、×N 保护 | `mpv.com --idle=once --no-config --script=tests/pakku_density_test.lua` |
 | `tests/bilibili_match_test.lua` | 分P标题解析、匹配打分、锚点仲裁 | `mpv.com --idle=once --no-config --script=tests/bilibili_match_test.lua` |
-| `tests/bilibili_autoload_test.lua` | B站合集文件夹记忆自动加载（历史恢复的空壳源就地装载不依赖 addon_danmaku 重放、已到货/被屏蔽零网络、无既有源走规范化 URL） | `mpv.com --idle=once --no-config --script=tests/bilibili_autoload_test.lua` |
+| `tests/bilibili_autoload_test.lua` | B站合集文件夹记忆自动加载（历史恢复的空壳源就地装载不依赖 addon_danmaku 重放、已到货/被屏蔽零网络、无既有源走规范化 URL、源显示标题用B站投稿标题且 view 会话缓存零重复请求） | `mpv.com --idle=once --no-config --script=tests/bilibili_autoload_test.lua` |
 | `tests/e2e_pipeline_test.lua` | 模式转换→合并→黑名单→密度→布局全管线（黑名单夹具 `tests/black_e2e.txt` 自足加载，script-opts 传 `blacklist_path` 可覆盖） | `mpv.com --idle=once --no-config --script=tests/e2e_pipeline_test.lua` |
 | `tests/menu_handler_test.lua` | 过滤菜单各项回调、内容菜单索引映射与屏蔽、延迟菜单合计口径 | `mpv.com --idle=once --no-config --script=tests/menu_handler_test.lua` |
 | `tests/danmaku_cache_test.lua` | 缓存读写/TTL/断网兜底/容量淘汰（B站路径的缓存读写由本测试覆盖） | `mpv.com --idle=once --no-config --script=tests/danmaku_cache_test.lua` |

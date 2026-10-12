@@ -315,7 +315,7 @@ end
 -- 记录存于 danmaku-history.json 的 history[dir].bilibili（多视频映射，上限 LRU 淘汰）
 --------------------------------------------------------------------------------
 
-local BILIBILI_PAGELIST_CACHE = {}  -- vid -> pages 数组（会话级缓存）
+local BILIBILI_VIEW_CACHE = {}      -- vid -> {title=投稿标题, pages=分P数组}（会话级缓存）
 local BILIBILI_MAX_VIDS = 3         -- 每文件夹最多记忆的视频数
 
 -- 规范化 URL：永远显式 ?p=N，作为弹幕源 key（保证重放/记忆键一致）
@@ -333,10 +333,11 @@ local function parse_bilibili_vid(url)
     return vid, url:find("[?&]p=%d+") ~= nil and p or nil
 end
 
--- 拉取分P列表（带会话级缓存）；callback(pages 数组或 nil)
--- 全局导出：autoload_bilibili_series / maybe_record_bilibili_series 与下一集预取共用
-function fetch_bilibili_pagelist(vid, callback)
-    local cached = BILIBILI_PAGELIST_CACHE[vid]
+-- 拉取投稿信息（view 接口：投稿标题 + 分P列表一次取得，分P对象与 pagelist 接口
+-- 同构；带会话级缓存，仅成功结果入缓存）；callback(view)，view = {title=, pages=} 或 nil
+-- 全局导出：autoload_bilibili_series 取标题作源显示名，fetch_bilibili_pagelist 取 pages
+function fetch_bilibili_view(vid, callback)
+    local cached = BILIBILI_VIEW_CACHE[vid]
     if cached ~= nil then
         callback(cached)
         return
@@ -347,21 +348,40 @@ function fetch_bilibili_pagelist(vid, callback)
         callback(nil)
         return
     end
-    local args = get_bilibili_pagelist_args(bvid, aid)
+    local url
+    if bvid ~= nil then
+        url = "https://api.bilibili.com/x/web-interface/view?bvid=" .. bvid
+    else
+        url = "https://api.bilibili.com/x/web-interface/view?aid=" .. aid
+    end
+    local args = build_curl_args(url,
+        {"Referer: https://www.bilibili.com/video/" .. (bvid or ("av" .. aid))})
     call_cmd_async(args, function(error, json)
         if error then
-            msg.warn("Failed to request bilibili pagelist: " .. tostring(error))
+            msg.warn("Failed to request bilibili view: " .. tostring(error))
             callback(nil)
             return
         end
         local data = utils.parse_json(json)
-        local pages = data and data["data"]
+        data = type(data) == "table" and data["data"] or nil
+        local title = type(data) == "table" and type(data["title"]) == "string"
+            and data["title"] or ""
+        local pages = type(data) == "table" and data["pages"] or nil
         if type(pages) ~= "table" or #pages == 0 then
             callback(nil)
             return
         end
-        BILIBILI_PAGELIST_CACHE[vid] = pages
-        callback(pages)
+        local view = { title = title, pages = pages }
+        BILIBILI_VIEW_CACHE[vid] = view
+        callback(view)
+    end)
+end
+
+-- 拉取分P列表（fetch_bilibili_view 的薄封装）；callback(pages 数组或 nil)
+-- 全局导出：autoload_bilibili_series / maybe_record_bilibili_series 与下一集预取共用
+function fetch_bilibili_pagelist(vid, callback)
+    fetch_bilibili_view(vid, function(view)
+        callback(view and view.pages or nil)
     end)
 end
 
@@ -482,12 +502,13 @@ function maybe_record_bilibili_series(query)
     local vid, explicit_p = parse_bilibili_vid(query)
     if dir == nil or vid == nil then return end
     local _, season, episode = parse_title()
-    fetch_bilibili_pagelist(vid, function(pages)
+    fetch_bilibili_view(vid, function(view)
         if mp.get_property("path") ~= path then return end
-        if pages == nil then
+        if view == nil then
             msg.warn("B站分P列表获取失败，未写入文件夹记忆：" .. vid)
             return
         end
+        local pages = view.pages
         -- 显式 ?p= 直接信任；无 ?p= 时对当前集做一次匹配。
         -- 匹配失败按B站惯例记 p1 ↔ 第1集（裸链接语义即该投稿的第1个分P，
         -- 不能锚到粘贴时的当前集——在第9集贴裸链会把锚点带偏）
@@ -512,6 +533,18 @@ function maybe_record_bilibili_series(query)
             season = season and tonumber(season) or nil,
             ts = os.time(),
         })
+        -- 粘贴的源条目即时补上B站投稿标题与分P标题（汇总/源管理菜单显示真出处；
+        -- 只补不擦，随后到货的 data 不受影响；投稿标题缺失不盖）
+        local src = DANMAKU.sources[query]
+        if src ~= nil then
+            if src.anime_title == nil and view.title ~= "" then
+                src.anime_title = view.title
+            end
+            if src.episode_title == nil and pages[page] ~= nil
+                and type(pages[page]["part"]) == "string" then
+                src.episode_title = pages[page]["part"]
+            end
+        end
         show_message("已记忆B站弹幕源，本文件夹将自动匹配分P", 3)
     end)
 end
@@ -556,7 +589,8 @@ function autoload_bilibili_series(path, dir, records, fallback)
 
     for _, item in ipairs(vids) do
         local vid, rec = item.vid, item.rec
-        fetch_bilibili_pagelist(vid, function(pages)
+        fetch_bilibili_view(vid, function(view)
+            local pages = view and view.pages
             local function done(ok)
                 if ok then matched_any = true end
                 remaining = remaining - 1
@@ -595,6 +629,11 @@ function autoload_bilibili_series(path, dir, records, fallback)
                 local t = parse_title()
                 DANMAKU.anime = t
             end
+            -- 源显示标题用B站投稿标题（真出处）：合集源是普通投稿视频而非番剧页，
+            -- 本地文件夹标题与实际投稿可能不一致，借用会把错配视频伪装成正常加载
+            --（其余各源也各自显示本站标题）；投稿标题缺失回退本地标题
+            local source_anime = (view and view.title ~= nil and view.title ~= "")
+                and view.title or DANMAKU.anime
             if DANMAKU.episode == nil then
                 DANMAKU.episode = m.part
             end
@@ -602,7 +641,7 @@ function autoload_bilibili_series(path, dir, records, fallback)
             -- （不持久化到 sources 记录：合集源按分P逐集重匹配，落盘会被 addon_danmaku
             --  以旧集 URL 重放导致错集弹幕）
             source_status.ensure("bilibili#" .. vid, "bilibili",
-                {anime = DANMAKU.anime, episode = m.part})
+                {anime = source_anime, episode = m.part})
             local url = canonical_bilibili_url(vid, m.page)
             local existing = find_bilibili_source(url)
             if existing ~= nil then
@@ -612,7 +651,7 @@ function autoload_bilibili_series(path, dir, records, fallback)
                 if (type(s) == "table" and type(s.data) == "table" and #s.data > 0)
                     or (type(s) == "table" and s.blocked) then
                     source_status.mark_done("bilibili#" .. vid,
-                        {anime = DANMAKU.anime, episode = m.part, url = existing})
+                        {anime = source_anime, episode = m.part, url = existing})
                     done(true)
                     return
                 end
@@ -632,13 +671,13 @@ function autoload_bilibili_series(path, dir, records, fallback)
                 }
             end
             if DANMAKU.sources[key].anime_title == nil then
-                DANMAKU.sources[key].anime_title = DANMAKU.anime
+                DANMAKU.sources[key].anime_title = source_anime
                 DANMAKU.sources[key].episode_title = m.part
             end
             load_bilibili_danmaku_by_page(vid, m.page, function(ok)
                 if ok then
                     source_status.mark_done("bilibili#" .. vid,
-                        {anime = DANMAKU.anime, episode = m.part, url = key})
+                        {anime = source_anime, episode = m.part, url = key})
                 else
                     source_status.mark_failed("bilibili#" .. vid, "弹幕下载失败", "B站合集")
                 end
