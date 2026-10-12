@@ -644,7 +644,9 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 | `tests/timeline_align_test.lua` | 跨源时间轴对齐（投票/四重门槛含支持跨度/归一化/基准选择/双重校正防护/skip 固定/片尾附加内容防护 + 管线集成、手动微调 pin 流程与 XML 导出） | `mpv.com --idle=once --no-config --script=tests/timeline_align_test.lua` |
 | `tests/timeline_align_real_test.lua` | 真实多源场景（弹弹play+巴哈+animeko 同集实抓 fixtures：门槛实抓校准、模拟片头差异校正、双源共享文本收敛；bilibili 官方番剧片头差异 E09 实抓：-5s 漂移检出与 +5s 收敛） | `mpv.com --idle=once --no-config --script=tests/timeline_align_real_test.lua` |
 | `tests/density_timeline_test.lua` | 高能时间轴（分桶/双指标/自适应放宽/峰值检测与回贴、ASS 渲染确定性与淡出、uosc 时间轴同步复刻纯函数、回退/在场两种 UI 冒烟、实抓 fixture 行为固定） | `mpv.com --idle=once --no-config --script=tests/density_timeline_test.lua` |
-| `tests/pakku_bench.lua` | 万条弹幕合并性能压测 | `mpv.com --idle=once --no-config --script=tests/pakku_bench.lua` |
+| `tests/rebuild_sched_test.lua` | 重建调度器（trailing 防抖/滑动窗口合并/run_now/idle/cancel/三连合并/未 setup 兜底） | `mpv.com --idle=once --no-config --script=tests/rebuild_sched_test.lua` |
+| `tests/render_equiv_test.lua` | 渲染等价性（预计算 bake + 坐标插值 vs 旧每帧正则实现：刁钻数据经真实管线构建后 pos 采样逐字节比对，样式参数变化后仍等价） | `mpv.com --idle=once --no-config --script=tests/render_equiv_test.lua` |
+| `tests/pakku_bench.lua` | 万条弹幕合并性能压测 + 渲染 tick 微基准（新渲染路径 vs 内嵌旧实现参考对照，稀疏/高密度双场景） | `mpv.com --idle=once --no-config --script=tests/pakku_bench.lua` |
 
 ---
 
