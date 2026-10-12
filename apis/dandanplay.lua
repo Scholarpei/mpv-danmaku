@@ -493,14 +493,17 @@ function save_danmaku_data(comments, query, danmaku_source)
     end
 end
 
-function save_danmaku_xml(url, xml_string)
-    local danmaku_list = parse_xml_danmaku(xml_string)
-
+-- 已解析的弹幕列表直接落源（调用方先 parse 过、判空与落源共用一次解析结果）
+function save_danmaku_list(url, danmaku_list)
     if DANMAKU.sources[url] ~= nil then
         DANMAKU.sources[url]["data"] = danmaku_list
     else
         DANMAKU.sources[url] = {from = "user_custom", data = danmaku_list}
     end
+end
+
+function save_danmaku_xml(url, xml_string)
+    save_danmaku_list(url, parse_xml_danmaku(xml_string))
 end
 
 function save_danmaku_json(url, json_string)

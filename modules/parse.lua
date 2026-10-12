@@ -142,7 +142,20 @@ local function load_blacklist_patterns(filepath)
     for i = 1, #patterns do
         patterns[i] = convert(patterns[i], t2s)
     end
-    return patterns
+    -- 加载期一次性校验规则合法性（探针串试匹配，pattern 编译错误在此拦截），
+    -- is_blacklisted 热循环即可裸跑 match，省去每规则×每弹幕的 pcall+闭包分配
+    local valid = {}
+    for i = 1, #patterns do
+        local ok, _ = pcall(function()
+            return ("探针"):match(patterns[i])
+        end)
+        if ok then
+            valid[#valid + 1] = patterns[i]
+        else
+            msg.warn(("黑名单规则非法，已跳过: %s"):format(patterns[i]))
+        end
+    end
+    return valid
 end
 
 -- 黑名单路径解析：先按 mpv 工作目录（expand-path 原语义），相对路径找不到时回退按脚本目录。
@@ -184,17 +197,11 @@ function is_text_blacklisted(str)
     return is_blacklisted(blacklist_match_text(str), black_patterns)
 end
 
--- 检查字符串是否在黑名单中
+-- 检查字符串是否在黑名单中（规则已在 load_blacklist_patterns 加载期校验，此处裸跑）
 function is_blacklisted(str, patterns)
     for _, pattern in ipairs(patterns) do
-        local ok, result = pcall(function()
-            return str:match(pattern)
-        end)
-
-        if ok and result then
+        if str:match(pattern) then
             return true, pattern
-        elseif not ok then
-            -- msg.debug("黑名单规则错误，跳过: " .. pattern .. "，错误信息：" .. result)
         end
     end
     return false

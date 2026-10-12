@@ -59,16 +59,7 @@ function abbr_str(str, length)
 end
 
 function get_str_width(text, font_size)
-    local width = 0
-    for i = 1, #text do
-        local byte = string.byte(text, i)
-        if byte > 127 then
-            width = width + 2
-        else
-            width = width + 1
-        end
-    end
-
+    -- 宽度估算单遍扫描：3/4 字节 UTF-8（CJK 等）按 2、单字节按 1（全半角启发式）
     local unicode_width = 0
     local i = 1
     while i <= #text do

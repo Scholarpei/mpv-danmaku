@@ -187,12 +187,22 @@ local function download_bilibili_danmaku(path, cid, from_menu, callback)
     local url = "https://comment.bilibili.com/" .. cid .. ".xml"
     local key = "cid:" .. cid
 
+    -- 单次解析辅助：find 前置让无 <d 的错误页/空 <i></i> 零成本跳过（省整次 gmatch），
+    -- 命中时只 parse 一次，结果判空与落源共用（此前判空与 save_danmaku_xml 各 parse 一遍）
+    local function parse_payload(payload)
+        if payload and payload:find('<d ', 1, true) then
+            return parse_xml_danmaku(payload)
+        end
+        return nil
+    end
+
     -- 1) TTL 内命中缓存：不发网络
     local hit = dcache.get(key)
-    if hit and hit.payload and #parse_xml_danmaku(hit.payload) > 0 then
+    local hit_list = hit and parse_payload(hit.payload) or nil
+    if hit_list and #hit_list > 0 then
         DANMAKU.cache_hit = "cache"
         msg.verbose("弹幕缓存命中：" .. key)
-        save_danmaku_xml(path, hit.payload)
+        save_danmaku_list(path, hit_list)
         load_danmaku(from_menu == nil and true or from_menu)
         callback(true)
         return
@@ -201,10 +211,11 @@ local function download_bilibili_danmaku(path, cid, from_menu, callback)
     -- 过期缓存兜底（网络失败时调用；成功返回 true）
     local function try_stale()
         local stale = dcache.get_stale(key)
-        if stale and stale.payload and #parse_xml_danmaku(stale.payload) > 0 then
+        local stale_list = stale and parse_payload(stale.payload) or nil
+        if stale_list and #stale_list > 0 then
             DANMAKU.cache_hit = "stale"
             show_message("网络失败，已使用过期弹幕缓存", 3)
-            save_danmaku_xml(path, stale.payload)
+            save_danmaku_list(path, stale_list)
             load_danmaku(from_menu == nil and true or from_menu)
             callback(true)
             return true
@@ -230,8 +241,10 @@ local function download_bilibili_danmaku(path, cid, from_menu, callback)
             end
             return
         end
-        save_danmaku_xml(path, out)
-        if #parse_xml_danmaku(out) > 0 then
+        -- 下载内容无条件落源（保持旧语义：解析 0 条也落空表源），缓存只存非空
+        local dl_list = parse_payload(out) or {}
+        save_danmaku_list(path, dl_list)
+        if #dl_list > 0 then
             dcache.put(key, out, { type = "xml" })
         end
         load_danmaku(from_menu == nil and true or from_menu)
