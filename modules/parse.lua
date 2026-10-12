@@ -61,6 +61,22 @@ local function decode_html_entities(text)
     end)
 end
 
+-- 简繁转换（字符级字典替换）。定义前移：黑名单规则加载时即需做繁→简规范化
+local function convert(text, dict)
+    return text:gsub("[%z\1-\127\194-\244][\128-\191]*", function(c)
+        return dict[c] or c
+    end)
+end
+
+-- 黑名单匹配基准文本：一律按繁→简规范化后匹配，与显示层 chConvert 档位解耦——
+-- 显示「不转换/转繁体」时弹幕文本保持原字，简体书写的规则依旧命中；规则侧在
+-- load_blacklist_patterns 加载时同样规范化，两边任一方为繁体都能对上。
+-- chConvert=1（默认）收集阶段已统一转简体，此处恒等返回零开销
+local function blacklist_match_text(text)
+    if (tonumber(options.chConvert) or 0) == 1 then return text end
+    return convert(text, t2s)
+end
+
 -- 加载黑名单模式
 local function load_blacklist_patterns(filepath)
     local patterns = {}
@@ -121,6 +137,11 @@ local function load_blacklist_patterns(filepath)
     end
 
     file:close()
+
+    -- 规则统一繁→简规范化：繁体书写的规则与（匹配时规范化的）弹幕文本同域可比
+    for i = 1, #patterns do
+        patterns[i] = convert(patterns[i], t2s)
+    end
     return patterns
 end
 
@@ -160,7 +181,7 @@ end
 
 -- 供菜单「屏蔽此文本」判断当前规则是否已命中（黑名单规则本身仍是私有局部表）
 function is_text_blacklisted(str)
-    return is_blacklisted(str, black_patterns)
+    return is_blacklisted(blacklist_match_text(str), black_patterns)
 end
 
 -- 检查字符串是否在黑名单中
@@ -179,12 +200,7 @@ function is_blacklisted(str, patterns)
     return false
 end
 
--- 简繁转换
-local function convert(text, dict)
-    return text:gsub("[%z\1-\127\194-\244][\128-\191]*", function(c)
-        return dict[c] or c
-    end)
-end
+-- 简繁转换的 convert 已前移至黑名单加载之前（规则加载时即需规范化）
 
 local function ch_convert(str)
     local mode = tonumber(options.chConvert) or 0
@@ -795,7 +811,8 @@ function convert_danmaku_to_ass_events(force)
 
     -- 黑名单过滤（合并后执行）：先聚类再过滤，簇的显示文本命中才整簇丢弃；
     -- 个别成员命中但显示文本干净时簇保留完整 xN 计数（x99 不因屏蔽词缩水）。
-    -- 匹配对象为合并引擎的归一化显示文本（剥离引擎追加的 xN 后缀）。
+    -- 匹配对象为合并引擎的归一化显示文本（剥离引擎追加的 xN 后缀），
+    -- 并统一繁→简规范化（blacklist_match_text），与显示档位 chConvert 解耦。
     -- 开关语义与菜单 filter_option_is_on 一致（false / "no" 均视为关）
     if options.blacklist_enabled ~= false and options.blacklist_enabled ~= "no" then
         local t_bl = mp.get_time()
@@ -806,7 +823,7 @@ function convert_danmaku_to_ass_events(force)
             if d.merged_x_suffix then
                 text = text:gsub("x%d+$", "")
             end
-            if not is_blacklisted(text, black_patterns) then
+            if not is_blacklisted(blacklist_match_text(text), black_patterns) then
                 kept[#kept + 1] = d
             else
                 dropped = dropped + 1

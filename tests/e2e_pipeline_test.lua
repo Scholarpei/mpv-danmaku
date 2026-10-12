@@ -1,5 +1,5 @@
 -- 端到端管线测试：直接驱动 convert_danmaku_to_ass_events（模式转换 → pakku 合并 → 黑名单过滤 → 密度控制 → 布局）
--- 黑名单夹具 tests/black_e2e.txt（内容：敏感词 与 ^AAAAA$ 两行）已入库且自足加载，
+-- 黑名单夹具 tests/black_e2e.txt（内容：敏感词、^AAAAA$、^簽到$（繁体书写）、实名）已入库且自足加载，
 -- script-opts 指定 blacklist_path 可覆盖（路径存在时优先）
 -- 运行：mpv.com --no-config --idle=once --script=<本文件>
 
@@ -289,6 +289,26 @@ do
         count_events(function(ev) return ev.clean_text and ev.clean_text:find("繁", 1, true) end) == 2)
     options.chConvert = 1
     options.merge_pinyin = true -- 还原默认
+end
+
+-- N：黑名单与显示档位解耦——chConvert=0（不转换）时繁体弹幕保持原字显示，
+-- 匹配前统一繁→简规范化：简体规则（实名）命中繁体文本（實名觀看）；
+-- 繁体书写的规则（^簽到$ 加载时规范化为 ^签到$）同样生效，且与 xN 后缀剥离叠加
+do
+    DANMAKU = { sources = { ["test://e2e7"] = { from = "user_local", data = {
+        dm(340.0, "簽到"),
+        dm(340.2, "簽到"), -- 两枚时间不等 → 合并簇带 x2 后缀，先剥后缀再规范化
+        dm(345.0, "實名觀看"), -- 命中简体书写的子串规则 实名
+        dm(350.0, "這是繁體對照"), -- 不命中任何规则：保持繁体原字显示且保留
+    } } }, count = 1 }
+    options.chConvert = 0
+    convert_danmaku_to_ass_events(true)
+    check("N 不转换档位下繁体弹幕仍被黑名单过滤",
+        count_events(function(ev) return ev.clean_text and ev.clean_text:find("簽", 1, true) end) == 0
+            and count_events(function(ev) return ev.clean_text and ev.clean_text:find("實", 1, true) end) == 0)
+    check("N2 不命中规则的繁体弹幕保持原文显示且保留",
+        count_events(function(ev) return ev.clean_text and ev.clean_text:find("這是繁體對照", 1, true) end) == 1)
+    options.chConvert = 1 -- 还原默认
 end
 
 print(failures == 0 and "ALL PASS" or (failures .. " FAILED"))
