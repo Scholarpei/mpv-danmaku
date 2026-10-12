@@ -138,7 +138,7 @@ function load_danmaku_for_mgtv(path, callback)
             local ok = #output_table > 0
             local final_json_str = utils.format_json(output_table)
             save_danmaku_json(url, final_json_str)
-            load_danmaku(true)
+            load_danmaku(true, nil, true)
             callback(ok)
         end
 

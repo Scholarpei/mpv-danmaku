@@ -203,7 +203,7 @@ local function download_bilibili_danmaku(path, cid, from_menu, callback)
         DANMAKU.cache_hit = "cache"
         msg.verbose("弹幕缓存命中：" .. key)
         save_danmaku_list(path, hit_list)
-        load_danmaku(from_menu == nil and true or from_menu)
+        load_danmaku(from_menu == nil and true or from_menu, nil, true)
         callback(true)
         return
     end
@@ -216,7 +216,7 @@ local function download_bilibili_danmaku(path, cid, from_menu, callback)
             DANMAKU.cache_hit = "stale"
             show_message("网络失败，已使用过期弹幕缓存", 3)
             save_danmaku_list(path, stale_list)
-            load_danmaku(from_menu == nil and true or from_menu)
+            load_danmaku(from_menu == nil and true or from_menu, nil, true)
             callback(true)
             return true
         end
@@ -247,7 +247,7 @@ local function download_bilibili_danmaku(path, cid, from_menu, callback)
         if #dl_list > 0 then
             dcache.put(key, out, { type = "xml" })
         end
-        load_danmaku(from_menu == nil and true or from_menu)
+        load_danmaku(from_menu == nil and true or from_menu, nil, true)
         callback(true)
     end)
 end

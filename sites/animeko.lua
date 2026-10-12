@@ -65,7 +65,7 @@ local function save_output_and_load(output_table, source_url)
         return false
     end
     save_danmaku_json(source_url, utils.format_json(output_table))
-    load_danmaku(true)
+    load_danmaku(true, nil, true)
     return true
 end
 

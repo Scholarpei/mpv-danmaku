@@ -74,7 +74,7 @@ function get_danmaku_fallback(query)
                 else
                     DANMAKU.sources[query] = {from = "user_custom", provider = "兜底服务器", data = data["xml"]}
                 end
-                load_danmaku(true)
+                load_danmaku(true, nil, true)
                 return
             end
 
@@ -88,7 +88,7 @@ function get_danmaku_fallback(query)
             if DANMAKU.sources[query] and DANMAKU.sources[query].provider == nil then
                 DANMAKU.sources[query].provider = "兜底服务器"
             end
-            load_danmaku(true)
+            load_danmaku(true, nil, true)
         end)
     end
 
@@ -553,7 +553,7 @@ function handle_fetched_danmaku(data, url, from_menu, meta)
                 DANMAKU.sources[url].episode_title = meta.episode
             end
         end
-        load_danmaku(from_menu)
+        load_danmaku(from_menu, nil, true)
     else
         source_status.mark_failed(url, "无数据", "弹幕服务器")
         msg.info("无数据")
@@ -823,7 +823,7 @@ function add_danmaku_source_online(query, from_menu)
             DANMAKU.cache_hit = "cache"
             msg.verbose("弹幕缓存命中：" .. key)
             save_danmaku_data(data.comments, query, "user_custom")
-            load_danmaku(from_menu)
+            load_danmaku(from_menu, nil, true)
             return
         end
         dcache.remove(key)
@@ -853,7 +853,7 @@ function add_danmaku_source_online(query, from_menu)
                         DANMAKU.cache_hit = "stale"
                         show_message("网络失败，已使用过期弹幕缓存", 3)
                         save_danmaku_data(sdata.comments, query, "user_custom")
-                        load_danmaku(from_menu)
+                        load_danmaku(from_menu, nil, true)
                         return
                     end
                 end
@@ -869,7 +869,7 @@ function add_danmaku_source_online(query, from_menu)
             count = n,
             comments = data["comments"],
         }), { type = "json", count = n })
-        load_danmaku(from_menu)
+        load_danmaku(from_menu, nil, true)
     end)
 end
 

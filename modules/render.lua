@@ -259,6 +259,8 @@ end)
 mp.add_hook("on_unload", 50, function()
     FALLBACK_TRIGGER, COMMENTS, DELAY = false, nil, 0
     stop_time_observer()
+    -- 清掉挂起的到货/延迟防抖重建，防换集后旧 timer 重建已清空的 DANMAKU
+    if sched then sched.cancel() end
     overlay_low:remove()
     overlay_high:remove()
     mp.set_property_native(DELAY_PROPERTY, 0)

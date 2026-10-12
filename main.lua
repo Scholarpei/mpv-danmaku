@@ -104,7 +104,12 @@ danmaku_cache.setup({
     log = function(level, text) msg[level](text) end,
 })
 
-local rebuild_convert_timer = nil
+-- 重建调度器（到货防抖 + 延迟防抖共用；add_timeout/time 注入供单测）
+sched = require("modules/rebuild_sched")
+sched.setup({
+    add_timeout = mp.add_timeout,
+    time = mp.get_time,
+})
 
 -- show_danmaku 会话级标量缓存：toggle/启动按钮等高频读取不再每次读+解析整个 history JSON
 -- （该文件同时含番剧历史等大对象）。只缓存此标量不缓存整表——文件被 write_history 等
@@ -362,18 +367,18 @@ local function set_danmaku_delay(dly, time, specific_source)
         render()
     end
 
-    -- 防抖：批量重建 ASS 事件并渲染，避免频繁变更导致重复重建
-    if rebuild_convert_timer then
-        rebuild_convert_timer:kill()
-        rebuild_convert_timer = nil
-    end
-    rebuild_convert_timer = mp.add_timeout(0.1, function()
-        if convert_danmaku_to_ass_events then
-            convert_danmaku_to_ass_events(true)
-        end
-        render()
-        rebuild_convert_timer = nil
-    end)
+    -- 防抖：批量重建 ASS 事件并渲染，避免频繁变更导致重复重建。
+    -- 走重建调度器与到货防抖共用 timer 槽：延迟调整与到货同时发生时
+    -- 后到请求覆盖先到 pending（两者都是全量重建+渲染），绝不双跑
+    sched.request({
+        window = 0.1,
+        run = function()
+            if convert_danmaku_to_ass_events then
+                convert_danmaku_to_ass_events(true)
+            end
+            render()
+        end,
+    })
 
     if specific_source then
         local source = DANMAKU.sources[specific_source]
@@ -689,11 +694,38 @@ function save_danmaku(not_forced)
     end
 end
 
--- 加载弹幕
-function load_danmaku(from_menu, no_osd)
+-- 加载弹幕。第三参 arrival=true 标记「弹幕源到货」类调用（下载回调）：
+-- 首源立即重建（用户无感延迟），防抖窗口内后续到货合并为一次全量重建——
+-- 此前每源到货各跑一遍完整管线（含 pakku 合并），双源场景加载期突发两次卡顿。
+-- 菜单/手动路径（默认 arrival=nil）不走防抖，改样式立刻见效。
+local ARRIVAL_WINDOW = 0.2
+local arrival_ctx = { from_menu = nil, no_osd = nil }
+
+function load_danmaku(from_menu, no_osd, arrival)
     if not ENABLED then return end
-    convert_danmaku_to_ass_events()
-    render_danmaku(from_menu, no_osd)
+    local function do_rebuild(fm, nos)
+        convert_danmaku_to_ass_events()
+        render_danmaku(fm, nos)
+    end
+    if arrival then
+        if not sched.has_pending() and sched.idle(ARRIVAL_WINDOW) then
+            sched.run_now(function() do_rebuild(from_menu, no_osd) end)
+        else
+            -- 合并窗口内多源的 from_menu/no_osd（布尔 OR：任一请求带即生效）
+            arrival_ctx.from_menu = arrival_ctx.from_menu or from_menu
+            arrival_ctx.no_osd = arrival_ctx.no_osd or no_osd
+            sched.request({
+                window = ARRIVAL_WINDOW,
+                run = function()
+                    local fm, nos = arrival_ctx.from_menu, arrival_ctx.no_osd
+                    arrival_ctx.from_menu, arrival_ctx.no_osd = nil, nil
+                    do_rebuild(fm, nos)
+                end,
+            })
+        end
+        return
+    end
+    do_rebuild(from_menu, no_osd)
 end
 
 function load_danmaku_for_url(path)

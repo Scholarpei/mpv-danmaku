@@ -162,7 +162,7 @@ local function save_output_and_load(output_table, source_url)
     end
     local final_json_str = utils.format_json(output_table)
     save_danmaku_json(source_url, final_json_str)
-    load_danmaku(true)
+    load_danmaku(true, nil, true)
 end
 
 -- 辅助函数：构造 curl 参数

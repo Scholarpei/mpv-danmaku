@@ -104,7 +104,7 @@ function load_danmaku_for_maiduidui(path, callback)
             DANMAKU.cache_hit = "cache"
             msg.verbose("弹幕缓存命中：" .. key)
             save_danmaku_json(url, utils.format_json(build_output(comments)))
-            load_danmaku(true)
+            load_danmaku(true, nil, true)
             callback(true)
             return
         end
@@ -120,7 +120,7 @@ function load_danmaku_for_maiduidui(path, callback)
                 DANMAKU.cache_hit = "stale"
                 show_message("网络失败，已使用过期弹幕缓存", 3)
                 save_danmaku_json(url, utils.format_json(build_output(comments)))
-                load_danmaku(true)
+                load_danmaku(true, nil, true)
                 callback(true)
             else
                 callback(false)
@@ -137,7 +137,7 @@ function load_danmaku_for_maiduidui(path, callback)
         -- 3) 成功且非空写缓存后走原路径
         dcache.put(key, raw, { type = "json", count = #comments })
         save_danmaku_json(url, utils.format_json(build_output(comments)))
-        load_danmaku(true)
+        load_danmaku(true, nil, true)
         callback(true)
     end)
 end
