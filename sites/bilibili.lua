@@ -365,32 +365,34 @@ function fetch_bilibili_pagelist(vid, callback)
     end)
 end
 
--- 按 vid+page 直连下载弹幕（走缓存取 cid，源 key 为规范化 URL）
-local function load_bilibili_danmaku_by_page(vid, page, callback)
+-- 按 vid+page 直连下载弹幕（走缓存取 cid，源 key 缺省为规范化 URL；已存在同分P的
+-- 历史源记录时传入该记录 key，装载与 addon_danmaku 重放路径收敛到同一条目）
+local function load_bilibili_danmaku_by_page(vid, page, callback, key)
     fetch_bilibili_pagelist(vid, function(pages)
         local info = pages and pages[page]
         if info == nil or info["cid"] == nil then
             callback(false)
             return
         end
-        download_bilibili_danmaku(canonical_bilibili_url(vid, page), tostring(info["cid"]), true, callback)
+        download_bilibili_danmaku(key or canonical_bilibili_url(vid, page),
+            tostring(info["cid"]), true, callback)
     end)
 end
 
--- 已存在同 (vid, page) 的弹幕源？（按解析结果对比，兼容旧记录省略 ?p=1 的情况）
-local function bilibili_source_exists(url)
+-- 查找同 (vid, page) 的既有弹幕源 key（按解析结果对比，兼容旧记录省略 ?p=1 的情况）
+local function find_bilibili_source(url)
     local vid, page = parse_bilibili_vid(url)
-    if vid == nil then return false end
+    if vid == nil then return nil end
     page = page or 1
     for k in pairs(DANMAKU.sources) do
         if type(k) == "string" and k:find("bilibili%.com/video/") then
             local kv, kp = parse_bilibili_vid(k)
             if kv == vid and (kp or 1) == page then
-                return true
+                return k
             end
         end
     end
-    return false
+    return nil
 end
 
 local function read_history_table()
@@ -602,32 +604,46 @@ function autoload_bilibili_series(path, dir, records, fallback)
             source_status.ensure("bilibili#" .. vid, "bilibili",
                 {anime = DANMAKU.anime, episode = m.part})
             local url = canonical_bilibili_url(vid, m.page)
-            if bilibili_source_exists(url) then
-                source_status.mark_done("bilibili#" .. vid,
-                    {anime = DANMAKU.anime, episode = m.part, url = url})
-                done(true)  -- 已有同 (vid,page) 源（重放/手动添加过），交给 addon_danmaku
-                return
+            local existing = find_bilibili_source(url)
+            if existing ~= nil then
+                local s = DANMAKU.sources[existing]
+                -- 已到货（本会话手动添加/已加载）或被屏蔽：登记完成即可，补传真实
+                -- key 使条数能从 DANMAKU.sources 解析
+                if (type(s) == "table" and type(s.data) == "table" and #s.data > 0)
+                    or (type(s) == "table" and s.blocked) then
+                    source_status.mark_done("bilibili#" .. vid,
+                        {anime = DANMAKU.anime, episode = m.part, url = existing})
+                    done(true)
+                    return
+                end
+                -- 历史恢复的空壳源：不能「交给 addon_danmaku」了事——文件夹有 extras
+                -- 时 addon_danmaku 整体跳过 sources 重放（续载由 dandanplay_flow 负责，
+                -- 而手动B站视频 URL 不在 extras 内），委托会标记完成却无人取数。
+                -- 改为就地装载，且沿用既有 key（与重放路径收敛到同一条目，不重复）
             end
-            -- 预置持久化标志；save_danmaku_xml 只补 data 不覆盖既有字段
-            DANMAKU.sources[url] = DANMAKU.sources[url] or {
-                from = "user_custom",
-                provider = "bilibili",
-                blocked = rec.blocked or false,
-                delay_segments = rec.delay_segments and shallow_copy(rec.delay_segments) or nil,
-            }
-            if DANMAKU.sources[url].anime_title == nil then
-                DANMAKU.sources[url].anime_title = DANMAKU.anime
-                DANMAKU.sources[url].episode_title = m.part
+            local key = existing or url
+            if existing == nil then
+                -- 预置持久化标志；save_danmaku_xml 只补 data 不覆盖既有字段
+                DANMAKU.sources[key] = DANMAKU.sources[key] or {
+                    from = "user_custom",
+                    provider = "bilibili",
+                    blocked = rec.blocked or false,
+                    delay_segments = rec.delay_segments and shallow_copy(rec.delay_segments) or nil,
+                }
+            end
+            if DANMAKU.sources[key].anime_title == nil then
+                DANMAKU.sources[key].anime_title = DANMAKU.anime
+                DANMAKU.sources[key].episode_title = m.part
             end
             load_bilibili_danmaku_by_page(vid, m.page, function(ok)
                 if ok then
                     source_status.mark_done("bilibili#" .. vid,
-                        {anime = DANMAKU.anime, episode = m.part, url = url})
+                        {anime = DANMAKU.anime, episode = m.part, url = key})
                 else
                     source_status.mark_failed("bilibili#" .. vid, "弹幕下载失败", "B站合集")
                 end
                 done(ok)
-            end)
+            end, key)
         end)
     end
 end
