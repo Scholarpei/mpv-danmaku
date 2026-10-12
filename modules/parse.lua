@@ -31,6 +31,30 @@ local function ass_escape(text)
                :gsub("\n", "\\N")
 end
 
+-- 渲染期文本变换的构建期预计算（与 render.lua 旧每帧变换逐字同源，勿单独修改任一侧）。
+-- 旧渲染顺序：剥 \move（仅滚动）→ 拼坐标/an 前缀 → 剥 HTML 实体 → \fs 放大 1.5 → ass_prefix。
+-- an/pos 前缀不含 &#数字; 与 \fs 子串，故实体剥离与 fs 放大收缩到 body 不改变结果。
+-- 实体剥离非纯冗余：源文本双重转义（如 &#38;#65; 收集期单趟解码后残留 &#65;）靠此兜底；
+-- \fs 会命中 ass_escape 后的用户字面 \fs12（\\fs12 仍含子串 \fs）。is_scrolling 区分现状
+-- 差异化行为：滚动剥 move（含用户文本 \\move 残段），固定不剥。
+local bake_re_entity = "&#%d+;"
+local bake_re_fs = "\\fs(%d+)"
+
+local function bake_render_body(raw_text, is_scrolling)
+    local t = raw_text
+    if is_scrolling then
+        t = t:gsub("\\move%(.-%)", "")
+    end
+    t = t:gsub(bake_re_entity, "")
+    if t:match(bake_re_fs) then
+        t = t:gsub(bake_re_fs, function(size)
+            local n = tonumber(size) or 0
+            return string.format("\\fs%d", math.floor(n * 1.5))
+        end)
+    end
+    return t
+end
+
 -- 构建 per-source 的延迟查询函数
 local function make_delay_lookup(source)
     local segments = nil
@@ -1039,6 +1063,15 @@ function convert_danmaku_to_ass_events(force)
 
         if style and effect then
             text = effect .. color_text .. text
+            -- 渲染预计算：滚动的静态体（每帧只有坐标变化）/ 固定的完整文本（窗口内不变），
+            -- an 标签随 style 一次性求值（parse 只产 R2L/TOP/BTM，SP/MSG 分支为上游遗留）
+            local render_body, render_fixed, render_an
+            render_an = (style ~= "SP" and style ~= "MSG") and "8" or "7"
+            if move then
+                render_body = bake_render_body(text, true)
+            else
+                render_fixed = "{\\an" .. render_an .. "}" .. bake_render_body(text, false)
+            end
             local event = {
                 orig_time = ev.orig_time,
                 start_time = ev.start_time,
@@ -1049,6 +1082,9 @@ function convert_danmaku_to_ass_events(force)
                 clean_text = clean_text,
                 pos = pos,
                 move = move,
+                render_body = render_body,
+                render_fixed = render_fixed,
+                render_an = render_an,
                 layer = (style == "R2L") and 0 or 1,
                 source = d.source,
                 font_size = event_fontsize,

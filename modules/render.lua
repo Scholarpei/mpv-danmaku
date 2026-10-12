@@ -8,34 +8,112 @@ local time_pos_observer_active = false
 local overlay_low = mp.create_osd_overlay('ass-events')
 local overlay_high = mp.create_osd_overlay('ass-events')
 
-local function realtime_position_text(event, pos, displayarea)
-    if not event.move then
-        local _, current_y = unpack(event.pos)
-        if not current_y or tonumber(current_y) > displayarea then return end
-        if event.style ~= "SP" and event.style ~= "MSG" then
-            return string.format("{\\an8}%s", event.text)
-        else
-            return string.format("{\\an7}%s", event.text)
+-- ass_prefix 值比较缓存：bold/fontname/opacity/outline/shadow 等样式菜单只改 options
+-- 不重建管线（靠 render 每帧读 options 生效），故失效必须基于字段值比较而非重建打标。
+-- fontsize（经 ratio 调整）也在比较内，窗口比例变化时联动重算并清空字号前缀缓存。
+-- 六字段直接值比较（无字符串拼接——拼接本身每帧的成本会盖过稀疏窗口的收益）
+local pcache = { fontname = nil, fontsize = nil, opacity = nil,
+    outline = nil, shadow = nil, bold = nil }
+local prefix_value = nil
+local fs_prefix_cache = {}
+-- high 层（顶/底固定弹幕）上次 data：窗口内文本不变，整串比对相同则跳过 update
+-- （镜像 density_timeline 的签名去重范本）。overlay:remove 后必须置 nil，否则重显首帧不更新。
+local last_high_data = nil
+
+-- 纯计算：pos → (low 字符串, high 字符串)。overlay 操作留在 render()，供测试/基准直接驱动。
+-- 每条弹幕的常量变换（剥 move/实体、fs 放大、an 标签）已在构建期 bake 进
+-- event.render_body / render_fixed，此处主循环零正则，仅滚动弹幕剩一次坐标 format。
+function build_visible_strings(pos)
+    if COMMENTS == nil then return nil, nil end
+
+    local fontname = options.fontname
+    local fontsize = options.fontsize
+    local opacity = tonumber(options.opacity)
+
+    local width, height = 1920, 1080
+    local ratio = osd_width / osd_height
+    if width / height < ratio then
+        height = width / ratio
+        fontsize = options.fontsize - ratio * 2
+    end
+
+    local ass_events_low = {}
+    local ass_events_high = {}
+    local max_display = math.max(options.scrolltime, options.fixtime)
+    local window_start = pos - max_display
+
+    -- 跳过已结束的弹幕
+    local lo = binary_search(COMMENTS, window_start, function(item) return item.start_time end)
+
+    if fontname ~= pcache.fontname or fontsize ~= pcache.fontsize or opacity ~= pcache.opacity
+        or options.outline ~= pcache.outline or options.shadow ~= pcache.shadow
+        or options.bold ~= pcache.bold then
+        pcache.fontname = fontname
+        pcache.fontsize = fontsize
+        pcache.opacity = opacity
+        pcache.outline = options.outline
+        pcache.shadow = options.shadow
+        pcache.bold = options.bold
+        local alpha = string.format("%02X", (1 - (opacity or 0)) * 255)
+        prefix_value = string.format("{\\rDefault\\fn%s\\fs%d\\c&HFFFFFF&\\alpha&H%s\\bord%s\\shad%s\\b%s\\q2}",
+            fontname, fontsize, alpha, options.outline, options.shadow, options.bold and "1" or "0")
+        fs_prefix_cache = {}
+    end
+    local ass_prefix = prefix_value
+
+    local displayarea = height * options.displayarea
+    local configured_size = tonumber(options.fontsize) or fontsize
+
+    for i = lo, #COMMENTS do
+        local event = COMMENTS[i]
+        if not event then break end
+
+        if event.start_time > pos then break end  -- 后续弹幕提前退出
+        if event.end_time >= pos then
+            local text
+            if event.move then
+                -- 滚动弹幕：坐标插值（算式与旧实现逐字一致）+ 预计算静态体
+                local move = event.move
+                local x1, y1, x2, y2 = move[1], move[2], move[3], move[4]
+                local duration = event.end_time - event.start_time  --mean: options.scrolltime
+                local progress = (pos - event.start_time) / duration  -- 移动进度 [0, 1]
+                local current_x = tonumber(x1 + (x2 - x1) * progress)
+                local current_y = tonumber(y1 + (y2 - y1) * progress)
+                if current_y <= displayarea then
+                    text = string.format("{\\pos(%.1f,%.1f)\\an%s}%s",
+                        current_x, current_y, event.render_an or "8", event.render_body)
+                end
+            else
+                -- 顶/底固定弹幕：完整文本已预计算（含 an 标签），零拼接
+                local fixed_pos = event.pos
+                local current_y = fixed_pos and fixed_pos[2]
+                if current_y and not (tonumber(current_y) > displayarea) then
+                    text = event.render_fixed
+                end
+            end
+
+            if text then
+                -- 字号前缀按调整后字号整数键缓存（构建期 font_size 种类有限）
+                local event_font_prefix = ""
+                if event.font_size then
+                    local adjusted_size = math.max(1, math.floor(event.font_size + fontsize - configured_size))
+                    event_font_prefix = fs_prefix_cache[adjusted_size]
+                    if not event_font_prefix then
+                        event_font_prefix = string.format("{\\fs%d}", adjusted_size)
+                        fs_prefix_cache[adjusted_size] = event_font_prefix
+                    end
+                end
+                local ass_text = ass_prefix .. event_font_prefix .. text
+                if event.layer == nil or tonumber(event.layer) == 0 then
+                    ass_events_low[#ass_events_low + 1] = ass_text
+                else
+                    ass_events_high[#ass_events_high + 1] = ass_text
+                end
+            end
         end
     end
 
-    local x1, y1, x2, y2 = unpack(event.move)
-    -- 计算移动的时间范围
-    local duration = event.end_time - event.start_time  --mean: options.scrolltime
-    local progress = (pos - event.start_time) / duration  -- 移动进度 [0, 1]
-
-    -- 计算当前坐标
-    local current_x = tonumber(x1 + (x2 - x1) * progress)
-    local current_y = tonumber(y1 + (y2 - y1) * progress)
-
-    -- 移除 \move 标签并应用当前坐标
-    local clean_text = event.text:gsub("\\move%(.-%)", "")
-    if current_y > displayarea then return end
-    if event.style ~= "SP" and event.style ~= "MSG" then
-        return string.format("{\\pos(%.1f,%.1f)\\an8}%s", current_x, current_y, clean_text)
-    else
-        return string.format("{\\pos(%.1f,%.1f)\\an7}%s", current_x, current_y, clean_text)
-    end
+    return table.concat(ass_events_low, '\n'), table.concat(ass_events_high, '\n'), width, height
 end
 
 function render(pos_arg)
@@ -54,82 +132,29 @@ function render(pos_arg)
     if not pos then
         overlay_low:remove()
         overlay_high:remove()
+        last_high_data = nil
         return
     end
 
-    local fontname = options.fontname
-    local fontsize = options.fontsize
-    local opacity = tonumber(options.opacity)
-    local alpha = string.format("%02X", (1 - (opacity or 0)) * 255)
+    local low_data, high_data, width, height = build_visible_strings(pos)
+    if low_data == nil then return end
 
-    local width, height = 1920, 1080
-    local ratio = osd_width / osd_height
-    if width / height < ratio then
-        height = width / ratio
-        fontsize = options.fontsize - ratio * 2
-    end
-
-    local ass_events_low = {}
-    local ass_events_high = {}
-    local max_display = math.max(options.scrolltime, options.fixtime)
-    local window_start = pos - max_display
-
-    -- 跳过已结束的弹幕
-    local lo = binary_search(COMMENTS, window_start, function(item) return item.start_time end)
-
-    local re_entity = "&#%d+;"
-    local re_fs = "\\fs(%d+)"
-    local ass_prefix = string.format("{\\rDefault\\fn%s\\fs%d\\c&HFFFFFF&\\alpha&H%s\\bord%s\\shad%s\\b%s\\q2}",
-        fontname, fontsize, alpha, options.outline, options.shadow, options.bold and "1" or "0")
-
-    for i = lo, #COMMENTS do
-        local event = COMMENTS[i]
-        if not event then break end
-
-        if event.start_time > pos then break end  -- 后续弹幕提前退出
-        if event.end_time >= pos then
-            local text = realtime_position_text(event, pos, height * options.displayarea)
-            if text then
-                text = text:gsub(re_entity, "")
-            end
-
-            if text and text:match(re_fs) then
-                text = text:gsub(re_fs, function(size)
-                    local n = tonumber(size) or 0
-                    return string.format("\\fs%d", math.floor(n * 1.5))
-                end)
-            end
-
-            -- 构建 ASS 字符串
-            local event_font_prefix = ""
-            if event.font_size then
-                local configured_size = tonumber(options.fontsize) or fontsize
-                local adjusted_size = math.max(1, math.floor(event.font_size + fontsize - configured_size))
-                event_font_prefix = string.format("{\\fs%d}", adjusted_size)
-            end
-            local ass_text = text and (ass_prefix .. event_font_prefix .. text)
-            if ass_text then
-                if event.layer == nil or tonumber(event.layer) == 0 then
-                    table.insert(ass_events_low, ass_text)
-                else
-                    table.insert(ass_events_high, ass_text)
-                end
-            end
-        end
-    end
-
-    -- 写入低层（滚动）和高层（顶/底）overlay，并设置 z 值以控制堆叠
+    -- 低层（滚动）每帧必变（坐标移动），不做比对直接更新
     overlay_low.res_x = width
     overlay_low.res_y = height
     overlay_low.z = 0
-    overlay_low.data = table.concat(ass_events_low, '\n')
+    overlay_low.data = low_data
     overlay_low:update()
 
-    overlay_high.res_x = width
-    overlay_high.res_y = height
-    overlay_high.z = 1
-    overlay_high.data = table.concat(ass_events_high, '\n')
-    overlay_high:update()
+    -- 高层（顶/底固定）窗口内文本不变，data 未变跳过重传
+    if high_data ~= last_high_data then
+        overlay_high.res_x = width
+        overlay_high.res_y = height
+        overlay_high.z = 1
+        overlay_high.data = high_data
+        overlay_high:update()
+        last_high_data = high_data
+    end
 end
 
 local function time_pos_callback(_, time_pos)
@@ -138,6 +163,7 @@ local function time_pos_callback(_, time_pos)
     else
         overlay_low:remove()
         overlay_high:remove()
+        last_high_data = nil
     end
 end
 
@@ -204,6 +230,7 @@ function hide_danmaku_func()
     set_danmaku_visibility(false)
     overlay_low:remove()
     overlay_high:remove()
+    last_high_data = nil
     if filter_state("danmaku") then
         mp.commandv("vf", "remove", "@danmaku")
     end
@@ -263,6 +290,7 @@ mp.add_hook("on_unload", 50, function()
     if sched then sched.cancel() end
     overlay_low:remove()
     overlay_high:remove()
+    last_high_data = nil
     mp.set_property_native(DELAY_PROPERTY, 0)
     if filter_state("danmaku") then
         mp.commandv("vf", "remove", "@danmaku")

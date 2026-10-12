@@ -311,6 +311,33 @@ do
     options.chConvert = 1 -- 还原默认
 end
 
+-- O. 渲染预计算字段兜底断言（详细字节级等价见 render_equiv_test，此处防其被误删后无兜底）：
+-- 滚动事件 render_body 已剥 move 标签，固定事件 render_fixed 含 an 锚标签。
+-- 本组自带数据驱动：前面各组 convert_top_to_scroll=true 无固定弹幕存活
+do
+    local saved_scroll = options.convert_top_to_scroll
+    options.convert_top_to_scroll = false
+    DANMAKU = { sources = { ["test://e2e8"] = { from = "user_local", data = {
+        dm(400.0, "滚动样例甲"),
+        dm(405.0, "天花板红气球", 5),
+        dm(410.0, "地毯弹珠两颗", 4),
+    } } }, count = 1 }
+    convert_danmaku_to_ass_events(true)
+    options.convert_top_to_scroll = saved_scroll
+
+    local n_roll_ok, n_fixed_ok = 0, 0
+    for _, ev in ipairs(COMMENTS) do
+        if ev.move and ev.render_body and not ev.render_body:find("\\move(", 1, true) then
+            n_roll_ok = n_roll_ok + 1
+        end
+        if ev.pos and ev.render_fixed and ev.render_fixed:find("{\\an", 1, true) then
+            n_fixed_ok = n_fixed_ok + 1
+        end
+    end
+    check("O 滚动事件带剥 move 后的 render_body", n_roll_ok > 0)
+    check("O2 固定事件带含 an 标签的 render_fixed", n_fixed_ok >= 2)
+end
+
 print(failures == 0 and "ALL PASS" or (failures .. " FAILED"))
 -- os.exit 直杀：mpv 正常 quit 的关机路径在 Windows 控制台代理下偶发挂起（测试环境已知问题）
 os.exit(failures > 0 and 1 or 0)
