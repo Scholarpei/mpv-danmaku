@@ -106,7 +106,13 @@ danmaku_cache.setup({
 
 local rebuild_convert_timer = nil
 
+-- show_danmaku 会话级标量缓存：toggle/启动按钮等高频读取不再每次读+解析整个 history JSON
+-- （该文件同时含番剧历史等大对象）。只缓存此标量不缓存整表——文件被 write_history 等
+-- 十余处独立 read-modify-write，整表缓存会引入丢写竞态；写侧维持写透（用户级低频操作）
+local cached_show_danmaku = nil
+
 function get_danmaku_visibility()
+    if cached_show_danmaku ~= nil then return cached_show_danmaku end
     local history_json = read_file(HISTORY_PATH)
     local history
     if history_json ~= nil then
@@ -116,6 +122,7 @@ function get_danmaku_visibility()
             history["show_danmaku"] = false
             write_json_file(HISTORY_PATH, history)
         else
+            cached_show_danmaku = flag
             return flag
         end
     else
@@ -127,6 +134,7 @@ function get_danmaku_visibility()
 end
 
 function set_danmaku_visibility(flag)
+    cached_show_danmaku = flag
     local history = {}
     local history_json = read_file(HISTORY_PATH)
     if history_json ~= nil then
