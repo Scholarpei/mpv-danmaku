@@ -1,6 +1,7 @@
--- 站点直连加载器磁盘缓存集成测试（animeko / 埋堆堆）：
+-- 站点直连加载器磁盘缓存集成测试（animeko / 埋堆堆 / 巴哈姆特）：
 -- TTL 内命中零网络、未命中走网络且写缓存（原始载荷 roundtrip）、
--- 断网回退过期缓存、合法空结果不写缓存、预取伴生函数同键写/命中跳过
+-- 断网回退过期缓存、合法空结果不写缓存、巴哈主/降级端口取数均写同键缓存、
+-- 预取伴生函数同键写/命中跳过
 -- （自断言，输出 PASS/FAIL 行）
 -- 运行：mpv.com --idle=once --no-config --script=<本文件路径>
 -- 退出码非 0 或输出含 FAIL 即失败
@@ -35,12 +36,17 @@ end
 
 -- ---- 打桩（须在 require 模块前；sites 运行时按全局查找这些名字）----
 -- save_danmaku_json 用 apis/dandanplay.lua 真身（写 DANMAKU.sources，与在线路径同构）
-local stub = { net_calls = 0, fail = false, ako = nil, mdd = nil, loads = 0 }
+local stub = { net_calls = 0, fail = false, ako = nil, mdd = nil, loads = 0,
+    baha = nil, baha_api = nil, baha_fail_main = false }
 show_message = function() end
 load_danmaku = function(from_menu) stub.loads = stub.loads + 1 end
 DANMAKU = { sources = {}, count = 1 }
+-- 巴哈加载器的临时文件落点（main.lua 运行期同款全局）
+DANMAKU_PATH = TMP
+PID = 770001
 
--- 网络桩：按 URL 分发预置响应（animeko /v1/danmaku/、埋堆堆 vodBarrage396.action）
+-- 网络桩：按 URL 分发预置响应（animeko /v1/danmaku/、埋堆堆 vodBarrage396.action、
+-- 巴哈 ani.gamer.com.tw/ajax/danmuGet.php 与 api.gamer.com.tw/anime/v1/danmu.php）
 local AKO_JSON = '{"danmakuList":[{"danmakuInfo":{"text":"hi","playTime":1000,'
     .. '"color":16777215,"location":"NORMAL"}},{"danmakuInfo":{"text":"yo",'
     .. '"playTime":2500,"color":9830415,"location":"TOP"}}]}'
@@ -49,6 +55,12 @@ local MDD_JSON = '{"status":true,"data":[{"barrageList":['
     .. '{"content":"hi","times":"1.5","color":"#FFFFFF"},'
     .. '{"content":"yo","times":"2.5","color":"#00FF00"}]}]}'
 local MDD_EMPTY = '{"status":true,"data":[{"barrageList":[]}]}'
+-- 巴哈两端口条目字段同构（color/position/time/text）
+local BAHA_JSON = '[{"color":"#FFFFFF","position":0,"time":1500,"text":"hi"},'
+    .. '{"color":"#00FF00","position":1,"time":2500,"text":"yo"}]'
+local BAHA_API_JSON = '{"data":{"danmu":' .. BAHA_JSON .. '}}'
+local BAHA_EMPTY = "[]"
+local BAHA_API_EMPTY = '{"data":{"danmu":[]},"count":0}'
 
 require("modules/options")
 require("modules/utils")
@@ -71,6 +83,23 @@ call_cmd_async = function(args, cb)
             cb(nil, stub.ako)
         elseif url:find("vodBarrage396%.action") then
             cb(nil, stub.mdd)
+        elseif url:find("ani%.gamer%.com%.tw/ajax/danmuGet%.php") then
+            -- 巴哈主端口：真实 curl 经 --output 把响应落盘临时文件，桩模拟该副作用
+            if stub.baha_fail_main then
+                cb("curl: (7) Failed to connect", nil)
+                return
+            end
+            local out_path
+            for i, v in ipairs(args) do
+                if v == "--output" then out_path = args[i + 1] break end
+            end
+            if out_path and stub.baha then
+                local f = io.open(out_path, "wb")
+                if f then f:write(stub.baha) f:close() end
+            end
+            cb(nil, "")
+        elseif url:find("api%.gamer%.com%.tw/anime/v1/danmu%.php") then
+            cb(nil, stub.baha_api)
         else
             cb("unexpected url: " .. tostring(url), nil)
         end
@@ -82,6 +111,7 @@ require("modules/parse")
 require("apis/dandanplay")
 require("sites/animeko")
 require("sites/maiduidui")
+require("sites/bahamut")
 
 local dc = require("modules/danmaku_cache")
 local function dc_setup(now_fn)
@@ -96,8 +126,10 @@ dc_setup()
 
 local AKO_URL = "https://api.animeko.org/episode/123456"
 local MDD_URL = "https://www.mddcloud.com.cn/video/abcdef01.html?uuid=fffeee111"
+local BAHA_URL = "https://ani.gamer.com.tw/animeVideo.php?sn=12345"
 local AKO_KEY = "ako:123456"
 local MDD_KEY = "mdd:fffeee111"
+local BAHA_KEY = "baha:12345"
 
 local steps = {}
 
@@ -286,6 +318,108 @@ end
 steps[19] = function()
     check("ako 预取 TTL 命中零网络", steps._ako_pf_hit == true and stub.net_calls == 0)
     check("mdd 预取 TTL 命中零网络", steps._mdd_pf_hit == true and stub.net_calls == 0)
+end
+
+-- ---------- 巴哈姆特：命中零网络 ----------
+steps[20] = function()
+    stub.baha = BAHA_JSON
+    stub.baha_api = BAHA_API_JSON
+    dc.put(BAHA_KEY, BAHA_JSON, { type = "json", count = 2 })
+    stub.net_calls = 0
+    stub.loads = 0
+    load_danmaku_for_bahamut(BAHA_URL, function(success)
+        steps._baha_hit_cb = success
+    end)
+end
+
+steps[21] = function()
+    local src = DANMAKU.sources[BAHA_URL]
+    check("baha 命中零网络", stub.net_calls == 0)
+    check("baha 命中回调成功", steps._baha_hit_cb == true)
+    check("baha 命中标记 cache", DANMAKU.cache_hit == "cache")
+    check("baha 命中走 load_danmaku", stub.loads == 1)
+    check("baha 命中数据入 sources", src ~= nil and src.data ~= nil and #src.data == 2)
+    check("baha 数据字段正确（time/10、hex 色、position→mode）", src and src.data[1].text == "hi"
+        and src.data[1].time == 150 and src.data[1].color == 16777215
+        and src.data[1].type == 1
+        and src.data[2].type == 4 and src.data[2].color == 65280)
+    DANMAKU.cache_hit = nil
+end
+
+-- ---------- 巴哈姆特：未命中走主端口网络并写缓存 ----------
+steps[22] = function()
+    dc.remove(BAHA_KEY)
+    stub.net_calls = 0
+    load_danmaku_for_bahamut(BAHA_URL, function() end)
+end
+
+steps[23] = function()
+    local cached = dc.get(BAHA_KEY)
+    local roundtrip = cached and utils.parse_json(cached.payload)
+    check("baha 未命中发网络", stub.net_calls == 1)
+    check("baha 网络成功不标 cache", DANMAKU.cache_hit == nil)
+    check("baha 网络成功写缓存", cached ~= nil)
+    check("baha 缓存为 comments 数组载荷", roundtrip ~= nil
+        and type(roundtrip[1]) == "table" and roundtrip[1].text == "hi"
+        and roundtrip[2].position == 1)
+end
+
+-- ---------- 巴哈姆特：断网回退过期缓存（时钟前移 2h 使条目过期） ----------
+steps[24] = function()
+    dc_setup(function() return os.time() + 7200 end)
+    stub.net_calls = 0
+    stub.loads = 0
+    stub.fail = true
+    load_danmaku_for_bahamut(BAHA_URL, function(success)
+        steps._baha_stale_cb = success
+    end)
+end
+
+steps[25] = function()
+    check("baha 断网两端口均尝试", stub.net_calls == 2)
+    check("baha 断网走过期缓存加载", stub.loads == 1)
+    check("baha 断网标记 stale", DANMAKU.cache_hit == "stale")
+    check("baha 断网回调成功", steps._baha_stale_cb == true)
+    DANMAKU.cache_hit = nil
+    stub.fail = false
+    dc_setup()
+end
+
+-- ---------- 巴哈姆特：主端口失败降级端口取数同写缓存 ----------
+steps[26] = function()
+    dc.remove(BAHA_KEY)
+    stub.net_calls = 0
+    stub.baha_fail_main = true
+    load_danmaku_for_bahamut(BAHA_URL, function(success)
+        steps._baha_fallback_cb = success
+    end)
+end
+
+steps[27] = function()
+    check("baha 降级端口两跳请求", stub.net_calls == 2)
+    check("baha 降级端口回调成功", steps._baha_fallback_cb == true)
+    check("baha 降级端口写同键缓存", dc.get(BAHA_KEY) ~= nil)
+    check("baha 降级端口不标 cache", DANMAKU.cache_hit == nil)
+    stub.baha_fail_main = false
+end
+
+-- ---------- 巴哈姆特：合法空结果不缓存 ----------
+steps[28] = function()
+    dc.remove(BAHA_KEY)
+    stub.net_calls = 0
+    stub.baha = BAHA_EMPTY
+    stub.baha_api = BAHA_API_EMPTY
+    load_danmaku_for_bahamut(BAHA_URL, function(success)
+        steps._baha_empty_cb = success
+    end)
+end
+
+steps[29] = function()
+    check("baha 空结果两端口均尝试", stub.net_calls == 2)
+    check("baha 空结果不缓存", dc.get(BAHA_KEY) == nil)
+    check("baha 空结果回调失败", steps._baha_empty_cb == false)
+    stub.baha = BAHA_JSON
+    stub.baha_api = BAHA_API_JSON
 end
 
 local function finish()

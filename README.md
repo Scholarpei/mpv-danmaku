@@ -266,7 +266,7 @@ api_server=http://192.168.1.5:9321
 - **固定弹幕转滚动**：顶部/底部弹幕可转换为滚动弹幕并加 `↑`/`↓` 前缀（pakku 惯例）；`auto` 模式只转宽度超过阈值的，短弹幕保留原样
 - **×N 字号对数增长**：合并数量越多字号越大，但增量递减，并受上限约束——`min(merge_fontsize_max, fontsize + round(merge_fontsize_growth × ln N))`
 - **简繁转换运行时切换**：弹幕文本默认转简体显示，可在过滤菜单三态切换；转换在收集阶段进行（合并作用于转换后文本）；黑名单匹配独立规范化为简体，规则用简繁任一体书写均可命中；导出 XML 仍保留原文（源数据不参与转换）
-- **弹幕磁盘缓存**：网络弹幕按 episodeId/cid/extcomment URL/animeko episodeId/埋堆堆分集 uuid 落盘（[`danmaku_cache_*`](#danmaku_cache)），TTL 内二刷不发网络包秒加载、断网自动用过期缓存兜底；容量超限按最旧淘汰，总菜单可一键清空；配合[下一集预取](#文件夹弹幕记忆)实现追番换集零等待
+- **弹幕磁盘缓存**：网络弹幕按 episodeId/cid/extcomment URL/animeko episodeId/埋堆堆分集 uuid/巴哈 sn 落盘（[`danmaku_cache_*`](#danmaku_cache)），TTL 内二刷不发网络包秒加载、断网自动用过期缓存兜底；容量超限按最旧淘汰，总菜单可一键清空；配合[下一集预取](#文件夹弹幕记忆)实现追番换集零等待
 - **多源加载状态汇总**：多源并行加载 / 续载时，同一 OSD 位置动态汇总各源状态——提供方 + 《标题》截断 + 集数 + 条数，未到标等待、失败折 ✗ 不再各自弹错；手动搜索 / 自动匹配 / URL 播放 / 本地 xml / 重放 / 兜底所有加载路径统一口径
 - **跨源时间轴对齐**：多源叠加时按「同文本弹幕出现时间差」投票统计全局偏移，把各源整体平移到弹幕数最多的基准源（[`timeline_align`](#timeline_align)）——不同平台的片头 / 剪辑差异（如巴哈源整体晚 90 秒）自动校正；投票基于含手动延迟的生效时间，已手动补偿过的源不会被二次平移；对齐量在源状态行以「时间轴±Ns」标注，弹幕源延迟菜单按「合计（对齐 + 手动）」口径显示
 - **源历史与菜单升级**：弹幕源历史记录补标题持久化（只补不擦，老记录回退显示 URL）——「从源添加弹幕」菜单以标题为主、URL 缩略为 hint；弹幕设置总菜单顶部逐源列出已关联弹幕（各源一行含条数，超过 4 个折叠显示）
@@ -524,10 +524,10 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 <details>
 <summary><b>选项详解：弹幕磁盘缓存</b></summary>
 
-网络拉取的弹幕按 **episodeId**（弹弹play 库）/ **cid**（B站）/ **extcomment URL 哈希**（直连源经弹弹play extcomment 取数）/ **episodeId**（animeko）/ **分集 uuid**（埋堆堆）落盘缓存（`~~/danmaku-cache/` 下 `ep_*.dcache` / `cid_*.dcache` / `ext_*.dcache` / `ako_*.dcache` / `mdd_*.dcache`，单文件 = 首行 JSON 元信息 + 原始载荷）：
+网络拉取的弹幕按 **episodeId**（弹弹play 库）/ **cid**（B站）/ **extcomment URL 哈希**（直连源经弹弹play extcomment 取数）/ **episodeId**（animeko）/ **分集 uuid**（埋堆堆）/ **sn**（巴哈姆特，域名直连路径）落盘缓存（`~~/danmaku-cache/` 下 `ep_*.dcache` / `cid_*.dcache` / `ext_*.dcache` / `ako_*.dcache` / `mdd_*.dcache` / `baha_*.dcache`，单文件 = 首行 JSON 元信息 + 原始载荷）：
 
 - **二刷秒加载**：TTL 内再次播放同一集直接读盘，不发任何网络请求（OSD 标注「弹幕加载成功（缓存）」）
-- **断网可看**：网络请求失败时自动回退使用过期缓存（OSD 标注「（离线缓存）」）——弹弹play / B站 / animeko / 埋堆堆为网络层失败即回退；extcomment 路径仅当**所有服务器都未响应**（真断网）才回退，有响应但无数据仍照常走站直连/兜底路径
+- **断网可看**：网络请求失败时自动回退使用过期缓存（OSD 标注「（离线缓存）」）——弹弹play / B站 / animeko / 埋堆堆 / 巴哈姆特（域名直连路径）为网络层失败即回退；extcomment 路径仅当**所有服务器都未响应**（真断网）才回退，有响应但无数据仍照常走站直连/兜底路径
 - 过期条目不删除，正常走网络刷新，成功后覆盖并重置时间戳；空弹幕（count==0）不缓存
 - **离线覆盖范围**：弹弹play 路径下，只要 `danmaku-history.json` 有该文件夹的 episodeId 记录（加载过一次即有），即可完全离线秒载；B站 URL 在线播放时 **cid 解析本身仍需一次网络**（pagelist/season API 无缓存），断网命中仅覆盖外挂弹幕轨（文件名 `数字-.xml`）、`--cid=传参` 与 URL 内嵌 cid 三种情形
 - episodeId 是 dandanplay 全局库 ID，多个兼容服务器共享同一缓存（缓存不区分来源服务器）
@@ -622,7 +622,7 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 | `tests/danmaku_cache_test.lua` | 缓存读写/TTL/断网兜底/容量淘汰（B站路径的缓存读写由本测试覆盖） | `mpv.com --idle=once --no-config --script=tests/danmaku_cache_test.lua` |
 | `tests/danmaku_cache_fetch_test.lua` | 弹弹play 拉取链路缓存命中不发网络（B站下载函数为模块内局部，由单测+手动场景覆盖） | `mpv.com --idle=once --no-config --script=tests/danmaku_cache_fetch_test.lua` |
 | `tests/extcomment_cache_test.lua` | extcomment 直连源拉取链路缓存（命中零网络 / 未命中写缓存 / 损坏条目回网络重写 / 空结果走兜底不缓存 / 断网回退过期缓存 / 键稳定性） | `mpv.com --idle=once --no-config --script=tests/extcomment_cache_test.lua` |
-| `tests/sites_cache_test.lua` | animeko / 埋堆堆站点直连加载器缓存（命中零网络 / 未命中写缓存 / 断网回退过期缓存 / 合法空不缓存 / 预取伴生函数同键） | `mpv.com --idle=once --no-config --script=tests/sites_cache_test.lua` |
+| `tests/sites_cache_test.lua` | animeko / 埋堆堆 / 巴哈姆特站点直连加载器缓存（命中零网络 / 未命中写缓存 / 断网回退过期缓存 / 合法空不缓存 / 巴哈主端口失败降级端口同写缓存 / 预取伴生函数同键） | `mpv.com --idle=once --no-config --script=tests/sites_cache_test.lua` |
 | `tests/prefetch_plan_test.lua` | 下一集预取任务规划纯函数（锚点推算镜像 dandanplay_flow：慢源独立锚 / 锚==下一集 / 无锚回退 / 重播 / 集数剪裁 / 站点缓存源 ako/mdd 任务 / B站合集推算与回退 / 防御输入） | `mpv.com --idle=once --no-config --script=tests/prefetch_plan_test.lua` |
 | `tests/prefetch_flow_test.lua` | 下一集预取集成（触发门槛：auto_load/缓存/无下一项/异文件夹/无记忆；全链路五类任务入缓存且键与正式加载一致；TTL 命中零网络；armed 每文件一次；B站记忆 off 剪裁；断网静默） | `mpv.com --idle=once --no-config --script=tests/prefetch_flow_test.lua` |
 | `tests/tencent_parse_test.lua` | 腾讯搜索/剧集/弹幕条目解析（MainNeed 优先、预告过滤、content_style 字符串化 JSON 与渐变首色） | `mpv.com --idle=once --no-config --script=tests/tencent_parse_test.lua` |
