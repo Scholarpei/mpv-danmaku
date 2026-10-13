@@ -301,6 +301,7 @@ api_server=http://192.168.1.5:9321
 - **简繁转换运行时切换**：弹幕文本默认转简体显示，可在过滤菜单三态切换；转换在收集阶段进行（合并作用于转换后文本）；黑名单匹配独立规范化为简体，规则用简繁任一体书写均可命中；导出 XML 仍保留原文（源数据不参与转换）
 - **弹幕磁盘缓存**：网络弹幕按 episodeId/cid/extcomment URL/animeko episodeId/埋堆堆分集 uuid/巴哈 sn 落盘（[`danmaku_cache_*`](#danmaku_cache)），TTL 内二刷不发网络包秒加载、断网自动用过期缓存兜底；容量超限按最旧淘汰，总菜单可一键清空；配合[下一集预取](#文件夹弹幕记忆)实现追番换集零等待
 - **多源加载状态汇总**：多源并行加载 / 续载时，同一 OSD 位置动态汇总各源状态——提供方 + 《标题》截断 + 集数 + 条数，未到标等待、失败折 ✗ 不再各自弹错；手动搜索 / 自动匹配 / URL 播放 / 本地 xml / 重放 / 兜底所有加载路径统一口径
+- **弹幕源统计**：弹幕设置总菜单新增「弹幕源统计」——当前视频全部弹幕源逐源呈现（✓ 成功条数 / ○ 合法无数据 / ✗ 失败含具体原因 / … 等待中），点开展开详情子菜单（完整 URL、来源、缓存来源（磁盘/过期兜底/网络）、屏蔽、手动延迟、时间轴校正、错误全文）；顶部汇总源计数与管线统计（合并 / 黑名单 / 智能密度 / 最终渲染条数）。统计台账覆盖全部加载路径（含手动搜索 / 粘贴 URL 的静默会话留痕），站点直连失败的具体原因（如「没有找到弹幕分段」）入库不再 OSD 一闪而过，菜单开着时加载到货原地刷新
 - **跨源时间轴对齐**：多源叠加时按「同文本弹幕出现时间差」投票统计全局偏移，把各源整体平移到弹幕数最多的基准源（[`timeline_align`](#timeline_align)）——不同平台的片头 / 剪辑差异（如巴哈源整体晚 90 秒）自动校正；投票基于含手动延迟的生效时间，已手动补偿过的源不会被二次平移；对齐量在源状态行以「时间轴±Ns」标注，弹幕源延迟菜单按「合计（对齐 + 手动）」口径显示
 - **源历史与菜单升级**：弹幕源历史记录补标题持久化（只补不擦，老记录回退显示 URL）——「从源添加弹幕」菜单以标题为主、URL 缩略为 hint；弹幕设置总菜单顶部逐源列出已关联弹幕（各源一行含条数，超过 4 个折叠显示）
 
@@ -630,6 +631,7 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 | `open_danmaku_style_menu` | 弹幕样式菜单 |
 | `open_source_delay_menu` | 弹幕源延迟菜单 |
 | `open_add_total_menu` | 弹幕设置总菜单 |
+| `open_source_stats_menu` | 🆕 弹幕源统计（逐源状态/条数/失败原因/缓存来源 + 合并·黑名单·密度·渲染管线统计） |
 | `toggle_density_timeline` | 🆕 高能时间轴（弹幕密度曲线，亦随底部悬停出现） |
 | `show_danmaku_count` | 显示弹幕加载状态汇总（各源条数） |
 | `clear-bilibili-record` | 🆕 清除当前文件夹的B站弹幕记忆 |
@@ -659,14 +661,14 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 | `tests/menu_multiselect_test.lua` | 选集菜单多选 helper（remember/mark 打标、幂等、计数 footnote、注册表恢复、exclusive 单选互斥、未命中静默、dandanplay load-danmaku 全链路打标 + latest_menu_anime 重嵌、reset 换集清空、remove_same_provider_sources 同源驱逐） | `mpv.com --idle=once --no-config --script=tests/menu_multiselect_test.lua` |
 | `tests/menu_multiselect_site_test.lua` | 站点 add-event 多选改造回归（tencent + maccms + acfun + ezdmw + girigirilove + aiyifan：添加集数后不发 close-menu、add_danmaku_source 记参、同源换选驱逐旧集源 + exclusive 标记替换、update-menu 原地刷新、ezdmw 多季第二季复合集数键换选（第2季13集）） | `mpv.com --idle=once --no-config --script=tests/menu_multiselect_site_test.lua` |
 | `tests/danmaku_cache_test.lua` | 缓存读写/TTL/断网兜底/容量淘汰（B站路径的缓存读写由本测试覆盖） | `mpv.com --idle=once --no-config --script=tests/danmaku_cache_test.lua` |
-| `tests/danmaku_cache_fetch_test.lua` | 弹弹play 拉取链路缓存命中不发网络（B站下载函数为模块内局部，由单测+手动场景覆盖） | `mpv.com --idle=once --no-config --script=tests/danmaku_cache_fetch_test.lua` |
+| `tests/danmaku_cache_fetch_test.lua` | 弹弹play 拉取链路缓存命中不发网络（B站下载函数为模块内局部，由单测+手动场景覆盖）；台账口径（命中/stale 标 e.cache、count==0 记 empty、断网无兜底记 failed 含网络失败原因） | `mpv.com --idle=once --no-config --script=tests/danmaku_cache_fetch_test.lua` |
 | `tests/extcomment_cache_test.lua` | extcomment 直连源拉取链路缓存（命中零网络 / 未命中写缓存 / 损坏条目回网络重写 / 空结果走兜底不缓存 / 断网回退过期缓存 / 键稳定性） | `mpv.com --idle=once --no-config --script=tests/extcomment_cache_test.lua` |
-| `tests/sites_cache_test.lua` | animeko / 埋堆堆 / 巴哈姆特 / AcFun / ezdmw / girigirilove / 爱壹帆 站点直连加载器缓存（命中零网络 / 未命中写缓存 / 断网回退过期缓存 / 合法空不缓存 / 巴哈主端口失败降级端口同写缓存 / AcFun 两级缓存与分页游标聚合 / ezdmw 播放页 nk+sign→getData 链路、主域失败降级备用域、播放页无弹幕播放器（第三方解析源）按确定性无弹幕处理（no_data 判定跳过兜底） / girigirilove 播放页 player_aaaa→getScrolling 链路、备用域同键命中与接口错误/合法空两口径 / 爱壹帆 home/config 密钥引导→签名 GetBarrages 链路与签名头校验、老链接缺 videoId 补齐、接口错误强刷密钥重试一次、断网不重试、预取伴生函数同键） | `mpv.com --idle=once --no-config --script=tests/sites_cache_test.lua` |
+| `tests/sites_cache_test.lua` | animeko / 埋堆堆 / 巴哈姆特 / AcFun / ezdmw / girigirilove / 爱壹帆 站点直连加载器缓存（命中零网络 / 未命中写缓存 / 断网回退过期缓存 / 合法空不缓存 / 巴哈主端口失败降级端口同写缓存 / AcFun 两级缓存与分页游标聚合 / ezdmw 播放页 nk+sign→getData 链路、主域失败降级备用域、播放页无弹幕播放器（第三方解析源）按确定性无弹幕处理（no_data 判定跳过兜底） / girigirilove 播放页 player_aaaa→getScrolling 链路、备用域同键命中与接口错误/合法空两口径 / 爱壹帆 home/config 密钥引导→签名 GetBarrages 链路与签名头校验、老链接缺 videoId 补齐、接口错误强刷密钥重试一次、断网不重试、预取伴生函数同键）+ 失败原因第三参透传（ezd 无播放器 no_data 带原因 / ggl 接口错误 / ako 断网）与缓存命中 e.cache 台账标注 | `mpv.com --idle=once --no-config --script=tests/sites_cache_test.lua` |
 | `tests/acfun_parse_test.lua` | AcFun 搜索页 BigPipe / 视频页 pageInfo / 合集页分P排序 / 弹幕分页解析与缓存载荷 roundtrip（实抓 fixtures） | `mpv.com --idle=once --no-config --script=tests/acfun_parse_test.lua` |
 | `tests/ezdmw_parse_test.lua` | ezdmw 搜索页 some_drama 区（不闭合注释标题）/ 详情页主线线路集数升序 / 详情页多季「季-集」span 与复合集数键 / 播放页 nk+sign 提取（评论区 iframe 不误取、第三方解析源无弹幕播放器实抓）/ 弹幕 B站 XML 解析与实体反转义（实抓 fixtures） | `mpv.com --idle=once --no-config --script=tests/ezdmw_parse_test.lua` |
 | `tests/ggl_parse_test.lua` | girigirilove 搜索 suggest JSON（同 id 去重）/ 详情页多线路集数（tab 锚定页头导航不混入）/ 播放页 player_aaaa 三档 encrypt 解码与不安全地址拒绝 / 弹幕 JSON mode 映射（2顶→5/3底→4）、8 位色剥 alpha 与畸形条目跳过（实抓 fixtures） | `mpv.com --idle=once --no-config --script=tests/ggl_parse_test.lua` |
 | `tests/aiyifan_parse_test.lua` | 爱壹帆 App 签名（固定向量）与 query 构造（GET 按序/POST 回退 _t）/ 密钥引导 pConfig 解析 / 搜索媒体类型标注 / 选集 uniqueID≠episodeId 分叉与剧场版 videoType=0 / 详情补齐 / 弹幕 position 0滚动/1顶/2底映射与畸形条目跳过（实抓 fixtures） | `mpv.com --idle=once --no-config --script=tests/aiyifan_parse_test.lua` |
-| `tests/fallback_multi_test.lua` | fallback_server 多服务器顺序尝试（失败续试 / 成功即止 / 全失败上报一次 / 空配置静默 / 单服务器与 xml 分支不变 / ezdmw no_data 判定跳过兜底轮而网络失败仍走兜底） | `mpv.com --idle=once --no-config --script=tests/fallback_multi_test.lua` |
+| `tests/fallback_multi_test.lua` | fallback_server 多服务器顺序尝试（失败续试 / 成功即止 / 全失败上报一次 / 空配置零请求并上报直连失败 / 单服务器与 xml 分支不变 / ezdmw no_data 判定跳过兜底轮改记 empty 而网络失败仍走兜底 / 直连失败原因软记录与终态拼接 / 兜底链网络错误续试下一台——旧实现静默中断的回归锚点） | `mpv.com --idle=once --no-config --script=tests/fallback_multi_test.lua` |
 | `tests/prefetch_plan_test.lua` | 下一集预取任务规划纯函数（锚点推算镜像 dandanplay_flow：慢源独立锚 / 锚==下一集 / 无锚回退 / 重播 / 集数剪裁 / 站点缓存源 ako/mdd 任务 / B站合集推算与回退 / 防御输入） | `mpv.com --idle=once --no-config --script=tests/prefetch_plan_test.lua` |
 | `tests/prefetch_flow_test.lua` | 下一集预取集成（触发门槛：auto_load/缓存/无下一项/异文件夹/无记忆；全链路五类任务入缓存且键与正式加载一致；TTL 命中零网络；armed 每文件一次；B站记忆 off 剪裁；断网静默） | `mpv.com --idle=once --no-config --script=tests/prefetch_flow_test.lua` |
 | `tests/tencent_parse_test.lua` | 腾讯搜索/剧集/弹幕条目解析（MainNeed 优先、预告过滤、content_style 字符串化 JSON 与渐变首色） | `mpv.com --idle=once --no-config --script=tests/tencent_parse_test.lua` |
@@ -685,7 +687,8 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 | `tests/search_hub_flow_test.lua` | 聚合搜索编排流（stub 各源 fetch，验证聚合 / 超时 / 取消 / @备注过滤） | `mpv.com --idle=once --no-config --script=tests/search_hub_flow_test.lua` |
 | `tests/ddp_search_fallback_test.lua` | 弹弹play 搜索 v2 端点探测/回退流（stub parallel_requests：探测轮→不支持即时回退轮/会话级能力记忆不支持只探一次·支持恒走 v2/网络失败不回退不下结论/混合能力两轮并行分拣/跨服务器跨端点 bangumiId 去重/has_more 透传与截断行/取消传导迟到丢弃/进度分母随回退扩大/全错口径/零服务器守卫） | `mpv.com --idle=once --no-config --script=tests/ddp_search_fallback_test.lua` |
 | `tests/history_merge_test.lua` | 文件夹记忆多源合并（旧 extra 迁移、同 kind 替换、dandanplay/直连源互不挤占、残留防护） | `mpv.com --idle=once --no-config --script=tests/history_merge_test.lua` |
-| `tests/source_status_test.lua` | 多源加载状态聚合器（会话生命周期、逐源汇总格式化，44 用例） | `mpv.com --idle=once --no-config --script=tests/source_status_test.lua` |
+| `tests/source_status_test.lua` | 多源加载状态聚合器（会话生命周期、逐源汇总格式化；静默会话自动建会话/单行 OSD 口径保留且入库、合并分支（台账∪未入会话源去重排序）、empty 终态与 settle 翻转、note_error 软记录、note_cache、remove、snapshot 隔离、set_on_change 容错） | `mpv.com --idle=once --no-config --script=tests/source_status_test.lua` |
+| `tests/source_stats_menu_test.lua` | 弹幕源统计菜单（build 纯函数：台账∪源表合并、计数、排序稳定性（状态迁移不重排）、字形/hint、详情子行（URL/延迟/校正/错误全文）、管线两态、空态；打开/原地刷新链路与未开零消息、无 uosc 回退） | `mpv.com --idle=once --no-config --script=tests/source_stats_menu_test.lua` |
 | `tests/timeline_align_test.lua` | 跨源时间轴对齐（投票/四重门槛含支持跨度/归一化/基准选择/双重校正防护/skip 固定/片尾附加内容防护 + 管线集成、手动微调 pin 流程与 XML 导出） | `mpv.com --idle=once --no-config --script=tests/timeline_align_test.lua` |
 | `tests/timeline_align_real_test.lua` | 真实多源场景（弹弹play+巴哈+animeko 同集实抓 fixtures：门槛实抓校准、模拟片头差异校正、双源共享文本收敛；bilibili 官方番剧片头差异 E09 实抓：-5s 漂移检出与 +5s 收敛） | `mpv.com --idle=once --no-config --script=tests/timeline_align_real_test.lua` |
 | `tests/density_timeline_test.lua` | 高能时间轴（分桶/双指标/自适应放宽/峰值检测与回贴、ASS 渲染确定性与淡出、uosc 时间轴同步复刻纯函数、回退/在场两种 UI 冒烟、实抓 fixture 行为固定） | `mpv.com --idle=once --no-config --script=tests/density_timeline_test.lua` |

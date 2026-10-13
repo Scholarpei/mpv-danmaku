@@ -219,7 +219,7 @@ local function process_iqiyi_with_tvid(tvid, url, callback)
     get_video_info(tvid, function(videoInfo)
         if not videoInfo then
             show_message('获取爱奇艺视频信息失败', 3)
-            callback(false)
+            callback(false, nil, '获取爱奇艺视频信息失败')
             return
         end
 
@@ -263,7 +263,7 @@ local function process_iqiyi_with_tvid(tvid, url, callback)
         local function final_cb()
             local ok = #output_table > 0
             save_output_and_load(output_table, url)
-            callback(ok)
+            callback(ok, nil, '弹幕段请求失败或弹幕为空')
         end
 
         parallel_requests(servers, build_args_fn, per_response_cb, final_cb, {concurrency = 6, per_request_timeout = 15})
@@ -276,14 +276,14 @@ function load_danmaku_for_iqiyi(path, callback)
     local url = path or mp.get_property('stream-open-filename', '')
     if not url or url == '' then
         msg.error('无有效 URL')
-        callback(false)
+        callback(false, nil, '无有效 URL')
         return
     end
 
     get_tvid_from_url(url, function(tvid)
         if not tvid then
             show_message('获取爱奇艺 tvid 失败', 3)
-            callback(false)
+            callback(false, nil, '获取爱奇艺 tvid 失败')
             return
         end
         process_iqiyi_with_tvid(tvid, url, callback)

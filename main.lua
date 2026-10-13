@@ -210,6 +210,9 @@ function show_loaded(init)
         msg.info("弹幕加载成功" .. cache_tag .. "，共计" .. #COMMENTS .. "条弹幕")
     end
     mp.set_property_native(DANMAKU_COUNT, #COMMENTS)
+    -- 弹幕源统计菜单开着时原地刷新（到货经上面 format_lines 的 settle 收敛后重建行；
+    -- refresh_source_stats_menu 为 menu.lua 定义的全局，nil 守卫兼容部分模块单测环境）
+    if refresh_source_stats_menu then refresh_source_stats_menu() end
 end
 
 -- 获取指定时间的延迟
@@ -417,6 +420,8 @@ local function clear_source()
     for url, source in pairs(DANMAKU.sources) do
         if source.from == "user_custom" then
             DANMAKU.sources[url] = nil
+            -- 统计台账同步移除（已重置的源不再出现在弹幕源统计）
+            source_status.remove(url)
         end
     end
 
@@ -737,13 +742,26 @@ function load_danmaku(from_menu, no_osd, arrival)
 end
 
 function load_danmaku_for_url(path)
+    -- URL 直播路径登记统计台账（不经 add_danmaku_source，无 ensure 则失败不留痕）；
+    -- 回调记录终态，成功路径由落源 + settle 自动完成检测接管
+    local function record(ok, no_data, reason)
+        if ok then return end
+        local label = provider_label_from_url(path)
+        if no_data then
+            source_status.mark_empty(path, reason or "该集无弹幕", label)
+        else
+            source_status.mark_failed(path, reason or "加载失败", label)
+        end
+    end
+    source_status.ensure(path, provider_label_from_url(path))
+
     if path:find('bilibili.com') or path:find('bilivideo.c[nom]+') then
-        load_danmaku_for_bilibili(path)
+        load_danmaku_for_bilibili(path, record)
         return
     end
 
     if path:find('bahamut.akamaized.net') then
-        load_danmaku_for_bahamut(path)
+        load_danmaku_for_bahamut(path, record)
         return
     end
 
@@ -1054,4 +1072,5 @@ mp.register_script_message("open_source_delay_menu", open_delay_menu)
 mp.register_script_message("open_search_danmaku_menu", open_input_menu)
 mp.register_script_message("open_add_source_menu", open_add_menu)
 mp.register_script_message("open_add_total_menu", open_add_total_menu)
+mp.register_script_message("open_source_stats_menu", open_source_stats_menu)
 mp.register_script_message("show_danmaku_count", show_loaded)

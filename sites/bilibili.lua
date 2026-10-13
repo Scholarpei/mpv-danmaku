@@ -200,7 +200,7 @@ local function download_bilibili_danmaku(path, cid, from_menu, callback)
     local hit = dcache.get(key)
     local hit_list = hit and parse_payload(hit.payload) or nil
     if hit_list and #hit_list > 0 then
-        DANMAKU.cache_hit = "cache"
+        source_status.note_cache(path, "cache")
         msg.verbose("弹幕缓存命中：" .. key)
         save_danmaku_list(path, hit_list)
         load_danmaku(from_menu == nil and true or from_menu, nil, true)
@@ -213,7 +213,7 @@ local function download_bilibili_danmaku(path, cid, from_menu, callback)
         local stale = dcache.get_stale(key)
         local stale_list = stale and parse_payload(stale.payload) or nil
         if stale_list and #stale_list > 0 then
-            DANMAKU.cache_hit = "stale"
+            source_status.note_cache(path, "stale")
             show_message("网络失败，已使用过期弹幕缓存", 3)
             save_danmaku_list(path, stale_list)
             load_danmaku(from_menu == nil and true or from_menu, nil, true)
@@ -230,14 +230,14 @@ local function download_bilibili_danmaku(path, cid, from_menu, callback)
             if not try_stale() then
                 show_message("HTTP request failed, see console for details", 5)
                 msg.error(error)
-                callback(false)
+                callback(false, nil, '弹幕下载失败：' .. tostring(error))
             end
             return
         end
         if not out or out == '' then
             -- 服务器 200 但空响应也兜底
             if not try_stale() then
-                callback(false)
+                callback(false, nil, '服务器返回空响应')
             end
             return
         end
@@ -311,7 +311,7 @@ function load_danmaku_for_bilibili(path, callback)
             else
                 show_message("获取哔哩哔哩视频cid失败", 3)
                 msg.error("获取哔哩哔哩视频cid失败")
-                callback(false)
+                callback(false, nil, '获取哔哩哔哩视频cid失败')
             end
         end)
         return

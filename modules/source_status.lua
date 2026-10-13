@@ -4,19 +4,31 @@
 --
 -- 会话生命周期：file-loaded reset → dandanplay_flow begin（登记 extras 各源 + 等待行）
 -- → 各源到货（render_danmaku→show_loaded→format_lines 的自动完成检测）或失败（mark_failed）
--- → 全部终态后汇总多停留数秒。无会话时 format_lines 退化为遍历已加载源（单源一行），
--- 覆盖手动搜索/URL播放/本地xml/重放等无预登记路径，格式与有会话完全一致。
+-- → 全部终态后汇总多停留数秒。
+--
+-- 会话两型：live（begin 建立，驱动 OSD 动态汇总）与静默（ensure/mark_* 在无会话时自动
+-- 创建，live=false，不驱动 OSD 汇总——手动搜索/粘贴 URL 等路径也开始留痕，供「弹幕源
+-- 统计」菜单 snapshot 读取；mark_failed/mark_empty 在非 live 会话下保留无会话时代的
+-- 单行 OSD 提示口径）。静默会话下 format_lines 走合并分支：会话条目 ∪ 未入会话的
+-- 已加载源（key 去重、按显示名排序），失败/等待条目与已加载源同屏。
+--
+-- 状态四态：pending 等待中 / done 成功（count=条数）/ empty 合法无数据 / failed 失败
+-- （error=原因）。empty 与 failed 同为终态，但数据到货（settle 自动完成检测）或
+-- mark_done 可翻转为 done（站点报空后兜底/重载给出数据的收敛）；done 不可逆。
 --
 -- 竞态说明：标题捕获在各 loader 同步段完成（meta 显式传参），本模块不读 DANMAKU.anime
 -- 全局；换集后旧回调的 mark_failed 可能短暂误标新会话同 kind 条目，但成功路径会经
--- ensure 换键 + 自动完成检测收敛到真实状态，故不做逐回调 epoch 校验。
+-- ensure 换键 + 自动完成检测收敛到真实状态，故不做逐回调 epoch 校验。live 会话下
+-- mark_*/note_error 遇未知 key 不新建条目（防 ensure 换键后旧回调 mark 出幽灵行）；
+-- 静默会话才允许新建（无 begin 预登记，mark 即首次留痕，provider 取 label）。
 --
 -- show_message 与 DANMAKU 为全局（单测时 stub），模块自身无 mp.* 依赖。
 
 local M = {}
 
-local session = nil  -- { entries = { {key, provider, anime, episode, status, count, error} } }
+local session = nil  -- { live = bool, epoch = n, entries = { {key, provider, anime, episode, status, count, error, cache} } }
 local epoch_counter = 0
+local on_change_fn = nil
 
 local KIND_LABELS = {
     qq = "腾讯视频",
@@ -50,11 +62,25 @@ local function find_entry(key)
     return nil
 end
 
+-- 无会话时自动创建静默会话（不驱动 OSD；手动路径留痕 + 统计菜单读取）
+local function ensure_session()
+    if session == nil then
+        epoch_counter = epoch_counter + 1
+        session = { live = false, epoch = epoch_counter, entries = {} }
+    end
+    return session
+end
+
+-- 状态变异通知（menu.lua 注入统计菜单刷新回调；pcall 容错，回调异常不影响台账本身）
+local function notify()
+    if on_change_fn then pcall(on_change_fn) end
+end
+
 -- 建立新会话（换集续载开始时调用，替换旧会话）：
 -- entries = { {key=..., provider=..., anime=..., episode=...}, ... }，均登记为等待中
 function M.begin(entries)
     epoch_counter = epoch_counter + 1
-    session = { epoch = epoch_counter, entries = {} }
+    session = { live = true, epoch = epoch_counter, entries = {} }
     for _, item in ipairs(entries or {}) do
         session.entries[#session.entries + 1] = {
             key = item.key,
@@ -64,14 +90,15 @@ function M.begin(entries)
             status = "pending",
         }
     end
+    notify()
     M.refresh()
 end
 
--- 登记源（loader 开始加载时调用；无会话时为 no-op，该源走无会话回退显示）。
+-- 登记源（loader 开始加载时调用；无会话时自动创建静默会话留痕）。
 -- meta: { anime=, episode=, kind= }——kind 用于把 begin 预登记的 "extra:"..kind 占位条目
 -- 换键为真实 URL，此后自动完成检测（查 DANMAKU.sources[url].data）即可接管该条目
 function M.ensure(key, provider, meta)
-    if not session then return end
+    ensure_session()
     meta = meta or {}
     local e = find_entry(key)
     if e == nil and meta.kind then
@@ -81,6 +108,7 @@ function M.ensure(key, provider, meta)
     if e == nil then
         e = { key = key, status = "pending" }
         session.entries[#session.entries + 1] = e
+        notify()
     end
     if e.status == "pending" then
         if provider ~= nil then e.provider = provider end
@@ -106,26 +134,96 @@ function M.mark_done(key, meta)
         if type(s) == "table" and type(s.data) == "table" then count = #s.data end
     end
     e.count = count
+    notify()
+    M.refresh()
+end
+
+-- 失败/无数据终态共用落条目逻辑：
+-- 非 live（含无会话）保留单行 OSD 口径（live 会话由 refresh 出多行汇总）；
+-- live 会话遇未知 key 不新建（防换键后旧回调 mark 出幽灵行），静默会话允许新建
+-- （provider 取 label）——mark 即首次留痕
+local function terminal_mark(key, status, reason, label)
+    if session == nil or session.live ~= true then
+        show_message((status == "empty" and "○ " or "✗ ")
+            .. (label and (label .. "：") or "") .. reason, 3)
+    end
+    ensure_session()
+    local e = find_entry(key)
+    if e == nil then
+        if session.live then return end
+        session.entries[#session.entries + 1] = { key = key, provider = label, status = status, error = reason }
+        e = session.entries[#session.entries]
+    elseif e.status == "done" then
+        return
+    else
+        e.status = status
+        e.error = reason
+    end
+    notify()
     M.refresh()
 end
 
 -- 标记失败：reason 为简短原因（会话内由条目的 provider 标注源名）；
--- label 仅供无会话退化单行显示（如「腾讯弹幕续载失败」，与旧独立报错口径一致）
+-- label 仅供非 live 单行显示（如「腾讯弹幕续载失败」，与旧独立报错口径一致）
 function M.mark_failed(key, reason, label)
+    terminal_mark(key, "failed", tostring(reason or "加载失败"), label)
+end
+
+-- 标记合法无数据（终态；数据到货时 settle / mark_done 可转 done）。
+-- 各站 loader 自身的空提示与这里的单行 OSD 为同位覆盖，不构成双响干扰
+function M.mark_empty(key, reason, label)
+    terminal_mark(key, "empty", tostring(reason or "无数据"), label)
+end
+
+-- 软错误备注：status 保持 pending、error 记原因（兜底轮进行中的直连失败原因，
+-- 全兜底失败时 mark_failed 覆盖为终态）。live 会话遇未知 key 不新建（同 terminal_mark）
+function M.note_error(key, reason)
     reason = tostring(reason or "加载失败")
-    if not session then
-        show_message("✗ " .. (label and (label .. "：") or "") .. reason, 3)
-        return
-    end
+    ensure_session()
     local e = find_entry(key)
-    if e == nil or e.status == "done" then return end
-    e.status = "failed"
-    e.error = reason
-    M.refresh()
+    if e == nil then
+        if session.live then return end
+        session.entries[#session.entries + 1] = { key = key, status = "pending", error = reason }
+        e = session.entries[#session.entries]
+        notify()
+    elseif e.status ~= "done" and e.error ~= reason then
+        e.error = reason
+        notify()
+    end
+end
+
+-- per-source 缓存来源标注：e.cache = "cache"/"stale"，同时写全局标量 DANMAKU.cache_hit
+-- （保持 show_loaded 的（缓存）/（离线缓存）标注行为）。条目不存在时仅写标量
+-- （B站合集 bilibili#vid 临时键等场景，统计详情显示「网络获取」）
+function M.note_cache(url, kind)
+    if type(DANMAKU) == "table" then
+        DANMAKU.cache_hit = kind
+    end
+    if session == nil then return end
+    local e = find_entry(url)
+    if e ~= nil and e.cache ~= kind then
+        e.cache = kind
+        notify()
+    end
+end
+
+-- 源删除联动：从当前会话移除条目（统计菜单不再显示已删源）；不存在时 no-op
+function M.remove(key)
+    if session == nil then return end
+    for i, e in ipairs(session.entries) do
+        if e.key == key then
+            table.remove(session.entries, i)
+            notify()
+            return
+        end
+    end
 end
 
 function M.reset()
-    session = nil
+    if session ~= nil then
+        session = nil
+        notify()
+    end
 end
 
 -- 条目显示名：显式 provider → 运行时源条目 provider → URL 域名推断 → 兜底
@@ -143,12 +241,14 @@ local function entry_provider(e)
 end
 
 -- 单行格式：done「· provider《标题》第N话 N条」/ pending「· provider《标题》 等待中…」
--- / failed「✗ provider：原因」；无标题回退 URL 截断
+-- / failed「✗ provider：原因」/ empty「○ provider：原因」；无标题回退 URL 截断
 local function entry_line(e)
     local provider = entry_provider(e)
     local title = source_display_title({anime_title = e.anime, episode_title = e.episode}, e.key, 50)
     if e.status == "failed" then
         return "✗ " .. provider .. "：" .. e.error
+    elseif e.status == "empty" then
+        return "○ " .. provider .. "：" .. e.error
     elseif e.status == "pending" then
         return "· " .. provider .. title .. " 等待中…"
     end
@@ -164,12 +264,13 @@ local function entry_line(e)
     return line
 end
 
--- 自动完成检测：pending 条目在 DANMAKU.sources[key] 有数据即转 done（标题/条数就地取）
+-- 自动完成检测：pending/empty 条目在 DANMAKU.sources[key] 有数据即转 done
+-- （empty 可翻转：站点报空后兜底/重载实际给出数据时统计如实反映现状）
 local function settle()
     if not session then return end
     if type(DANMAKU) ~= "table" or type(DANMAKU.sources) ~= "table" then return end
     for _, e in ipairs(session.entries) do
-        if e.status == "pending" then
+        if e.status == "pending" or e.status == "empty" then
             local s = DANMAKU.sources[e.key]
             if type(s) == "table" and type(s.data) == "table" and #s.data > 0 then
                 e.status = "done"
@@ -197,69 +298,113 @@ local function cache_tag()
     return ""
 end
 
--- 汇总首行：有等待→加载中；有成功→已加载（带缓存标注）；全败→加载失败
-local function header_line(any_pending, any_done)
+-- 汇总首行：有等待→加载中；有成功→已加载（带缓存标注）；仅无数据→无数据；全败→加载失败
+local function header_line(any_pending, any_done, any_empty)
     if any_pending then
         return "弹幕加载中："
     elseif any_done then
         return "弹幕已加载" .. cache_tag() .. "："
+    elseif any_empty then
+        return "弹幕无数据" .. cache_tag() .. "："
     end
     return "弹幕加载失败" .. cache_tag() .. "："
 end
 
--- 汇总行数组（首行为标题头）：会话模式含等待/失败条目；无会话模式遍历已加载源。
+-- 汇总行数组（首行为标题头）：
+-- live 会话：会话条目逐行（含等待/失败/无数据）；
+-- 静默/无会话：合并分支——会话条目 ∪ 未入会话的已加载源（key 去重、按显示名排序），
+-- 手动路径下失败/等待条目与已加载源同屏（旧无会话分支只列已加载源）。
 -- 空表 = 无可显示内容（调用方回退到仅统计行）
 function M.format_lines()
     settle()
     local lines = {}
-    local any_pending, any_done = false, false
-    if session then
+    local any_pending, any_done, any_empty = false, false, false
+    local function account(e)
+        if e.status == "pending" then
+            any_pending = true
+        elseif e.status == "done" then
+            any_done = true
+        elseif e.status == "empty" then
+            any_empty = true
+        end
+    end
+    if session and session.live then
         for _, e in ipairs(session.entries) do
-            if e.status == "pending" then
-                any_pending = true
-            elseif e.status == "done" then
-                any_done = true
-            end
+            account(e)
             lines[#lines + 1] = entry_line(e)
         end
     else
+        local rows = {}
+        if session then
+            for _, e in ipairs(session.entries) do
+                rows[#rows + 1] = e
+            end
+        end
         if type(DANMAKU) == "table" and type(DANMAKU.sources) == "table" then
-            local loaded = {}
+            local in_session = {}
+            for _, e in ipairs(rows) do in_session[e.key] = true end
             for url, s in pairs(DANMAKU.sources) do
-                if type(s) == "table" and type(s.data) == "table" and #s.data > 0 then
-                    loaded[#loaded + 1] = {
+                if not in_session[url] and type(s) == "table" and type(s.data) == "table" and #s.data > 0 then
+                    rows[#rows + 1] = {
                         key = url,
                         provider = s.provider,
                         anime = s.anime_title,
                         episode = s.episode_title,
                         count = #s.data,
+                        status = "done",
                     }
                 end
             end
-            -- pairs 遍历序不稳定，按显示名排序保证确定性
-            table.sort(loaded, function(a, b)
-                return entry_provider(a) .. a.key < entry_provider(b) .. b.key
-            end)
-            for _, e in ipairs(loaded) do
-                e.status = "done"
-                any_done = true
-                lines[#lines + 1] = entry_line(e)
-            end
+        end
+        -- pairs 遍历序不稳定，按显示名排序保证确定性
+        table.sort(rows, function(a, b)
+            return entry_provider(a) .. a.key < entry_provider(b) .. b.key
+        end)
+        for _, e in ipairs(rows) do
+            account(e)
+            lines[#lines + 1] = entry_line(e)
         end
     end
     if #lines == 0 then return {} end
-    table.insert(lines, 1, header_line(any_pending, any_done))
+    table.insert(lines, 1, header_line(any_pending, any_done, any_empty))
     return lines
 end
 
 -- 刷新 OSD 汇总（同位置动态覆盖）：有等待时持续显示 30s（到货/失败刷新会顶替），
--- 全部终态后停留 6s。无会话时返回 false（调用方保留原有「弹幕加载中...」提示）
+-- 全部终态后停留 6s。live 会话以外返回 false（调用方保留原有「弹幕加载中...」提示）
 function M.refresh()
-    if not session then return false end
+    if not session or session.live ~= true then return false end
     local lines = M.format_lines()
     if #lines == 0 then return false end
     show_message(table.concat(lines, "\\N"), M.has_pending() and 30 or 6)
     return true
+end
+
+-- 条目快照（统计菜单/测试唯一读出口）：先 settle 再浅拷贝隔离内部状态
+-- （条目字段全为标量，浅拷贝即隔离），provider 就地解析为最终显示名
+function M.snapshot()
+    settle()
+    if session == nil then return { live = false, entries = {} } end
+    local entries = {}
+    for _, e in ipairs(session.entries) do
+        entries[#entries + 1] = {
+            key = e.key,
+            provider = entry_provider(e),
+            anime = e.anime,
+            episode = e.episode,
+            status = e.status,
+            count = e.count,
+            error = e.error,
+            cache = e.cache,
+        }
+    end
+    return { live = session.live, entries = entries }
+end
+
+-- 状态变异回调（menu.lua 注入统计菜单刷新；模块自身无 mp.* 依赖——回调为外部
+-- 注入的普通函数，异常经 pcall 吞掉不影响台账）
+function M.set_on_change(fn)
+    on_change_fn = fn
 end
 
 return M

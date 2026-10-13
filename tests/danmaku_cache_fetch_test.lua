@@ -1,7 +1,9 @@
 -- danmaku_cache 集成测试：fetch_danmaku 的缓存命中不发网络（自断言，输出 PASS/FAIL 行）
 -- 运行：mpv.com --idle=once --no-config --script=<本文件路径>
 -- 退出码非 0 或输出含 FAIL 即失败
--- 覆盖：TTL 命中零网络包 / 未命中走网络且写缓存 / 断网过期缓存兜底 / count==0 不缓存
+-- 覆盖：TTL 命中零网络包 / 未命中走网络且写缓存 / 断网过期缓存兜底 / count==0 不缓存 /
+--   台账口径：缓存命中标 e.cache / stale 兜底标 e.cache / count==0 记 empty 终态 /
+--   断网且无过期缓存记 failed（含网络失败原因）——弹幕源统计留痕
 
 local script_path = debug.getinfo(1, "S").source:sub(2)
 local script_dir = script_path:match("^(.*)[/\\]") or "."
@@ -53,6 +55,7 @@ require("modules/parse")
 require("apis/dandanplay")
 
 local dc = require("modules/danmaku_cache")
+local ss = require("modules/source_status")
 local fake_now = os.time()
 local TTL = 3600
 dc.setup({
@@ -62,6 +65,14 @@ dc.setup({
     run_sync = function(cmd) return mp.command_native(cmd) end,
     log = function() end,
 })
+
+-- 台账快照按 key 取条目（fetch_danmaku 每集 ensure 独立 comment URL 键）
+local function snap_entry(key)
+    for _, e in ipairs(ss.snapshot().entries) do
+        if e.key == key then return e end
+    end
+    return nil
+end
 
 local function comment_url(episodeId)
     return "https://api.example.com/api/v2/comment/" .. episodeId
@@ -88,6 +99,9 @@ check("命中数据入 sources", src1 ~= nil and #src1.data == 2)
 check("命中数据字段正确", src1 and src1.data[1].text == "hi"
     and src1.data[1].time == 1 and src1.data[1].color == 16777215
     and src1.data[2].type == 4)
+local e_hit = snap_entry(comment_url(1001))
+check("命中台账 done+cache", e_hit ~= nil and e_hit.status == "done"
+    and e_hit.cache == "cache" and e_hit.count == 2)
 
 -- ---------- 用例 2：未命中 → 走网络一次，成功且非空写缓存 ----------
 local steps = {}
@@ -126,9 +140,12 @@ steps[4] = function()
     check("断网时仍发包一次（尝试失败）", stub.net_calls == 1)
     check("stale 标记", DANMAKU.cache_hit == "stale")
     check("stale 数据入 sources 并加载", src ~= nil and #src.data == 2 and stub.loads == 3)
+    local e_stale = snap_entry(comment_url(1003))
+    check("stale 台账 done+stale", e_stale ~= nil and e_stale.status == "done"
+        and e_stale.cache == "stale")
 end
 
--- ---------- 用例 4：count==0 → 不写缓存 ----------
+-- ---------- 用例 4：count==0 → 不写缓存、台账记 empty ----------
 steps[5] = function()
     stub.net_calls, stub.fail = 0, false
     stub.response = '{"count":0,"comments":[]}'
@@ -137,6 +154,25 @@ end
 
 steps[6] = function()
     check("count==0 不写缓存", dc.get("ep:1004") == nil and dc.get_stale("ep:1004") == nil)
+    local e_empty = snap_entry(comment_url(1004))
+    check("count==0 台账记 empty", e_empty ~= nil and e_empty.status == "empty"
+        and e_empty.error == "该集弹幕内容为空",
+        e_empty and (e_empty.status .. "/" .. tostring(e_empty.error)))
+end
+
+-- ---------- 用例 5：断网且无过期缓存 → 台账记 failed（含网络失败原因） ----------
+steps[7] = function()
+    stub.net_calls, stub.fail = 0, true
+    fetch_danmaku(1005, false, "https://api.example.com")
+end
+
+steps[8] = function()
+    local e_fail = snap_entry(comment_url(1005))
+    check("断网无兜底台账 failed", e_fail ~= nil and e_fail.status == "failed",
+        e_fail and e_fail.status)
+    check("失败原因含网络失败", e_fail ~= nil and e_fail.error ~= nil
+        and e_fail.error:find("网络失败", 1, true) ~= nil,
+        e_fail and e_fail.error)
 end
 
 local function rmdir(path)

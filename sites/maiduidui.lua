@@ -90,7 +90,7 @@ function load_danmaku_for_maiduidui(path, callback)
     local vod_uuid, ep_uuid = extract_uuids(url)
     if not vod_uuid or not ep_uuid then
         msg.error('无法从 URL 解析埋堆堆 vodUuid/分集uuid: ' .. tostring(url))
-        callback(false)
+        callback(false, nil, '无法从 URL 解析埋堆堆 vodUuid/分集uuid')
         return
     end
 
@@ -101,7 +101,7 @@ function load_danmaku_for_maiduidui(path, callback)
     if hit then
         local comments = parse_payload(hit.payload)
         if #comments > 0 then
-            DANMAKU.cache_hit = "cache"
+            source_status.note_cache(url, "cache")
             msg.verbose("弹幕缓存命中：" .. key)
             save_danmaku_json(url, utils.format_json(build_output(comments)))
             load_danmaku(true, nil, true)
@@ -117,13 +117,13 @@ function load_danmaku_for_maiduidui(path, callback)
             local stale = dcache.get_stale(key)
             local comments = stale and parse_payload(stale.payload) or {}
             if #comments > 0 then
-                DANMAKU.cache_hit = "stale"
+                source_status.note_cache(url, "stale")
                 show_message("网络失败，已使用过期弹幕缓存", 3)
                 save_danmaku_json(url, utils.format_json(build_output(comments)))
                 load_danmaku(true, nil, true)
                 callback(true)
             else
-                callback(false)
+                callback(false, nil, '网络失败且无过期缓存')
             end
             return
         end
@@ -131,7 +131,7 @@ function load_danmaku_for_maiduidui(path, callback)
         if #comments == 0 then
             -- 该集确实无弹幕（合法空结果）不缓存
             show_message('好像没有弹幕哦', 3)
-            callback(false)
+            callback(false, nil, '该集无弹幕')
             return
         end
         -- 3) 成功且非空写缓存后走原路径

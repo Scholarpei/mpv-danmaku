@@ -32,6 +32,8 @@ function set_episode_id(input, from_menu, api_server, meta)
         if source.from == "api_server" then
             if not source.from_history then
                 DANMAKU.sources[url] = nil
+                -- 统计台账同步移除（该源已彻底驱逐；from_history 分支保留条目，settle 可接管）
+                source_status.remove(url)
             else
                 DANMAKU.sources[url]["data"] = nil
             end
@@ -59,7 +61,8 @@ end
 
 -- 回退使用额外的弹幕获取方式
 function get_danmaku_fallback(query)
-    local function do_fallback()
+    -- direct_reason：站点直连失败原因（无直连分支命中时为 nil），拼进终态上报
+    local function do_fallback(direct_reason)
         -- 逗号分隔多服务器顺序尝试（与 api_server 多值惯例一致），任一成功即止；
         -- 全部失败才上报失败状态
         local servers = {}
@@ -67,12 +70,19 @@ function get_danmaku_fallback(query)
             s = s:gsub("^%s+", ""):gsub("%s+$", "")
             if s ~= "" then servers[#servers + 1] = s end
         end
-        if #servers == 0 then return end
+        if #servers == 0 then
+            source_status.mark_failed(query,
+                direct_reason and ("直连失败（" .. direct_reason .. "）且未配置备用服务器")
+                or "直连失败且未配置备用服务器", "备用服务器")
+            return
+        end
 
         local function attempt(i)
             local server = servers[i]
             if not server then
-                source_status.mark_failed(query, "无数据或返回格式不正确", "备用服务器")
+                source_status.mark_failed(query,
+                    direct_reason and ("直连失败（" .. direct_reason .. "），备用服务器无数据或返回格式不正确")
+                    or "无数据或返回格式不正确", "备用服务器")
                 return
             end
             local url = server .. "/?ac=dm&url=" .. query
@@ -106,95 +116,90 @@ function get_danmaku_fallback(query)
                     DANMAKU.sources[query].provider = "兜底服务器"
                 end
                 load_danmaku(true, nil, true)
+            end, function(err)
+                -- 网络层失败：续试下一台（旧实现不传 on_error，fetch_danmaku_data 的
+                -- error 分支不回调——兜底链在此静默中断，既不试下一台也不上报失败）
+                msg.warn("备用服务器请求失败：" .. server .. "：" .. tostring(err))
+                attempt(i + 1)
             end)
         end
 
         attempt(1)
     end
 
+    -- 站点直连结果汇入：成功即止；合法无数据（no_data）记 empty 终态不走兜底
+    -- （dmku 兜底只按主流站点 URL 索引、不会有该站数据，且站点侧已确认无弹幕）；
+    -- 失败先软记录直连原因（note_error，保持等待态供兜底轮翻转；reason 缺失不记
+    -- 垃圾备注）再进兜底
+    local function dispatch_result(ok, no_data, reason)
+        if ok then return end
+        if no_data then
+            source_status.mark_empty(query, reason or "该集无弹幕", "直连站点")
+            return
+        end
+        if reason then source_status.note_error(query, reason) end
+        do_fallback(reason)
+    end
+
+    -- 各站直连 loader 回调统一三参 callback(ok, no_data, reason)，经 dispatch_result
+    -- 汇入台账（no_data=合法空、reason=具体失败原因，由各 loader 失败点透传）
     if query:find('bilibili.com') or query:find('bilivideo.c[nom]+') then
-        load_danmaku_for_bilibili(query, function(success)
-            if not success then do_fallback() end
-        end)
+        load_danmaku_for_bilibili(query, dispatch_result)
         return
     end
 
     if query:find('bahamut.akamaized.net') or query:find('ani.gamer.com.tw') then
-        load_danmaku_for_bahamut(query, function(success)
-            if not success then do_fallback() end
-        end)
+        load_danmaku_for_bahamut(query, dispatch_result)
         return
     end
 
     if query:find('animeko.org') then
-        load_danmaku_for_animeko(query, function(success)
-            if not success then do_fallback() end
-        end)
+        load_danmaku_for_animeko(query, dispatch_result)
         return
     end
 
     if query:find('mddcloud.com.cn') then
-        load_danmaku_for_maiduidui(query, function(success)
-            if not success then do_fallback() end
-        end)
+        load_danmaku_for_maiduidui(query, dispatch_result)
         return
     end
 
     if query:find('acfun.cn') then
-        load_danmaku_for_acfun(query, function(success)
-            if not success then do_fallback() end
-        end)
+        load_danmaku_for_acfun(query, dispatch_result)
         return
     end
 
     if query:find('ezdmw.org') or query:find('ezdmw.com') then
-        load_danmaku_for_ezdmw(query, function(success, no_data)
-            -- no_data：E站侧已确定无弹幕（播放页无弹幕播放器/合法空）。dmku 兜底只按
-            -- 主流站点 URL 索引、永远不会有 ezdmw.org 数据，跳过兜底轮免误导性「获取数据失败」
-            if not success and not no_data then do_fallback() end
-        end)
+        load_danmaku_for_ezdmw(query, dispatch_result)
         return
     end
 
     if query:find('girigirilove.com') or query:find('girigirilove.icu') then
-        load_danmaku_for_ggl(query, function(success)
-            if not success then do_fallback() end
-        end)
+        load_danmaku_for_ggl(query, dispatch_result)
         return
     end
 
     if query:find('yfsp.tv') then
-        load_danmaku_for_aiyifan(query, function(success)
-            if not success then do_fallback() end
-        end)
+        load_danmaku_for_aiyifan(query, dispatch_result)
         return
     end
 
     if query:find('mgtv.com') then
-        load_danmaku_for_mgtv(query, function(success)
-            if not success then do_fallback() end
-        end)
+        load_danmaku_for_mgtv(query, dispatch_result)
         return
     end
 
     if query:find('iqiyi.com') then
-        load_danmaku_for_iqiyi(query, function(success)
-            if not success then do_fallback() end
-        end)
+        load_danmaku_for_iqiyi(query, dispatch_result)
         return
     end
 
     if query:find('v.qq.com') then
-        load_danmaku_for_tencent(query, function(success)
-            if not success then do_fallback() end
-        end)
+        load_danmaku_for_tencent(query, dispatch_result)
         return
     end
 
     if query:find('v.youku.com') then
-        load_danmaku_for_youku(query, function(success)
-            if not success then do_fallback() end
-        end)
+        load_danmaku_for_youku(query, dispatch_result)
         return
     end
 
@@ -515,7 +520,7 @@ function fetch_danmaku_data(args, callback, on_error)
         if error then
             show_message("获取数据失败", 3)
             msg.error("HTTP 请求失败：" .. error)
-            if on_error then on_error() end
+            if on_error then on_error(error) end
             return
         end
         local data = utils.parse_json(json)
@@ -586,7 +591,7 @@ function handle_fetched_danmaku(data, url, from_menu, meta)
             if DANMAKU.sources[url] == nil then
                 DANMAKU.sources[url] = {from = "api_server"}
             end
-            source_status.mark_failed(url, "该集弹幕内容为空", "弹幕服务器")
+            source_status.mark_empty(url, "该集弹幕内容为空", "弹幕服务器")
             msg.info("该集弹幕内容为空，结束加载")
             if not from_menu then
                 mp.commandv("script-message", "auto_load_fallback")
@@ -635,7 +640,7 @@ function fetch_danmaku(episodeId, from_menu, api_server, meta)
     if hit then
         local data = utils.parse_json(hit.payload)
         if data and type(data.comments) == "table" and #data.comments > 0 then
-            DANMAKU.cache_hit = "cache"
+            source_status.note_cache(url, "cache")
             msg.verbose("弹幕缓存命中：" .. key)
             handle_fetched_danmaku(data, url, from_menu, meta)
             return
@@ -649,17 +654,19 @@ function fetch_danmaku(episodeId, from_menu, api_server, meta)
     end
     msg.verbose("尝试获取弹幕：" .. url)
 
-    -- 2) 网络失败 → 过期缓存兜底（断网可看）
-    local function on_error()
+    -- 2) 网络失败 → 过期缓存兜底（断网可看）；兜底也不可得时失败入库（统计台账留痕）
+    local function on_error(err)
         local stale = dcache.get_stale(key)
         if stale then
             local data = utils.parse_json(stale.payload)
             if data and type(data.comments) == "table" and #data.comments > 0 then
-                DANMAKU.cache_hit = "stale"
+                source_status.note_cache(url, "stale")
                 show_message("网络失败，已使用过期弹幕缓存", 3)
                 handle_fetched_danmaku(data, url, from_menu, meta)
+                return
             end
         end
+        source_status.mark_failed(url, "网络失败：" .. tostring(err), "弹幕服务器")
     end
 
     -- 3) 网络成功：非空结果写缓存后走原路径（count==0 不缓存；载荷为归一化后的 comments）
@@ -870,7 +877,7 @@ function add_danmaku_source_online(query, from_menu)
     if hit then
         local data = utils.parse_json(hit.payload)
         if data and type(data.comments) == "table" and #data.comments > 0 then
-            DANMAKU.cache_hit = "cache"
+            source_status.note_cache(query, "cache")
             msg.verbose("弹幕缓存命中：" .. key)
             save_danmaku_data(data.comments, query, "user_custom")
             load_danmaku(from_menu, nil, true)
@@ -903,7 +910,7 @@ function add_danmaku_source_online(query, from_menu)
                 if stale then
                     local sdata = utils.parse_json(stale.payload)
                     if sdata and type(sdata.comments) == "table" and #sdata.comments > 0 then
-                        DANMAKU.cache_hit = "stale"
+                        source_status.note_cache(query, "stale")
                         show_message("网络失败，已使用过期弹幕缓存", 3)
                         save_danmaku_data(sdata.comments, query, "user_custom")
                         load_danmaku(from_menu, nil, true)

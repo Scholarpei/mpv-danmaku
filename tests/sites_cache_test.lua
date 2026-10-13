@@ -59,6 +59,9 @@ DANMAKU = { sources = {}, count = 1 }
 -- 巴哈加载器的临时文件落点（main.lua 运行期同款全局）
 DANMAKU_PATH = TMP
 PID = 770001
+-- 统计台账真模块（main.lua 以全局注入；sites 加载器的 note_cache/失败原因透传消费，
+-- 模块自身无 mp.* 依赖，配合上面的 show_message/DANMAKU 桩即可工作）
+source_status = require("modules/source_status")
 
 -- 网络桩：按 URL 分发预置响应（animeko /v1/danmaku/、埋堆堆 vodBarrage396.action、
 -- 巴哈 ani.gamer.com.tw/ajax/danmuGet.php 与 api.gamer.com.tw/anime/v1/danmu.php）
@@ -1173,6 +1176,72 @@ steps[87] = function()
     check("ezd 预取无播放器失败且仅一跳",
         steps._ezd_pf_np == false and stub.net_calls == 1)
     stub.ezd_page = EZD_PAGE_HTML
+end
+
+-- ---------- 弹幕源统计留痕：失败原因第三参透传与 per-source 缓存标注 ----------
+-- 各站失败回调统一 callback(ok, no_data, reason)；缓存命中经 note_cache 写台账
+-- e.cache（统计菜单数据源；无 ensure 条目时仅写全局标量——既有行为）
+steps[88] = function()
+    dc_setup()
+    stub.fail = false
+    stub.net_calls = 0
+    -- ezd 无弹幕播放器：no_data 判定 + 具体原因
+    stub.ezd_page = EZD_NOPLAYER_HTML
+    dc.remove(EZD_KEY)
+    load_danmaku_for_ezdmw(EZD_URL, function(success, no_data, reason)
+        steps._st_ezd_ok, steps._st_ezd_nodata, steps._st_ezd_reason = success, no_data, reason
+    end)
+end
+
+steps[89] = function()
+    check("统计·ezd无播放器带具体原因", steps._st_ezd_ok == false
+        and steps._st_ezd_nodata == true
+        and steps._st_ezd_reason ~= nil
+        and steps._st_ezd_reason:find("无弹幕", 1, true) ~= nil,
+        steps._st_ezd_reason)
+    -- ggl 接口错误（code≠1）：网络失败口径原因
+    stub.ezd_page = EZD_PAGE_HTML
+    stub.ggl_page = GGL_PAGE_HTML
+    stub.ggl_data = GGL_ERR
+    dc.remove(GGL_KEY)
+    load_danmaku_for_ggl(GGL_URL, function(success, no_data, reason)
+        steps._st_ggl_ok, steps._st_ggl_reason = success, reason
+    end)
+end
+
+steps[90] = function()
+    check("统计·ggl接口错误带原因", steps._st_ggl_ok == false
+        and steps._st_ggl_reason ~= nil and steps._st_ggl_reason ~= "",
+        steps._st_ggl_reason)
+    -- animeko 断网且无过期缓存：网络失败原因
+    stub.fail = true
+    load_danmaku_for_animeko("https://api.animeko.org/episode/778899", function(success, no_data, reason)
+        steps._st_ako_ok, steps._st_ako_reason = success, reason
+    end)
+end
+
+steps[91] = function()
+    check("统计·ako断网带网络失败原因", steps._st_ako_ok == false
+        and steps._st_ako_reason ~= nil
+        and steps._st_ako_reason:find("网络失败", 1, true) ~= nil,
+        steps._st_ako_reason)
+    stub.fail = false
+    -- 缓存命中（先 ensure 建台账条目）：e.cache 标注
+    source_status.reset()
+    source_status.ensure(AKO_URL, "animeko")
+    dc.put(AKO_KEY, AKO_JSON, { type = "json", count = 2 })
+    load_danmaku_for_animeko(AKO_URL, function() end)
+end
+
+steps[92] = function()
+    local e = nil
+    for _, x in ipairs(source_status.snapshot().entries) do
+        if x.key == AKO_URL then e = x end
+    end
+    check("统计·命中标注e.cache=cache", e ~= nil and e.cache == "cache",
+        e and tostring(e.cache))
+    source_status.reset()
+    DANMAKU.cache_hit = nil
 end
 
 local function finish()

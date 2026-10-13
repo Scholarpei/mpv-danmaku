@@ -118,7 +118,8 @@ do -- mark_done：显式完成（B站合集临时键），count 按 url 查源�
     check("全终态header", lines[1] == "弹幕已加载：", lines[1])
 end
 
-do -- 无会话 mark_failed 退化单行（label 前缀与旧独立报错口径一致）
+do -- 无会话 mark_failed 退化单行（label 前缀与旧独立报错口径一致；
+   -- 静默会话机制下同时入库，详见下方静默会话用例块）
     source_status.reset()
     local n = #osd
     source_status.mark_failed("extra:qq", "无法获取剧集列表", "腾讯弹幕续载失败")
@@ -127,6 +128,7 @@ do -- 无会话 mark_failed 退化单行（label 前缀与旧独立报错口径�
 end
 
 do -- 无会话 format_lines：遍历已加载源、按显示名排序、确定性
+    source_status.reset()  -- 清掉上一块 mark_failed 建立的静默台账（只验无会话路径）
     local lines = source_status.format_lines()
     check("无会话列出已加载源",
         lines[1] == "弹幕已加载：" and lines[2] == "· bilibili《某番剧》P2 标题 3条"
@@ -160,6 +162,128 @@ do -- provider 回退链：条目无 provider 时按 URL 域名推断
     source_status.begin({ { key = "https://v.qq.com/x/cover/a/b.html", anime = "X" } })
     local lines = source_status.format_lines()
     check("URL域名推断provider", lines[2] == "· 腾讯视频《X》 等待中…", lines[2])
+    source_status.reset()
+end
+
+do -- 静默会话：reset 后 ensure 自动建会话（live=false），refresh 仍返回 false，
+   -- mark_failed 保留单行 OSD 口径且入库（手动路径留痕——统计菜单数据源）
+    DANMAKU.sources = {}
+    source_status.ensure("https://www.ezdmw.org/Index/video/999.html", "ezdmw",
+        { anime = "某番", episode = "第1话", kind = "ezd" })
+    local snap = source_status.snapshot()
+    check("ensure自动建静默会话", snap.live == false and #snap.entries == 1)
+    check("静默会话refresh仍false", source_status.refresh() == false)
+    check("静默会话has_pending真", source_status.has_pending() == true)
+    local n = #osd
+    source_status.mark_failed("https://www.ezdmw.org/Index/video/999.html",
+        "网络失败：curl exit 6", "ezdmw")
+    check("静默单行OSD口径不变", last_osd().text == "✗ ezdmw：网络失败：curl exit 6", last_osd().text)
+    check("静默只弹一条", #osd == n + 1)
+    snap = source_status.snapshot()
+    check("静默失败入库", snap.entries[1].status == "failed"
+        and snap.entries[1].error == "网络失败：curl exit 6")
+    check("静默快照provider解析", snap.entries[1].provider == "ezdmw")
+end
+
+do -- 合并分支：静默台账条目 ∪ 未入会话的已加载源（key 去重、显示名排序、成败同屏）
+    DANMAKU.sources = {
+        ["https://v.qq.com/x/cover/a/b.html"] = {
+            provider = "腾讯视频", anime_title = "扫黑风暴", episode_title = "第3集",
+            data = { 1, 2, 3 },
+        },
+    }
+    local lines = source_status.format_lines()
+    -- 排序键 provider..url：ezdmw…（e）排在 腾讯视频…（0xE8）前
+    check("合并header（有成功有失败）", lines[1] == "弹幕已加载：", lines[1])
+    check("合并行1台账失败条目", lines[2] == "✗ ezdmw：网络失败：curl exit 6", lines[2])
+    check("合并行2未入会话源", lines[3] == "· 腾讯视频《扫黑风暴》第3集 3条", lines[3])
+    -- key 去重：该源 ensure 入台账后不再重复成行
+    source_status.ensure("https://v.qq.com/x/cover/a/b.html", "腾讯视频",
+        { anime = "扫黑风暴", episode = "第3集" })
+    lines = source_status.format_lines()
+    check("合并key去重", #lines == 3, #lines)
+    source_status.reset()
+end
+
+do -- mark_empty：○ 行、全空 header、done 不可逆、数据到货经 settle 翻转
+    source_status.begin({ { key = "https://x/empty1", provider = "E站", anime = "某番" } })
+    source_status.mark_empty("https://x/empty1", "该集无弹幕资源")
+    local lines = source_status.format_lines()
+    check("empty行", lines[2] == "○ E站：该集无弹幕资源", lines[2])
+    check("全空header", lines[1] == "弹幕无数据：", lines[1])
+    -- done 后 mark_empty 被忽略（终态不可逆，仅 failed/empty/pending 可转 done）
+    source_status.mark_done("https://x/empty1", { count = 5 })
+    source_status.mark_empty("https://x/empty1", "迟到的空回报")
+    lines = source_status.format_lines()
+    check("done不受mark_empty影响", lines[2] == "· E站《某番》 5条", lines[2])
+    -- empty → 数据落源 → settle 翻转为 done（站点报空后兜底/重载给出数据）
+    source_status.begin({ { key = "https://x/empty2", provider = "测试站", anime = "番二" } })
+    source_status.mark_empty("https://x/empty2", "站点报空")
+    DANMAKU.sources["https://x/empty2"] = { provider = "测试站", data = { 1, 2 } }
+    lines = source_status.format_lines()
+    check("empty经settle翻done", lines[2] == "· 测试站《番二》 2条", lines[2])
+    source_status.reset()
+    DANMAKU.sources = {}
+end
+
+do -- note_error：软记录保持 pending（OSD 等待行不带备注）、mark_failed 覆盖为终态；
+   -- live 会话遇未知 key 不新建（防 ensure 换键后旧回调 mark 出幽灵行）
+    source_status.begin({ { key = "https://x/soft", provider = "测试站", anime = "番" } })
+    source_status.note_error("https://x/soft", "直连失败（cid 获取失败）")
+    local snap = source_status.snapshot()
+    check("note_error保持pending", snap.entries[1].status == "pending"
+        and snap.entries[1].error == "直连失败（cid 获取失败）")
+    local lines = source_status.format_lines()
+    check("pending行不带备注", lines[2] == "· 测试站《番》 等待中…", lines[2])
+    source_status.mark_failed("https://x/soft", "全兜底失败")
+    snap = source_status.snapshot()
+    check("mark_failed覆盖备注", snap.entries[1].status == "failed"
+        and snap.entries[1].error == "全兜底失败")
+    source_status.note_error("https://x/unknown", "未知键")
+    check("live未知键不新建", #source_status.snapshot().entries == 1)
+    source_status.reset()
+end
+
+do -- note_cache：条目与全局标量同置；无条目仅标量；无会话仅标量
+    source_status.ensure("https://x/c1", "A站")
+    source_status.note_cache("https://x/c1", "cache")
+    check("标量置位", DANMAKU.cache_hit == "cache")
+    local snap = source_status.snapshot()
+    check("条目cache标注", snap.entries[1].cache == "cache")
+    source_status.note_cache("https://x/nocache", "stale")
+    check("无条目仍写标量", DANMAKU.cache_hit == "stale")
+    check("无条目不新建", #source_status.snapshot().entries == 1)
+    source_status.reset()
+    source_status.note_cache("https://x/nosession", "cache")
+    check("无会话仅标量", DANMAKU.cache_hit == "cache"
+        and #source_status.snapshot().entries == 0)
+    DANMAKU.cache_hit = nil
+end
+
+do -- remove：条目移除；不存在 no-op；snapshot 浅拷贝隔离内部状态
+    source_status.ensure("https://x/r1", "A站")
+    source_status.ensure("https://x/r2", "B站")
+    local snap = source_status.snapshot()
+    snap.entries[1].status = "failed"  -- 改副本不应影响内部
+    source_status.remove("https://x/r1")
+    snap = source_status.snapshot()
+    check("remove移除条目", #snap.entries == 1 and snap.entries[1].key == "https://x/r2")
+    check("snapshot隔离", snap.entries[1].status == "pending")
+    source_status.remove("https://x/notexist")  -- no-op 不炸
+    check("remove不存在no-op", #source_status.snapshot().entries == 1)
+end
+
+do -- set_on_change：变异触发、回调抛错不中断（pcall）、reset 触发
+    local fired = 0
+    source_status.set_on_change(function() fired = fired + 1 end)
+    source_status.reset()  -- 上块残留静默会话 → 触发一次
+    local base = fired
+    source_status.ensure("https://x/cb", "A站")
+    check("ensure触发回调", fired == base + 1, fired)
+    source_status.set_on_change(function() error("boom") end)
+    source_status.mark_failed("https://x/cb", "回调抛错场景")
+    check("回调抛错不中断", source_status.snapshot().entries[1].status == "failed")
+    source_status.set_on_change(nil)
     source_status.reset()
 end
 

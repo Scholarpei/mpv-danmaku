@@ -131,7 +131,7 @@ end
 -- 落源 + 渲染（缓存命中/网络成功/过期兜底三路共用）
 local function deliver(url, comments, hit_kind)
     if hit_kind then
-        DANMAKU.cache_hit = hit_kind
+        source_status.note_cache(url, hit_kind)
         if hit_kind == "stale" then
             show_message("网络失败，已使用过期弹幕缓存", 3)
         end
@@ -147,7 +147,7 @@ function load_danmaku_for_ggl(path, callback)
     local gv, src, ep = extract_ids(url)
     if not gv then
         msg.error('无法从 URL 解析 girigirilove 播放页参数: ' .. tostring(url))
-        callback(false)
+        callback(false, nil, '无法从 URL 解析 girigirilove 播放页参数')
         return
     end
     local key = danmaku_key(gv, src, ep)
@@ -173,7 +173,7 @@ function load_danmaku_for_ggl(path, callback)
             deliver(url, parsed.comments, "stale")
             callback(true)
         else
-            callback(false)
+            callback(false, nil, '网络失败且无过期缓存')
         end
     end
 
@@ -198,7 +198,7 @@ function load_danmaku_for_ggl(path, callback)
             if #parsed.comments == 0 then
                 -- 该集确实无弹幕（合法空结果）不缓存
                 show_message('好像没有弹幕哦', 3)
-                callback(false)
+                callback(false, nil, '该集无弹幕')
                 return
             end
             -- 3) 成功且非空写缓存（原始 JSON）后走原路径

@@ -144,7 +144,7 @@ end
 -- 落源 + 渲染（缓存命中/网络成功/过期兜底三路共用）
 local function deliver(url, comments, hit_kind)
     if hit_kind then
-        DANMAKU.cache_hit = hit_kind
+        source_status.note_cache(url, hit_kind)
         if hit_kind == "stale" then
             show_message("网络失败，已使用过期弹幕缓存", 3)
         end
@@ -160,7 +160,7 @@ function load_danmaku_for_ezdmw(path, callback)
     local video_id = extract_video_id(url)
     if not video_id then
         msg.error('无法从 URL 解析 ezdmw videoId: ' .. tostring(url))
-        callback(false)
+        callback(false, nil, '无法从 URL 解析 ezdmw videoId')
         return
     end
     local key = danmaku_key(video_id)
@@ -186,7 +186,7 @@ function load_danmaku_for_ezdmw(path, callback)
             deliver(url, comments, "stale")
             callback(true)
         else
-            callback(false)
+            callback(false, nil, '网络失败且无过期缓存')
         end
     end
 
@@ -200,7 +200,7 @@ function load_danmaku_for_ezdmw(path, callback)
             -- 播放页取到但无弹幕播放器：E站未给该集绑弹幕资源（第三方解析源），
             -- 确定性无弹幕——如实提示，不消费过期缓存（弹幕资源都不会有）
             show_message('E站该集无弹幕资源', 3)
-            callback(false, true)
+            callback(false, true, '该集无弹幕资源（E站未绑定弹幕播放器）')
             return
         end
         fetch_danmaku(info.nk, info.sign, function(raw)
@@ -212,7 +212,7 @@ function load_danmaku_for_ezdmw(path, callback)
             if #comments == 0 then
                 -- 该集确实无弹幕（合法空结果）不缓存；no_data 判定供调度层跳过 dmku 兜底
                 show_message('好像没有弹幕哦', 3)
-                callback(false, true)
+                callback(false, true, '该集无弹幕')
                 return
             end
             -- 3) 成功且非空写缓存（原始 XML）后走原路径

@@ -214,7 +214,7 @@ end
 -- 落源 + 渲染（缓存命中/网络成功/过期兜底三路共用）
 local function deliver(url, comments, hit_kind)
     if hit_kind then
-        DANMAKU.cache_hit = hit_kind
+        source_status.note_cache(url, hit_kind)
         if hit_kind == "stale" then
             show_message("网络失败，已使用过期弹幕缓存", 3)
         end
@@ -230,7 +230,7 @@ function load_danmaku_for_aiyifan(path, callback)
     local ids = extract_ids(url)
     if not ids then
         msg.error('无法从 URL 解析爱壹帆 mediaKey: ' .. tostring(url))
-        callback(false)
+        callback(false, nil, '无法从 URL 解析爱壹帆 mediaKey')
         return
     end
 
@@ -259,7 +259,7 @@ function load_danmaku_for_aiyifan(path, callback)
                 deliver(url, comments, "stale")
                 callback(true)
             else
-                callback(false)
+                callback(false, nil, '网络失败且无过期缓存')
             end
         end
 
@@ -277,7 +277,7 @@ function load_danmaku_for_aiyifan(path, callback)
             if #comments == 0 then
                 -- 该集确实无弹幕（合法空结果，错误 videoId 同口径）不缓存
                 show_message('好像没有弹幕哦', 3)
-                callback(false)
+                callback(false, nil, '该集无弹幕')
                 return
             end
             -- 3) 成功且非空写缓存（原始响应信封）后走原路径
@@ -296,7 +296,7 @@ function load_danmaku_for_aiyifan(path, callback)
     -- 无 videoId 连缓存键都无从查起，不做过期兜底直接失败）
     if not ids.episode_key then
         msg.error('爱壹帆链接缺 id/videoId 参数: ' .. tostring(url))
-        callback(false)
+        callback(false, nil, '爱壹帆链接缺 id/videoId 参数')
         return
     end
     ayf_signed_get(DETAILS_PATH, {
@@ -307,7 +307,7 @@ function load_danmaku_for_aiyifan(path, callback)
         local parsed = d and aparse.parse_details(d) or nil
         if not parsed or not parsed.ok then
             msg.warn('爱壹帆详情补齐失败（uniqueID 未取到）: ' .. tostring(url))
-            callback(false)
+            callback(false, nil, '详情补齐失败（uniqueID 未取到）')
             return
         end
         with_video_id(parsed.video_id, parsed.video_type)

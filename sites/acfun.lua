@@ -184,7 +184,7 @@ end
 -- 落源 + 渲染（缓存命中/网络成功/过期兜底三路共用）
 local function deliver(url, comments, hit_kind)
     if hit_kind then
-        DANMAKU.cache_hit = hit_kind
+        source_status.note_cache(url, hit_kind)
         if hit_kind == "stale" then
             show_message("网络失败，已使用过期弹幕缓存", 3)
         end
@@ -200,13 +200,13 @@ function load_danmaku_for_acfun(path, callback)
     local ac_id, part = extract_ids(url)
     if not ac_id then
         msg.error('无法从 URL 解析 AcFun ac号: ' .. tostring(url))
-        callback(false)
+        callback(false, nil, '无法从 URL 解析 AcFun ac号')
         return
     end
 
     resolve_video_id(ac_id, part, function(video_id)
         if not video_id then
-            callback(false)
+            callback(false, nil, 'videoId 解析失败（映射与视频页解析均未命中）')
             return
         end
         local key = danmaku_key(video_id)
@@ -233,14 +233,14 @@ function load_danmaku_for_acfun(path, callback)
                     deliver(url, parsed.comments, "stale")
                     callback(true)
                 else
-                    callback(false)
+                    callback(false, nil, '网络失败且无过期缓存')
                 end
                 return
             end
             if #comments == 0 then
                 -- 该视频确实无弹幕（合法空结果）不缓存
                 show_message('好像没有弹幕哦', 3)
-                callback(false)
+                callback(false, nil, '该集无弹幕')
                 return
             end
             -- 3) 成功且非空写缓存后走原路径

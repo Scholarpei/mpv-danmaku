@@ -374,8 +374,8 @@ end
 -- 同源单选收紧（数据层）：驱逐同 provider 的旧集源。各 load_XX_danmaku 在
 -- add_danmaku_source 前调用，keep_url 为本次新选。不立即重建管线——新源到货的
 -- load_danmaku 自然只剩新源（与 dandanplay set_episode_id 的驱逐语义一致）；
--- source_status 旧条目同样不清（同范本）。粘贴 URL / 历史续载路径不经此函数，
--- 多源并存不受影响。
+-- 统计台账同步移除被驱逐源（统计口径=当前视频现关联的源；set_episode_id 驱逐同款）。
+-- 粘贴 URL / 历史续载路径不经此函数，多源并存不受影响。
 function remove_same_provider_sources(provider, keep_url)
     if not provider then return false end
     if type(DANMAKU) ~= "table" or type(DANMAKU.sources) ~= "table" then return false end
@@ -383,6 +383,9 @@ function remove_same_provider_sources(provider, keep_url)
     for url, source in pairs(DANMAKU.sources) do
         if url ~= keep_url and type(source) == "table" and source.provider == provider then
             DANMAKU.sources[url] = nil
+            if type(source_status) == "table" and source_status.remove then
+                source_status.remove(url)
+            end
             removed = true
         end
     end
@@ -1470,6 +1473,293 @@ function open_delay_menu(source, status)
     end
 end
 
+-- ===== 弹幕源统计 =====
+-- 「弹幕设置」总菜单入口：逐源展示当前视频全部弹幕源的数据情况（成功条数/无数据/
+-- 失败原因/等待中）+ 全局管线统计（合并/黑名单/密度/渲染条数），每源可展开详情
+-- 子菜单（完整 URL/来源/缓存来源/屏蔽/延迟/时间轴校正/错误全文）。
+-- 数据源：source_status.snapshot()（台账：状态+条数+原因+缓存标注，静默会话使手动
+-- 路径同样留痕）∪ DANMAKU.sources（有数据但未入台账的 key 合成 done 行）。
+
+local STATS_GLYPH = { done = "✓", empty = "○", failed = "✗", pending = "…" }
+local STATS_STATUS_WORD = { done = "成功", empty = "无数据", failed = "失败", pending = "等待中" }
+local STATS_FROM_LABEL = {
+    user_custom = "用户添加",
+    user_local = "本地文件",
+    api_server = "弹幕服务器",
+}
+
+-- 行来源标签（摘要 hint 与详情行共用）：from 映射 + 记忆/缓存后缀
+local function stats_from_label(r)
+    local s = r.source
+    local base = (s and STATS_FROM_LABEL[s.from]) or "未落源"
+    if s and s.from_history then base = base .. "（记忆）" end
+    if r.cache == "cache" then
+        base = base .. " ·缓存"
+    elseif r.cache == "stale" then
+        base = base .. " ·离线缓存"
+    end
+    return base
+end
+
+-- 详情子菜单行（纯展示行）
+local function stats_detail_row(rows, label, value)
+    rows[#rows + 1] = {
+        title = label .. "：" .. tostring(value),
+        keep_open = true,
+        selectable = false,
+    }
+end
+
+local function stats_cache_word(cache)
+    if cache == "cache" then return "磁盘缓存（TTL 内命中）" end
+    if cache == "stale" then return "过期缓存兜底（网络失败）" end
+    return "网络获取（未标注缓存命中）"
+end
+
+-- 单源详情子菜单（uosc 原生嵌套 items 展开为子页，无需回环 handler）
+local function stats_source_details(r)
+    local rows = {}
+    local s = r.source
+    stats_detail_row(rows, "URL", r.key)
+    stats_detail_row(rows, "提供方", r.provider)
+    stats_detail_row(rows, "动画", r.anime or "—")
+    stats_detail_row(rows, "集", r.episode or "—")
+    stats_detail_row(rows, "弹幕条数", r.count ~= nil and r.count or "—")
+    stats_detail_row(rows, "来源", stats_from_label(r))
+    stats_detail_row(rows, "缓存来源", stats_cache_word(r.cache))
+    if s then
+        stats_detail_row(rows, "屏蔽", s.blocked and "是（未参与渲染）" or "否")
+        local delay_text = "无"
+        if type(s.delay_segments) == "table" then
+            for _, seg in ipairs(s.delay_segments) do
+                if seg.start == 0 then
+                    delay_text = string.format("%+.1f 秒", (seg.delay or 0) + 1e-10)
+                    break
+                end
+            end
+        end
+        stats_detail_row(rows, "手动延迟", delay_text)
+        if type(s.align_shift) == "number" and s.align_shift ~= 0 then
+            stats_detail_row(rows, "时间轴校正", string.format("%+d 秒", s.align_shift))
+        else
+            stats_detail_row(rows, "时间轴校正", "未介入")
+        end
+    else
+        stats_detail_row(rows, "源记录", "无（失败/未到货，未落源）")
+    end
+    if r.error and (r.status == "failed" or r.status == "empty") then
+        stats_detail_row(rows, r.status == "empty" and "无数据原因" or "错误信息", r.error)
+    elseif r.error and r.status == "pending" then
+        stats_detail_row(rows, "进行中备注", r.error)
+    end
+    return rows
+end
+
+-- 组装统计菜单 items（纯函数：不读任何全局——快照/源表/管线统计由调用方折进参数，
+-- 供打开/原地刷新/单测三方共用）。
+-- entries: source_status.snapshot().entries；sources: DANMAKU.sources（只读引用）；
+-- pipeline: { total=渲染条数|nil, merge=MERGE_STATS|nil, blacklist=…, density=… }
+-- 排序键 = provider..url（与总菜单「已关联弹幕」区同款、不含 status）——状态迁移
+-- 永不重排，满足 update-menu 按索引保留选中/滚动位置的不变式（本文件 252 行注释）
+function build_source_stats_items(entries, sources, pipeline)
+    sources = (type(sources) == "table") and sources or {}
+    -- 台账为基；源表中有数据但未入台账的 key（B站合集/历史重放壳等）合成 done 行
+    local rows = {}
+    local seen = {}
+    for _, e in ipairs(entries or {}) do
+        local s = sources[e.key]
+        rows[#rows + 1] = {
+            key = e.key,
+            provider = e.provider or (type(s) == "table" and s.provider)
+                or provider_label_from_url(e.key) or "弹幕源",
+            anime = e.anime,
+            episode = e.episode,
+            status = e.status or "pending",
+            count = e.count,
+            error = e.error,
+            cache = e.cache,
+            source = (type(s) == "table") and s or nil,
+        }
+        seen[e.key] = true
+    end
+    for url, s in pairs(sources) do
+        if not seen[url] and type(s) == "table" and type(s.data) == "table" and #s.data > 0 then
+            rows[#rows + 1] = {
+                key = url,
+                provider = s.provider or provider_label_from_url(url) or "弹幕源",
+                anime = s.anime_title,
+                episode = s.episode_title,
+                status = "done",
+                count = #s.data,
+                source = s,
+            }
+        end
+    end
+    table.sort(rows, function(a, b)
+        return a.provider .. a.key < b.provider .. b.key
+    end)
+
+    -- 空态：台账与源表皆无记录
+    if #rows == 0 then
+        return { {
+            title = "当前视频暂无弹幕源记录",
+            italic = true,
+            keep_open = true,
+            selectable = false,
+            align = "center",
+        } }
+    end
+
+    local items = {}
+    local n = { done = 0, empty = 0, failed = 0, pending = 0 }
+    for _, r in ipairs(rows) do n[r.status] = (n[r.status] or 0) + 1 end
+    items[#items + 1] = {
+        title = string.format("源统计（共 %d 个）", #rows),
+        bold = true,
+        keep_open = true,
+        selectable = false,
+    }
+    items[#items + 1] = {
+        title = string.format("  成功 %d · 无数据 %d · 失败 %d · 等待 %d",
+            n.done, n.empty, n.failed, n.pending),
+        muted = true,
+        keep_open = true,
+        selectable = false,
+    }
+    -- 管线统计（与 show_loaded OSD 同口径，有值才显示；渲染条数有则恒显）
+    if type(pipeline) == "table" then
+        local m = pipeline.merge
+        if type(m) == "table" and m.before and m.after and m.before > m.after then
+            items[#items + 1] = {
+                title = string.format("  已合并 %d 条相似弹幕（%d→%d）",
+                    m.before - m.after, m.before, m.after),
+                muted = true,
+                keep_open = true,
+                selectable = false,
+            }
+        end
+        local b = pipeline.blacklist
+        if type(b) == "table" and b.dropped and b.dropped > 0 then
+            items[#items + 1] = {
+                title = string.format("  黑名单：过滤 %d 条", b.dropped),
+                muted = true,
+                keep_open = true,
+                selectable = false,
+            }
+        end
+        local d = pipeline.density
+        if type(d) == "table" and (d.shrunk > 0 or d.dropped > 0) then
+            items[#items + 1] = {
+                title = string.format("  智能密度：缩小 %d 条，丢弃 %d 条", d.shrunk, d.dropped),
+                muted = true,
+                keep_open = true,
+                selectable = false,
+            }
+        end
+        if pipeline.total ~= nil then
+            items[#items + 1] = {
+                title = string.format("  最终渲染 %d 条", pipeline.total),
+                muted = true,
+                keep_open = true,
+                selectable = false,
+            }
+        end
+    end
+    -- 逐源行（selectable：点开展开详情子菜单）
+    for _, r in ipairs(rows) do
+        local title_src = r.source or { anime_title = r.anime, episode_title = r.episode }
+        items[#items + 1] = {
+            title = string.format("%s %s%s", STATS_GLYPH[r.status] or "…",
+                r.provider, source_display_title(title_src, r.key, 60)),
+            hint = ((r.count ~= nil) and (r.count .. "条") or "—")
+                .. " · " .. stats_from_label(r)
+                .. " · " .. (STATS_STATUS_WORD[r.status] or "等待中"),
+            keep_open = true,
+            selectable = true,
+            items = stats_source_details(r),
+        }
+    end
+    return items
+end
+
+-- 管线统计快照（全局折进 build 参数；COMMENTS/各统计变量由 parse.lua 管线重建置 nil）
+local function source_stats_pipeline()
+    return {
+        total = type(COMMENTS) == "table" and #COMMENTS or nil,
+        merge = MERGE_STATS,
+        blacklist = BLACKLIST_STATS,
+        density = DENSITY_STATS,
+    }
+end
+
+-- 组装 menu_props（打开与原地刷新共用；search_style=disabled 须自组装——
+-- update_menu_uosc 的 search_style 硬编码 palette/on_demand）
+local function source_stats_menu_props()
+    local props = {
+        type = "menu_stats",
+        title = "弹幕源统计",
+        search_style = "disabled",
+        items = build_source_stats_items(source_status.snapshot().entries,
+            DANMAKU.sources, source_stats_pipeline()),
+    }
+    local fn = mp.get_property("filename")
+    if fn then props.footnote = fn end
+    return props
+end
+
+function open_source_stats_menu_uosc()
+    mp.commandv("script-message-to", "uosc", "open-menu",
+        utils.format_json(source_stats_menu_props()))
+end
+
+-- 无 uosc 回退：OSD 汇总 dump + 逐源详情镜像控制台（不做交互式逐源详情）
+function show_source_stats_osd()
+    local lines = source_status.format_lines()
+    local p = source_stats_pipeline()
+    local stats = {}
+    if type(p.merge) == "table" and p.merge.before and p.merge.after and p.merge.before > p.merge.after then
+        stats[#stats + 1] = string.format("已合并 %d 条（%d→%d）",
+            p.merge.before - p.merge.after, p.merge.before, p.merge.after)
+    end
+    if type(p.blacklist) == "table" and p.blacklist.dropped and p.blacklist.dropped > 0 then
+        stats[#stats + 1] = string.format("黑名单过滤 %d 条", p.blacklist.dropped)
+    end
+    if type(p.density) == "table" and (p.density.shrunk > 0 or p.density.dropped > 0) then
+        stats[#stats + 1] = string.format("密度缩 %d 弃 %d", p.density.shrunk, p.density.dropped)
+    end
+    if p.total ~= nil then stats[#stats + 1] = string.format("渲染 %d 条", p.total) end
+    if #lines > 0 then
+        local text = table.concat(lines, "\\N")
+        if #stats > 0 then text = text .. "\\N" .. table.concat(stats, " · ") end
+        show_message(text, 10)
+    else
+        show_message("当前视频暂无弹幕源记录", 5)
+    end
+    for _, line in ipairs(lines) do msg.info(line) end
+    for _, e in ipairs(source_status.snapshot().entries) do
+        msg.info(string.format("[源统计] %s %s | %s%s", e.status or "?",
+            e.provider or "弹幕源", e.key, e.error and (" | " .. e.error) or ""))
+    end
+end
+
+function open_source_stats_menu()
+    if uosc_available then
+        open_source_stats_menu_uosc()
+    else
+        show_source_stats_osd()
+    end
+end
+
+-- 统计菜单开着时原地刷新（set_on_change 台账变异 + show_loaded 到货双触发；
+-- 未开着直接返回，mark 频率低、属性读取开销可忽略）
+function refresh_source_stats_menu()
+    if not uosc_available then return end
+    local current = mp.get_property_native('user-data/uosc/menu/type')
+    if not current or tostring(current) ~= "menu_stats" then return end
+    mp.commandv("script-message-to", "uosc", "update-menu",
+        utils.format_json(source_stats_menu_props()))
+end
+
 -- 总集合弹幕菜单
 local total_menu_items_config = {
     { title = "弹幕搜索", action = "open_search_danmaku_menu" },
@@ -1478,6 +1768,7 @@ local total_menu_items_config = {
     { title = "弹幕样式", action = "open_danmaku_style_menu" },
     { title = "弹幕过滤", action = "open_filter_danmaku_menu" },
     { title = "弹幕内容", action = "open_content_danmaku_menu" },
+    { title = "弹幕源统计", action = "open_source_stats_menu" },
     { title = "高能时间轴", action = "toggle_density_timeline" },
     { title = "清空弹幕缓存", action = "clear-danmaku-cache" },
 }
@@ -1850,6 +2141,10 @@ mp.register_script_message('setup-danmaku-source', function(json)
 
         if event.action == "delete" then
             DANMAKU.sources[event.value] = nil
+            -- 统计台账同步移除（源管理菜单删除的源不再出现在弹幕源统计）
+            if type(source_status) == "table" and source_status.remove then
+                source_status.remove(event.value)
+            end
             remove_source_from_history(event.value)
             -- 同步删除文件夹级B站记忆（否则下一集又会自动复活）
             if remove_bilibili_series_record_for_url(event.value) then
@@ -1960,3 +2255,11 @@ mp.register_script_message("setup-content-delay", function(...)
         end
     end
 end)
+
+-- 统计菜单自动刷新挂钩：台账变异（登记/终态/软备注/删除/重置）时若菜单开着原地
+-- 刷新（守卫式注入：menu-only 单测环境无 source_status 全局时静默跳过）
+if type(source_status) == "table" and type(source_status.set_on_change) == "function" then
+    source_status.set_on_change(function()
+        refresh_source_stats_menu()
+    end)
+end

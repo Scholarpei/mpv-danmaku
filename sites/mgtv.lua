@@ -86,12 +86,14 @@ function load_danmaku_for_mgtv(path, callback)
     local url = path or mp.get_property('stream-open-filename', '')
     if not url or url == '' then
         msg.error('mgtv: 无效的 url')
+        callback(false, nil, '无效的 url')
         return
     end
 
     local cid, vid = extract_mgtv_ids(url)
     if not cid or not vid then
         msg.error('mgtv: 无法解析 cid/vid: ' .. tostring(url))
+        callback(false, nil, '无法解析 cid/vid')
         return
     end
 
@@ -103,13 +105,13 @@ function load_danmaku_for_mgtv(path, callback)
     call_cmd_async(args, function(err, out)
         if err then
             msg.error('mgtv: 请求 video/info 失败: ' .. tostring(err))
-            callback(false)
+            callback(false, nil, '视频信息请求失败：' .. tostring(err))
             return
         end
         local data = utils.parse_json(out)
         if not data or data.code ~= 200 or not data.data or not data.data.info then
             msg.info('mgtv: video/info 返回无效')
-            callback(false)
+            callback(false, nil, '视频信息返回无效')
             return
         end
         local time_str = data.data.info.time
@@ -120,7 +122,7 @@ function load_danmaku_for_mgtv(path, callback)
 
         if #segments == 0 then
             msg.info('mgtv: 未生成任何弹幕分段请求')
-            callback(false)
+            callback(false, nil, '未生成任何弹幕分段')
             return
         end
 
@@ -139,7 +141,7 @@ function load_danmaku_for_mgtv(path, callback)
             local final_json_str = utils.format_json(output_table)
             save_danmaku_json(url, final_json_str)
             load_danmaku(true, nil, true)
-            callback(ok)
+            callback(ok, nil, '弹幕分段请求失败或弹幕为空')
         end
 
         parallel_requests(segments, build_mgtv_curl_args, per_response_cb, final_cb, { concurrency = 6, per_request_timeout = 10 })

@@ -83,7 +83,7 @@ function load_danmaku_for_tencent(path, callback)
     local vid = extract_vid(url)
     if not vid then
         msg.error('无法从 URL 中解析 vid: ' .. tostring(url))
-        callback(false)
+        callback(false, nil, '无法从 URL 中解析 vid')
         return
     end
 
@@ -95,14 +95,14 @@ function load_danmaku_for_tencent(path, callback)
     call_cmd_async(base_args, function(err, out)
         if err then
             msg.error('请求腾讯弹幕 base 失败: ' .. tostring(err))
-            callback(false)
+            callback(false, nil, '弹幕索引请求失败：' .. tostring(err))
             return
         end
 
         local base_json = utils.parse_json(out)
         if not base_json or not base_json['segment_index'] then
             show_message('好像没有弹幕哦', 3)
-            callback(false)
+            callback(false, nil, '弹幕分段索引为空')
             return
         end
 
@@ -125,7 +125,7 @@ function load_danmaku_for_tencent(path, callback)
 
         if #segments == 0 then
             show_message('没有找到弹幕分段', 3)
-            callback(false)
+            callback(false, nil, '没有找到弹幕分段')
             return
         end
 
@@ -147,7 +147,7 @@ function load_danmaku_for_tencent(path, callback)
         local function final_cb()
             local ok = #output_table > 0
             save_output_and_load(output_table, url)
-            callback(ok)
+            callback(ok, nil, '分段请求失败或弹幕为空')
         end
 
         -- 并行请求 segments

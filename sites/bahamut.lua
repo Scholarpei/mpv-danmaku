@@ -62,10 +62,11 @@ end
 -- 为 bahamut 网站的视频播放加载弹幕
 function load_danmaku_for_bahamut(path, callback)
     callback = callback or function() end
+    local source_key = path  -- 原始入参（统计台账键；path 随即被解码重绑）
     local path = path:gsub('%%(%x%x)', hex_to_char)
     local sn = resolve_bahamut_sn(path)
     if sn == nil then
-        callback(false)
+        callback(false, nil, 'sn 参数解析失败')
         return
     end
     local key = cache_key(sn)
@@ -95,12 +96,12 @@ function load_danmaku_for_bahamut(path, callback)
         local stale = dcache.get_stale(key)
         local comments = stale and parse_payload(stale.payload) or nil
         if comments then
-            DANMAKU.cache_hit = "stale"
+            source_status.note_cache(source_key, "stale")
             show_message("网络失败，已使用过期弹幕缓存", 3)
             save_comments(comments)
         else
             show_message("好像没有弹幕哦", 3)
-            callback(false)
+            callback(false, nil, '弹幕拉取失败：网络失败且无过期缓存')
         end
     end
 
@@ -138,7 +139,7 @@ function load_danmaku_for_bahamut(path, callback)
             if type(comments) ~= "table" or #comments == 0 then
                 -- 该集确实无弹幕（合法空结果）不缓存
                 show_message("好像没有弹幕哦", 3)
-                callback(false)
+                callback(false, nil, '该集无弹幕')
                 return
             end
             -- 成功且非空写缓存（载荷为 comments 数组，与命中读回同构）
@@ -152,7 +153,7 @@ function load_danmaku_for_bahamut(path, callback)
     if hit then
         local comments = parse_payload(hit.payload)
         if comments then
-            DANMAKU.cache_hit = "cache"
+            source_status.note_cache(source_key, "cache")
             msg.verbose("弹幕缓存命中：" .. key)
             save_comments(comments)
             return

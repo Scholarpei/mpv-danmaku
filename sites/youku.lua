@@ -210,7 +210,7 @@ local function youku_final_save(output_table, url, callback)
     local final_json_str = utils.format_json(output_table)
     save_danmaku_json(url, final_json_str)
     load_danmaku(true, nil, true)
-    callback(ok)
+    callback(ok, nil, '弹幕分段请求失败或弹幕为空')
 end
 
 -- Helper: 根据 mat/guid/tk/vid 构造单个 server 条目
@@ -306,14 +306,14 @@ function load_danmaku_for_youku(path, callback)
     local url = path or mp.get_property('stream-open-filename', '')
     if not url or url == '' then
         msg.error('无有效 URL')
-        callback(false)
+        callback(false, nil, '无有效 URL')
         return
     end
 
     get_vinfos_by_video_id(url, function(vid, duration)
         if not vid then
             show_message('获取优酷 video_id 失败', 3)
-            callback(false)
+            callback(false, nil, '获取优酷 video_id 失败')
             return
         end
 
@@ -322,12 +322,12 @@ function load_danmaku_for_youku(path, callback)
             local tk = res.tk
             if not cna then
                 show_message('获取优酷 cna 失败', 3)
-                callback(false)
+                callback(false, nil, '获取优酷 cna 失败')
                 return
             end
             if not tk then
                 show_message('获取优酷 tk_enc 失败', 3)
-                callback(false)
+                callback(false, nil, '获取优酷 tk_enc 失败')
                 return
             end
             start_youku_requests(url, vid, duration, cna, tk, callback)
