@@ -56,7 +56,7 @@
 | AcFun | 直连 | `\|acf` | A站 ACG 弹幕（搜索页 BigPipe 解析，合集分P + 多P视频），断网过期缓存兜底 |
 | 360kan | 聚合 | `\|ds` `\|dy` `\|dm` | 电视剧 / 电影 / 国漫三路，覆盖爱腾优芒B站源 |
 | MacCMS 采集站 | 需配置 [`maccms_servers`](#弹幕源搜索) | `\|mac` | 搜索采集站收录内容，适合自建影视站（选站要求见[多源聚合搜索](#多源聚合搜索)） |
-| dmku 系兜底 | `fallback_server` | — | B站 / 爱腾优条目 extcomment 与直连均失败后的最后兜底 |
+| dmku 系兜底 | `fallback_server` | — | B站 / 爱腾优条目 extcomment 与直连均失败后的最后兜底；多服务器逗号分隔顺序尝试（公共实例见[下方](#公共兜底服务器)） |
 
 **直连源通用能力**：多源叠加播放 · 文件夹记忆换集续载 · 多源加载状态 OSD 逐源汇总 · 源管理菜单标注真实提供方（腾讯视频 / 优酷 / maccms·某站 等，而非笼统的「用户添加」）。
 
@@ -93,7 +93,7 @@
 | `\|acf` | AcFun |
 | `\|mac` | MacCMS 采集站（需配置 [`maccms_servers`](#弹幕源搜索)） |
 
-- 聚合与非 dandanplay 源的条目选中后，弹幕获取自动走现有管线：先尝试各 `api_server` 的 extcomment，失败回退域名直连（腾讯条目即直连腾讯弹幕接口），最后由 `fallback_server`（dmku / danmu.icu 协议）兜底；animeko / 埋堆堆 / AcFun 这类弹弹play 不支持的域名会跳过 extcomment 直接直连，不浪费等待
+- 聚合与非 dandanplay 源的条目选中后，弹幕获取自动走现有管线：先尝试各 `api_server` 的 extcomment，失败回退域名直连（腾讯条目即直连腾讯弹幕接口），最后由 `fallback_server`（dmku / danmu.icu 协议，多服务器顺序尝试）兜底；animeko / 埋堆堆 / AcFun 这类弹弹play 不支持的域名会跳过 extcomment 直接直连，不浪费等待
 - **选集菜单多选**：点击集数后菜单保持打开，已添加集数高亮标注（hint 追加「已添加」、底部计数），可点「↩️ 返回搜索结果」换下一个源叠加——一次搜索配齐多源，无需重复搜索；**同源单选**：每个源同一时刻只保留最新选中的一集（换选即替换——旧集弹幕源被驱逐、标记清除，与弹弹play 的按集拉取语义一致），跨源叠加不受影响
 - **换集自动续载（多源并行）**：选过的剧记入文件夹历史，换集时全部源一起按集数差自动定位续载，详见[文件夹弹幕记忆](#文件夹弹幕记忆)
 - `|tx` 顺手修复了腾讯弹幕颜色恒为白色的问题：接口的 `content_style` 实为字符串化 JSON，渐变弹幕取首色呈现
@@ -261,6 +261,19 @@ api_server=http://192.168.1.5:9321
 - 对 `api.dandanplay.net` 的 AppId/Signature 签名头只按域名自动附加，第三方服务器自动免签
 - 可与其它服务器逗号分隔混排、`|` / `#` 追加备注，多服务器并发先到先用
 - 其 XML 输出为B站格式（本脚本默认请求 JSON，不受影响）
+
+### 公共兜底服务器
+
+`fallback_server`（dmku / danmu.icu 协议）支持**逗号分隔的有序列表**，依次尝试直到任一成功，全部失败才上报失败；默认 `https://dmku.hls.one,https://api.danmu.icu`。可按需增删以下公共实例（第三方维护，可用性无保证，顺序即优先级）：
+
+| 服务器 | 地址 |
+| --- | --- |
+| dmku.hls.one | `https://dmku.hls.one` |
+| danmu.icu | `https://api.danmu.icu` |
+| fc.lyz05.cn | `https://fc.lyz05.cn` |
+| se.678.ooo | `https://se.678.ooo` |
+| danmu.56uxi.com | `https://danmu.56uxi.com` |
+| dm.lxlad.com | `https://dm.lxlad.com` |
 
 ### 其它增强
 
@@ -630,6 +643,7 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 | `tests/extcomment_cache_test.lua` | extcomment 直连源拉取链路缓存（命中零网络 / 未命中写缓存 / 损坏条目回网络重写 / 空结果走兜底不缓存 / 断网回退过期缓存 / 键稳定性） | `mpv.com --idle=once --no-config --script=tests/extcomment_cache_test.lua` |
 | `tests/sites_cache_test.lua` | animeko / 埋堆堆 / 巴哈姆特 / AcFun 站点直连加载器缓存（命中零网络 / 未命中写缓存 / 断网回退过期缓存 / 合法空不缓存 / 巴哈主端口失败降级端口同写缓存 / AcFun 两级缓存与分页游标聚合 / 预取伴生函数同键） | `mpv.com --idle=once --no-config --script=tests/sites_cache_test.lua` |
 | `tests/acfun_parse_test.lua` | AcFun 搜索页 BigPipe / 视频页 pageInfo / 合集页分P排序 / 弹幕分页解析与缓存载荷 roundtrip（实抓 fixtures） | `mpv.com --idle=once --no-config --script=tests/acfun_parse_test.lua` |
+| `tests/fallback_multi_test.lua` | fallback_server 多服务器顺序尝试（失败续试 / 成功即止 / 全失败上报一次 / 空配置静默 / 单服务器与 xml 分支不变） | `mpv.com --idle=once --no-config --script=tests/fallback_multi_test.lua` |
 | `tests/prefetch_plan_test.lua` | 下一集预取任务规划纯函数（锚点推算镜像 dandanplay_flow：慢源独立锚 / 锚==下一集 / 无锚回退 / 重播 / 集数剪裁 / 站点缓存源 ako/mdd 任务 / B站合集推算与回退 / 防御输入） | `mpv.com --idle=once --no-config --script=tests/prefetch_plan_test.lua` |
 | `tests/prefetch_flow_test.lua` | 下一集预取集成（触发门槛：auto_load/缓存/无下一项/异文件夹/无记忆；全链路五类任务入缓存且键与正式加载一致；TTL 命中零网络；armed 每文件一次；B站记忆 off 剪裁；断网静默） | `mpv.com --idle=once --no-config --script=tests/prefetch_flow_test.lua` |
 | `tests/tencent_parse_test.lua` | 腾讯搜索/剧集/弹幕条目解析（MainNeed 优先、预告过滤、content_style 字符串化 JSON 与渐变首色） | `mpv.com --idle=once --no-config --script=tests/tencent_parse_test.lua` |

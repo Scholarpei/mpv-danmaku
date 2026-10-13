@@ -60,36 +60,56 @@ end
 -- 回退使用额外的弹幕获取方式
 function get_danmaku_fallback(query)
     local function do_fallback()
-        if options.fallback_server == "" then return end
-        local url = options.fallback_server .. "/?ac=dm&url=" .. query
-        msg.verbose("尝试获取弹幕：" .. url)
+        -- 逗号分隔多服务器顺序尝试（与 api_server 多值惯例一致），任一成功即止；
+        -- 全部失败才上报失败状态
+        local servers = {}
+        for s in tostring(options.fallback_server or ""):gmatch("[^,]+") do
+            s = s:gsub("^%s+", ""):gsub("%s+$", "")
+            if s ~= "" then servers[#servers + 1] = s end
+        end
+        if #servers == 0 then return end
 
-        local args = make_danmaku_request_args("GET", url)
-        if not args then return end
-
-        fetch_danmaku_data(args, function(data)
-            if data ~= nil and data["xml"] ~= nil then
-                if DANMAKU.sources[query] ~= nil then
-                    DANMAKU.sources[query]["data"] = data["xml"]
-                else
-                    DANMAKU.sources[query] = {from = "user_custom", provider = "兜底服务器", data = data["xml"]}
-                end
-                load_danmaku(true, nil, true)
-                return
-            end
-
-            if not data or not data["comments"] or data["count"] <= 1 then
-                msg.info("备用服务器无数据或返回格式不正确")
+        local function attempt(i)
+            local server = servers[i]
+            if not server then
                 source_status.mark_failed(query, "无数据或返回格式不正确", "备用服务器")
                 return
             end
+            local url = server .. "/?ac=dm&url=" .. query
+            msg.verbose("尝试获取弹幕：" .. url)
 
-            save_danmaku_data(data["comments"], query, "user_custom")
-            if DANMAKU.sources[query] and DANMAKU.sources[query].provider == nil then
-                DANMAKU.sources[query].provider = "兜底服务器"
+            local args = make_danmaku_request_args("GET", url)
+            if not args then
+                attempt(i + 1)
+                return
             end
-            load_danmaku(true, nil, true)
-        end)
+
+            fetch_danmaku_data(args, function(data)
+                if data ~= nil and data["xml"] ~= nil then
+                    if DANMAKU.sources[query] ~= nil then
+                        DANMAKU.sources[query]["data"] = data["xml"]
+                    else
+                        DANMAKU.sources[query] = {from = "user_custom", provider = "兜底服务器", data = data["xml"]}
+                    end
+                    load_danmaku(true, nil, true)
+                    return
+                end
+
+                if not data or not data["comments"] or data["count"] <= 1 then
+                    msg.info("备用服务器无数据或返回格式不正确：" .. server)
+                    attempt(i + 1)
+                    return
+                end
+
+                save_danmaku_data(data["comments"], query, "user_custom")
+                if DANMAKU.sources[query] and DANMAKU.sources[query].provider == nil then
+                    DANMAKU.sources[query].provider = "兜底服务器"
+                end
+                load_danmaku(true, nil, true)
+            end)
+        end
+
+        attempt(1)
     end
 
     if query:find('bilibili.com') or query:find('bilivideo.c[nom]+') then
