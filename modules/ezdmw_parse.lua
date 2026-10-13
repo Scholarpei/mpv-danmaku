@@ -15,12 +15,17 @@
 --     前缀，数字锚点天然不匹配），另有 circuit_switch_ban 锁定线路；单集剧场版同样只有
 --     circuit_switch1 命中。页面顺序为降序（末集在前），须按集数升序排；页面另有
 --     「动漫下载」磁力链接区（magnet:?xt 不与集数链接碰撞）。
+--     ⚠️ 多季番多季合并在同一页，span 文本为「{季}-{集}」格式（圣诞之吻SS 实测：S1 26 集
+--     纯数字 + S2 十三集 2-01..2-13）——纯数字模式会静默丢整季，须两格式都认。
 --   播放页 GET https://www.ezdmw.org/Index/video/{videoId}.html —— 内嵌弹幕播放器
 --     <iframe src="https://player.ezdmw.com/danmuku/?nk={资源名}/{资源名_集数}&name=…
 --     &sign={32位hex}&…">，nk 与 sign 均由服务端预计算嵌在 HTML（无需逆向签名）。
 --     ⚠️ sign 每次请求轮换（实测两次连抓同一播放页即不同），不可缓存——每次加载都须
 --     先取播放页提取新 nk+sign。页面另有评论区 iframe src="/comment/?comment_index=nk=
 --     {bangumiId}"，提取必须锚定 danmuku 播放器，不能按 nk= 盲取。
+--     ⚠️ 部分番（圣诞之吻SS 实测全线路）E站未绑弹幕资源：播放页只有第三方解析 iframe
+--     （//jx.aidouer.net/?url=…）+ 评论区 iframe、无 danmuku 播放器——无 nk/sign 可取，
+--     属确定性无弹幕而非网络失败（调用方按 no_data 口径处理，见 sites/ezdmw.lua）。
 --   弹幕 GET https://player.ezdmw.com/index/getData.html?video_id={nk}&json=xml&danmu={nk}
 --     &sign={sign}&timeAxis=false&getUser=%E6%B8%B8%E5%AE%A2（游客）——无需 cookie/referer
 --     纯 GET 直达；备用域 player.danmuzf.vip 同路径（主域失败降级）。
@@ -65,19 +70,51 @@ end
 
 -- ============ 详情页（/Index/bangumi/{bangumiId}.html）============
 
--- → { ok=bool, episodes={ {video_id, ep} } }（仅主线线路 circuit_switch1；按集数升序=正片顺序，
--- 页面原始顺序为降序不可直接用；span 文本即集数号）
+-- → { ok=bool, episodes={ {video_id, ep, season} } }（仅主线线路 circuit_switch1；按
+-- (季,集) 升序=正片顺序，页面原始顺序为降序不可直接用；span 文本纯数字=集数（单季，
+-- season=1）、「{季}-{集}」=多季合并页（圣诞之吻SS 实测 2-13=第二季第13集），其他形状跳过）
 function M.parse_detail(html)
     local result = { ok = false, episodes = {} }
     if type(html) ~= "string" then return result end
 
-    for vid, ep in html:gmatch('<a class="circuit_switch1" href="/Index/video/(%d+)%.html"'
-        .. '[^>]->%s*<span[^>]*>%s*(%d+)%s*</span>') do
-        result.episodes[#result.episodes + 1] = { video_id = vid, ep = tonumber(ep) }
+    for vid, raw in html:gmatch('<a class="circuit_switch1" href="/Index/video/(%d+)%.html"'
+        .. '[^>]->%s*<span[^>]*>%s*([%d%-]+)%s*</span>') do
+        local season, ep = raw:match("^(%d+)%-(%d+)$")
+        if season then
+            season, ep = tonumber(season), tonumber(ep)
+        else
+            season, ep = 1, tonumber(raw:match("^%d+$"))
+        end
+        if ep then
+            result.episodes[#result.episodes + 1] =
+                { video_id = vid, ep = ep, season = season }
+        end
     end
-    table.sort(result.episodes, function(a, b) return a.ep < b.ep end)
+    table.sort(result.episodes, function(a, b)
+        if a.season ~= b.season then return a.season < b.season end
+        return a.ep < b.ep
+    end)
     result.ok = #result.episodes > 0
     return result
+end
+
+-- ============ 季集复合键（apis/ezdmw_search.lua 菜单/续载/预取共用）============
+
+-- (season, ep) → 集数键：S1 恒为纯集数（单季旧历史 back-compat），S2+ 为 season*10000+ep
+-- （跨季键恒 >10000 不与单季纯集数碰撞；季内 +delta 预取算术保持成立）
+function M.episode_key(season, ep)
+    if season and season > 1 then return season * 10000 + ep end
+    return ep
+end
+
+-- 集数键 → 显示名（「第26集」/「第2季13集」）
+function M.episode_label(key)
+    local n = tonumber(key) or 0
+    local season = math.floor(n / 10000)
+    if season >= 2 then
+        return ("第%d季%d集"):format(season, n % 10000)
+    end
+    return ("第%d集"):format(n)
 end
 
 -- ============ 播放页（/Index/video/{videoId}.html）============

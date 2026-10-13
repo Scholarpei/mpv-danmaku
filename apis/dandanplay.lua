@@ -148,8 +148,10 @@ function get_danmaku_fallback(query)
     end
 
     if query:find('ezdmw.org') or query:find('ezdmw.com') then
-        load_danmaku_for_ezdmw(query, function(success)
-            if not success then do_fallback() end
+        load_danmaku_for_ezdmw(query, function(success, no_data)
+            -- no_data：E站侧已确定无弹幕（播放页无弹幕播放器/合法空）。dmku 兜底只按
+            -- 主流站点 URL 索引、永远不会有 ezdmw.org 数据，跳过兜底轮免误导性「获取数据失败」
+            if not success and not no_data then do_fallback() end
         end)
         return
     end

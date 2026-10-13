@@ -1,6 +1,7 @@
 -- fallback_server 多服务器顺序尝试单元测试（apis/dandanplay.lua 的 do_fallback）：
 -- 逗号分隔列表依次尝试直到任一成功、首个成功即止、全部失败才上报一次失败状态、
--- 空配置静默返回（保持旧行为）、单服务器行为不变
+-- 空配置静默返回（保持旧行为）、单服务器行为不变、
+-- ezdmw 分支 no_data 判定跳过兜底轮（确定性无弹幕不轮询 dmku）而 cb(false) 仍走兜底
 -- 运行：mpv.com --idle=once --no-config --script=<本文件路径>
 -- 退出码非 0 或输出含 FAIL 即失败
 
@@ -123,6 +124,39 @@ steps[8] = function()
     local src = DANMAKU.sources[QUERY]
     check("xml 分支落源", src ~= nil and src.provider == "兜底服务器" and src.data ~= nil)
     check("xml 分支单请求", #attempted == 1)
+end
+
+-- ---------- ezdmw：E站确定性无弹幕（no_data 判定）跳过兜底轮；cb(false) 仍走兜底 ----------
+-- dmku 兜底服务器只按主流站点 URL 索引，永远不会有 ezdmw.org 数据：E站侧已确定无弹幕
+-- 时再轮询兜底只产生噪音与误导性「获取数据失败」
+local EZD_Q = "https://www.ezdmw.org/Index/video/32869.html"
+
+steps[9] = function()
+    options.fallback_server = "https://s1.example,https://s2.example"
+    resp_by_server = {}
+    attempted = {}
+    _G.__fb_mark_failed = 0
+    load_danmaku_for_ezdmw = function(q, cb)
+        mp.add_timeout(0.01, function() cb(false, true) end)
+    end
+    get_danmaku_fallback(EZD_Q)
+end
+
+steps[10] = function()
+    check("ezd no_data 零兜底请求", #attempted == 0)
+    check("ezd no_data 不上报失败", _G.__fb_mark_failed == 0)
+    -- 对照：无 no_data 判定（真网络失败口径）仍须走兜底
+    load_danmaku_for_ezdmw = function(q, cb)
+        mp.add_timeout(0.01, function() cb(false) end)
+    end
+    DANMAKU.sources[EZD_Q] = nil
+    get_danmaku_fallback(EZD_Q)
+end
+
+steps[11] = function()
+    check("ezd 网络失败仍逐一走兜底", #attempted == 2)
+    check("ezd 网络失败上报一次", _G.__fb_mark_failed == 1)
+    check("ezd 兜底失败不落源", DANMAKU.sources[EZD_Q] == nil)
 end
 
 local function finish()

@@ -4,6 +4,7 @@
 -- 断网回退过期缓存、合法空结果不写缓存、巴哈主/降级端口取数均写同键缓存、
 -- AcFun 两级缓存（映射 acfmap + 弹幕 acf）与分页游标聚合、
 -- ezdmw 单级缓存（播放页取 nk+sign → getData XML）与双域降级、预取伴生函数同键写/命中跳过、
+--   播放页无弹幕播放器（第三方解析源）按确定性无弹幕处理（no_data 判定、不走过期缓存）、
 -- girigirilove 单级缓存（播放页 player_aaaa 解裸 m3u8 → POST getScrolling）与
 -- 备用域 URL 同键命中、接口错误（code≠1）与合法空（code=1 空表）两口径区分、
 -- 爱壹帆单级缓存（home/config 密钥引导 → 签名 GetBarrages）与签名头校验、
@@ -51,7 +52,8 @@ local stub = { net_calls = 0, fail = false, ako = nil, mdd = nil, loads = 0,
     ezd_page = nil, ezd_data = nil, ezd_fail_main = false,
     ggl_page = nil, ggl_data = nil, ggl_body = nil,
     ayf_config = nil, ayf_data = nil, ayf_details = nil, ayf_calls = {} }
-show_message = function() end
+local msgs = {}
+show_message = function(text) msgs[#msgs + 1] = tostring(text) end
 load_danmaku = function(from_menu) stub.loads = stub.loads + 1 end
 DANMAKU = { sources = {}, count = 1 }
 -- 巴哈加载器的临时文件落点（main.lua 运行期同款全局）
@@ -94,6 +96,12 @@ local EZD_XML = '<?xml version="1.0" encoding="utf-8"?><i>'
     .. '<d p="3.5,4,25,16711680,0,0,u,3">底</d>'
     .. '<d p="4.5,1,25,16777215,0,0,u,4">a&lt;b&gt;c&amp;d</d></i>'
 local EZD_EMPTY = '<?xml version="1.0" encoding="utf-8"?><i></i>'
+-- 第三方解析源播放页（实抓 ezd_player_noplayer.html 同构）：仅 jx 解析 iframe + 评论区
+-- iframe、无 E站弹幕播放器（nk/sign 无处可取）
+local EZD_NOPLAYER_HTML = '<html><iframe class="iframe" '
+    .. 'src="//jx.aidouer.net/?url=http://v.pptv.com/show/s6Fk4tSKgsAjoQk.html"></iframe>'
+    .. '<iframe style="width:100%;height:600px;" id="IFeditValue" '
+    .. 'src="/comment/?comment_index=nk=32869"></iframe></html>'
 -- girigirilove：播放页内嵌 player_aaaa（encrypt=2，站方为逐字符 %XX 全编码后 base64——
 -- 测试运行时自建编码链避免手抄常量；弹幕 getScrolling 为 JSON，mode 1/2/3=滚动/顶/底 →
 -- B站 1/5/4，色在 style.color 含 8 位变体）
@@ -734,8 +742,9 @@ steps[49] = function()
     dc.remove(EZD_KEY)
     stub.net_calls = 0
     stub.ezd_data = EZD_EMPTY
-    load_danmaku_for_ezdmw(EZD_URL, function(success)
+    load_danmaku_for_ezdmw(EZD_URL, function(success, no_data)
         steps._ezd_empty_cb = success
+        steps._ezd_empty_nodata = no_data
     end)
 end
 
@@ -743,6 +752,8 @@ steps[50] = function()
     check("ezd 空结果两跳请求（主域响应即止，不试备用域）", stub.net_calls == 2)
     check("ezd 空结果不缓存", dc.get(EZD_KEY) == nil)
     check("ezd 空结果回调失败", steps._ezd_empty_cb == false)
+    check("ezd 空结果带确定性无数据判定（供调度层跳过 dmku 兜底）",
+        steps._ezd_empty_nodata == true)
     stub.ezd_data = EZD_XML
 end
 
@@ -1128,6 +1139,40 @@ end
 
 steps[84] = function()
     check("ayf 预取 TTL 命中零网络", steps._ayf_pf_hit == true and stub.net_calls == 0)
+end
+
+-- ---------- ezdmw 补充：播放页无弹幕播放器（第三方解析源）→ 确定性无弹幕 ----------
+-- 播放页取到但无 danmuku iframe：不是网络失败——不消费过期缓存、不取 getData、
+-- 如实提示无弹幕、回调带 no_data 判定（调度层据此跳过 dmku 兜底，免误导性报错）
+steps[85] = function()
+    dc.remove(EZD_KEY)
+    stub.net_calls = 0
+    stub.loads = 0
+    stub.ezd_page = EZD_NOPLAYER_HTML
+    load_danmaku_for_ezdmw(EZD_URL, function(success, no_data)
+        steps._ezd_np_cb = success
+        steps._ezd_np_nodata = no_data
+    end)
+end
+
+steps[86] = function()
+    check("ezd 无播放器仅播放页一跳（不取 getData）", stub.net_calls == 1)
+    check("ezd 无播放器回调失败且带 no_data 判定",
+        steps._ezd_np_cb == false and steps._ezd_np_nodata == true)
+    check("ezd 无播放器如实提示无弹幕", #msgs > 0 and msgs[#msgs]:find("无弹幕", 1, true) ~= nil)
+    check("ezd 无播放器不落源", stub.loads == 0)
+    check("ezd 无播放器不写缓存", dc.get(EZD_KEY) == nil)
+    -- 预取伴生函数同口径：无播放器即失败，不取 getData
+    stub.net_calls = 0
+    prefetch_ezdmw_danmaku("102578", function(done)
+        steps._ezd_pf_np = done
+    end)
+end
+
+steps[87] = function()
+    check("ezd 预取无播放器失败且仅一跳",
+        steps._ezd_pf_np == false and stub.net_calls == 1)
+    stub.ezd_page = EZD_PAGE_HTML
 end
 
 local function finish()

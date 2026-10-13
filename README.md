@@ -54,7 +54,7 @@
 | animeko | 直连 | `\|ako` | [open-ani](https://github.com/open-ani/animeko) 社区弹幕（Bangumi 元数据），与弹弹play弹幕池互补，多节点自动降级 |
 | 埋堆堆 | 直连 | `\|mdd` | TVB 港剧粤语弹幕，粤语 / 国语版本分列 |
 | AcFun | 直连 | `\|acf` | A站 ACG 弹幕（搜索页 BigPipe 解析，合集分P + 多P视频），断网过期缓存兜底 |
-| ezdmw | 直连 | `\|ezd` | E站弹幕网在线动漫弹幕站，当季新番同步，B站格式弹幕 |
+| ezdmw | 直连 | `\|ezd` | E站弹幕网在线动漫弹幕站，当季新番同步，B站格式弹幕，多季番按「第N季M集」呈现（集数键 S1=纯集数、S2+=季×10000+集） |
 | girigirilove | 直连 | `\|ggl` | girigiri愛動漫繁体向动漫弹幕站，与巴哈繁体弹幕互补；多线路（繁中/简中）弹幕同池 |
 | 爱壹帆 | 直连（App API 逆向） | `\|ayf` | 海外华人流媒体，番剧分区弹幕（该站以影视为主，搜索结果标注媒体类型自挑）；App 签名随版本可能变化，接口域名集中写文件头 |
 | 360kan | 聚合 | `\|ds` `\|dy` `\|dm` | 电视剧 / 电影 / 国漫三路，覆盖爱腾优芒B站源 |
@@ -549,7 +549,7 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 网络拉取的弹幕按 **episodeId**（弹弹play 库）/ **cid**（B站）/ **extcomment URL 哈希**（直连源经弹弹play extcomment 取数）/ **episodeId**（animeko）/ **分集 uuid**（埋堆堆）/ **sn**（巴哈姆特，域名直连路径）/ **videoId + ac号→videoId 映射**（AcFun，两级缓存）/ **videoId**（ezdmw）/ **GVid+线路+集**（girigirilove）/ **mediaKey+videoId**（爱壹帆）落盘缓存（`~~/danmaku-cache/` 下 `ep_*.dcache` / `cid_*.dcache` / `ext_*.dcache` / `ako_*.dcache` / `mdd_*.dcache` / `baha_*.dcache` / `acf_*.dcache` / `acfmap_*.dcache` / `ezd_*.dcache` / `ggl_*.dcache` / `ayf_*.dcache`，单文件 = 首行 JSON 元信息 + 原始载荷）：
 
 - **二刷秒加载**：TTL 内再次播放同一集直接读盘，不发任何网络请求（OSD 标注「弹幕加载成功（缓存）」）
-- **断网可看**：网络请求失败时自动回退使用过期缓存（OSD 标注「（离线缓存）」）——弹弹play / B站 / animeko / 埋堆堆 / 巴哈姆特（域名直连路径）/ AcFun（映射与弹幕两级均兜底）/ ezdmw / girigirilove（播放页 / 弹幕接口 / 接口错误均回退）/ 爱壹帆（密钥引导 / 弹幕接口 / 接口错误均回退）为网络层失败即回退；extcomment 路径仅当**所有服务器都未响应**（真断网）才回退，有响应但无数据仍照常走站直连/兜底路径
+- **断网可看**：网络请求失败时自动回退使用过期缓存（OSD 标注「（离线缓存）」）——弹弹play / B站 / animeko / 埋堆堆 / 巴哈姆特（域名直连路径）/ AcFun（映射与弹幕两级均兜底）/ ezdmw（播放页取到但无弹幕播放器=第三方解析源，属确定性无弹幕：如实提示不回退、不落 dmku 兜底）/ girigirilove（播放页 / 弹幕接口 / 接口错误均回退）/ 爱壹帆（密钥引导 / 弹幕接口 / 接口错误均回退）为网络层失败即回退；extcomment 路径仅当**所有服务器都未响应**（真断网）才回退，有响应但无数据仍照常走站直连/兜底路径
 - 过期条目不删除，正常走网络刷新，成功后覆盖并重置时间戳；空弹幕（count==0）不缓存
 - **离线覆盖范围**：弹弹play 路径下，只要 `danmaku-history.json` 有该文件夹的 episodeId 记录（加载过一次即有），即可完全离线秒载；B站 URL 在线播放时 **cid 解析本身仍需一次网络**（pagelist/season API 无缓存），断网命中仅覆盖外挂弹幕轨（文件名 `数字-.xml`）、`--cid=传参` 与 URL 内嵌 cid 三种情形
 - episodeId 是 dandanplay 全局库 ID，多个兼容服务器共享同一缓存（缓存不区分来源服务器）
@@ -646,16 +646,16 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 | `tests/e2e_pipeline_test.lua` | 模式转换→合并→黑名单→密度→布局全管线（黑名单夹具 `tests/black_e2e.txt` 自足加载，script-opts 传 `blacklist_path` 可覆盖） | `mpv.com --idle=once --no-config --script=tests/e2e_pipeline_test.lua` |
 | `tests/menu_handler_test.lua` | 过滤菜单各项回调、内容菜单索引映射与屏蔽、延迟菜单合计口径 | `mpv.com --idle=once --no-config --script=tests/menu_handler_test.lua` |
 | `tests/menu_multiselect_test.lua` | 选集菜单多选 helper（remember/mark 打标、幂等、计数 footnote、注册表恢复、exclusive 单选互斥、未命中静默、dandanplay load-danmaku 全链路打标 + latest_menu_anime 重嵌、reset 换集清空、remove_same_provider_sources 同源驱逐） | `mpv.com --idle=once --no-config --script=tests/menu_multiselect_test.lua` |
-| `tests/menu_multiselect_site_test.lua` | 站点 add-event 多选改造回归（tencent + maccms + acfun + ezdmw + girigirilove + aiyifan：添加集数后不发 close-menu、add_danmaku_source 记参、同源换选驱逐旧集源 + exclusive 标记替换、update-menu 原地刷新） | `mpv.com --idle=once --no-config --script=tests/menu_multiselect_site_test.lua` |
+| `tests/menu_multiselect_site_test.lua` | 站点 add-event 多选改造回归（tencent + maccms + acfun + ezdmw + girigirilove + aiyifan：添加集数后不发 close-menu、add_danmaku_source 记参、同源换选驱逐旧集源 + exclusive 标记替换、update-menu 原地刷新、ezdmw 多季第二季复合集数键换选（第2季13集）） | `mpv.com --idle=once --no-config --script=tests/menu_multiselect_site_test.lua` |
 | `tests/danmaku_cache_test.lua` | 缓存读写/TTL/断网兜底/容量淘汰（B站路径的缓存读写由本测试覆盖） | `mpv.com --idle=once --no-config --script=tests/danmaku_cache_test.lua` |
 | `tests/danmaku_cache_fetch_test.lua` | 弹弹play 拉取链路缓存命中不发网络（B站下载函数为模块内局部，由单测+手动场景覆盖） | `mpv.com --idle=once --no-config --script=tests/danmaku_cache_fetch_test.lua` |
 | `tests/extcomment_cache_test.lua` | extcomment 直连源拉取链路缓存（命中零网络 / 未命中写缓存 / 损坏条目回网络重写 / 空结果走兜底不缓存 / 断网回退过期缓存 / 键稳定性） | `mpv.com --idle=once --no-config --script=tests/extcomment_cache_test.lua` |
-| `tests/sites_cache_test.lua` | animeko / 埋堆堆 / 巴哈姆特 / AcFun / ezdmw / girigirilove / 爱壹帆 站点直连加载器缓存（命中零网络 / 未命中写缓存 / 断网回退过期缓存 / 合法空不缓存 / 巴哈主端口失败降级端口同写缓存 / AcFun 两级缓存与分页游标聚合 / ezdmw 播放页 nk+sign→getData 链路与主域失败降级备用域 / girigirilove 播放页 player_aaaa→getScrolling 链路、备用域同键命中与接口错误/合法空两口径 / 爱壹帆 home/config 密钥引导→签名 GetBarrages 链路与签名头校验、老链接缺 videoId 补齐、接口错误强刷密钥重试一次、断网不重试、预取伴生函数同键） | `mpv.com --idle=once --no-config --script=tests/sites_cache_test.lua` |
+| `tests/sites_cache_test.lua` | animeko / 埋堆堆 / 巴哈姆特 / AcFun / ezdmw / girigirilove / 爱壹帆 站点直连加载器缓存（命中零网络 / 未命中写缓存 / 断网回退过期缓存 / 合法空不缓存 / 巴哈主端口失败降级端口同写缓存 / AcFun 两级缓存与分页游标聚合 / ezdmw 播放页 nk+sign→getData 链路、主域失败降级备用域、播放页无弹幕播放器（第三方解析源）按确定性无弹幕处理（no_data 判定跳过兜底） / girigirilove 播放页 player_aaaa→getScrolling 链路、备用域同键命中与接口错误/合法空两口径 / 爱壹帆 home/config 密钥引导→签名 GetBarrages 链路与签名头校验、老链接缺 videoId 补齐、接口错误强刷密钥重试一次、断网不重试、预取伴生函数同键） | `mpv.com --idle=once --no-config --script=tests/sites_cache_test.lua` |
 | `tests/acfun_parse_test.lua` | AcFun 搜索页 BigPipe / 视频页 pageInfo / 合集页分P排序 / 弹幕分页解析与缓存载荷 roundtrip（实抓 fixtures） | `mpv.com --idle=once --no-config --script=tests/acfun_parse_test.lua` |
-| `tests/ezdmw_parse_test.lua` | ezdmw 搜索页 some_drama 区（不闭合注释标题）/ 详情页主线线路集数升序 / 播放页 nk+sign 提取（评论区 iframe 不误取）/ 弹幕 B站 XML 解析与实体反转义（实抓 fixtures） | `mpv.com --idle=once --no-config --script=tests/ezdmw_parse_test.lua` |
+| `tests/ezdmw_parse_test.lua` | ezdmw 搜索页 some_drama 区（不闭合注释标题）/ 详情页主线线路集数升序 / 详情页多季「季-集」span 与复合集数键 / 播放页 nk+sign 提取（评论区 iframe 不误取、第三方解析源无弹幕播放器实抓）/ 弹幕 B站 XML 解析与实体反转义（实抓 fixtures） | `mpv.com --idle=once --no-config --script=tests/ezdmw_parse_test.lua` |
 | `tests/ggl_parse_test.lua` | girigirilove 搜索 suggest JSON（同 id 去重）/ 详情页多线路集数（tab 锚定页头导航不混入）/ 播放页 player_aaaa 三档 encrypt 解码与不安全地址拒绝 / 弹幕 JSON mode 映射（2顶→5/3底→4）、8 位色剥 alpha 与畸形条目跳过（实抓 fixtures） | `mpv.com --idle=once --no-config --script=tests/ggl_parse_test.lua` |
 | `tests/aiyifan_parse_test.lua` | 爱壹帆 App 签名（固定向量）与 query 构造（GET 按序/POST 回退 _t）/ 密钥引导 pConfig 解析 / 搜索媒体类型标注 / 选集 uniqueID≠episodeId 分叉与剧场版 videoType=0 / 详情补齐 / 弹幕 position 0滚动/1顶/2底映射与畸形条目跳过（实抓 fixtures） | `mpv.com --idle=once --no-config --script=tests/aiyifan_parse_test.lua` |
-| `tests/fallback_multi_test.lua` | fallback_server 多服务器顺序尝试（失败续试 / 成功即止 / 全失败上报一次 / 空配置静默 / 单服务器与 xml 分支不变） | `mpv.com --idle=once --no-config --script=tests/fallback_multi_test.lua` |
+| `tests/fallback_multi_test.lua` | fallback_server 多服务器顺序尝试（失败续试 / 成功即止 / 全失败上报一次 / 空配置静默 / 单服务器与 xml 分支不变 / ezdmw no_data 判定跳过兜底轮而网络失败仍走兜底） | `mpv.com --idle=once --no-config --script=tests/fallback_multi_test.lua` |
 | `tests/prefetch_plan_test.lua` | 下一集预取任务规划纯函数（锚点推算镜像 dandanplay_flow：慢源独立锚 / 锚==下一集 / 无锚回退 / 重播 / 集数剪裁 / 站点缓存源 ako/mdd 任务 / B站合集推算与回退 / 防御输入） | `mpv.com --idle=once --no-config --script=tests/prefetch_plan_test.lua` |
 | `tests/prefetch_flow_test.lua` | 下一集预取集成（触发门槛：auto_load/缓存/无下一项/异文件夹/无记忆；全链路五类任务入缓存且键与正式加载一致；TTL 命中零网络；armed 每文件一次；B站记忆 off 剪裁；断网静默） | `mpv.com --idle=once --no-config --script=tests/prefetch_flow_test.lua` |
 | `tests/tencent_parse_test.lua` | 腾讯搜索/剧集/弹幕条目解析（MainNeed 优先、预告过滤、content_style 字符串化 JSON 与渐变首色） | `mpv.com --idle=once --no-config --script=tests/tencent_parse_test.lua` |

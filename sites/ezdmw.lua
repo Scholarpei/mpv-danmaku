@@ -4,10 +4,13 @@
 -- 单级磁盘缓存：ezd:{videoId} → getData 原始 XML（B站标准格式，读回走同一 parse 路径；
 --   弹幕资源名 nk 与 videoId 一一对应，无需 AcFun 式页面映射缓存）
 -- sign 每请求轮换（实测两次连抓同一播放页即不同）且不可缓存：每次加载先取播放页提取
---   新 nk+sign 再取弹幕；播放页请求/解析失败按网络失败口径走过期缓存兜底
+--   新 nk+sign 再取弹幕；播放页网络失败走过期缓存兜底（断网可看）
+-- ⚠️ 播放页取到但无弹幕播放器 iframe（第三方解析源，圣诞之吻SS 实测）= E站未给该集绑
+--   弹幕资源，确定性无弹幕：如实提示、不消费过期缓存、回调带 no_data 判定（调度层
+--   跳过 dmku 兜底——dmku 只按主流站点 URL 索引，永远不会有 ezdmw.org 数据）
 -- 弹幕接口双域：主域 player.ezdmw.com，备用域 player.danmuzf.vip 同路径降级（animeko
 --   节点降级范本）；任一域有响应即用，全败走过期缓存兜底（断网可看）
--- 成功且解析非空写缓存；合法空结果（该集确无弹幕）不缓存
+-- 成功且解析非空写缓存；合法空结果（该集确无弹幕）不缓存、同样带 no_data 判定
 
 local msg = require('mp.msg')
 local utils = require("mp.utils")
@@ -82,7 +85,8 @@ local function fetch_player_page(video_id, callback)
 end
 
 -- videoId → {nk, sign}（每次现取播放页：sign 每请求轮换不可缓存）
--- 网络/解析失败 callback(nil)
+-- 网络失败 callback(nil)；页面取到但无弹幕播放器 iframe callback({no_player=true})
+-- （第三方解析源，E站未绑弹幕资源——确定性无弹幕，调用方按 no_data 口径处理）
 local function resolve_nk_sign(video_id, callback)
     fetch_player_page(video_id, function(html)
         if not html then
@@ -91,8 +95,8 @@ local function resolve_nk_sign(video_id, callback)
         end
         local parsed = eparse.parse_player(html)
         if not parsed.ok then
-            msg.warn('ezdmw 播放页解析失败 videoId=' .. tostring(video_id))
-            callback(nil)
+            msg.warn('ezdmw 播放页无弹幕播放器 videoId=' .. tostring(video_id))
+            callback({ no_player = true })
             return
         end
         callback(parsed)
@@ -192,6 +196,13 @@ function load_danmaku_for_ezdmw(path, callback)
             try_stale()
             return
         end
+        if info.no_player then
+            -- 播放页取到但无弹幕播放器：E站未给该集绑弹幕资源（第三方解析源），
+            -- 确定性无弹幕——如实提示，不消费过期缓存（弹幕资源都不会有）
+            show_message('E站该集无弹幕资源', 3)
+            callback(false, true)
+            return
+        end
         fetch_danmaku(info.nk, info.sign, function(raw)
             if raw == nil then
                 try_stale()
@@ -199,9 +210,9 @@ function load_danmaku_for_ezdmw(path, callback)
             end
             local comments = parse_payload(raw) or {}
             if #comments == 0 then
-                -- 该集确实无弹幕（合法空结果）不缓存
+                -- 该集确实无弹幕（合法空结果）不缓存；no_data 判定供调度层跳过 dmku 兜底
                 show_message('好像没有弹幕哦', 3)
-                callback(false)
+                callback(false, true)
                 return
             end
             -- 3) 成功且非空写缓存（原始 XML）后走原路径
@@ -219,7 +230,8 @@ function prefetch_ezdmw_danmaku(video_id, callback)
     local key = danmaku_key(video_id)
     if dcache.get(key) then callback(true) return end
     resolve_nk_sign(video_id, function(info)
-        if not info then
+        if not info or info.no_player then
+            -- 无弹幕播放器同网络失败口径：不写缓存即失败（加载路径由用户侧如实提示）
             callback(false)
             return
         end

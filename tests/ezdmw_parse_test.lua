@@ -77,6 +77,43 @@ do -- parse_detail：单集剧场版（命运石之门 负荷领域的既视感�
         utils.format_json(parsed.episodes))
 end
 
+do -- parse_detail：多季合并详情页（圣诞之吻SS：S1 26 集 + S2「2-XX」13 集同页，仅主线线路）
+    -- ⚠️ 多季番 span 为「{季}-{集}」格式（2-13=第二季第13集），纯 (%d+) 模式会静默丢整季
+    local parsed = eparse.parse_detail(read_file("ezd_detail_multiseason.html"))
+    check("多季详情 ok", parsed.ok)
+    check("多季集数=39（S1 26 + S2 13，备用/导入线路不混入）", #parsed.episodes == 39,
+        ("got %d"):format(#parsed.episodes))
+    check("S1 首集 ep=1 season=1 videoId=32869", parsed.episodes[1].ep == 1
+        and parsed.episodes[1].season == 1 and parsed.episodes[1].video_id == "32869",
+        utils.format_json(parsed.episodes[1]))
+    check("S1 末集 ep=26 videoId=32894", parsed.episodes[26].ep == 26
+        and parsed.episodes[26].season == 1 and parsed.episodes[26].video_id == "32894",
+        utils.format_json(parsed.episodes[26]))
+    check("S2 首集（2-01）ep=1 season=2 videoId=51158", parsed.episodes[27].ep == 1
+        and parsed.episodes[27].season == 2 and parsed.episodes[27].video_id == "51158",
+        utils.format_json(parsed.episodes[27]))
+    check("S2 末集（2-13）ep=13 season=2 videoId=51170", parsed.episodes[39].ep == 13
+        and parsed.episodes[39].season == 2 and parsed.episodes[39].video_id == "51170",
+        utils.format_json(parsed.episodes[39]))
+    check("排序 S1 升序在前、S2 升序在后", (function()
+        for i = 2, #parsed.episodes do
+            local a, b = parsed.episodes[i - 1], parsed.episodes[i]
+            if a.season > b.season then return false end
+            if a.season == b.season and a.ep >= b.ep then return false end
+        end
+        return true
+    end)())
+end
+
+do -- 季集复合键/标签：S1 恒为纯集数（单季旧历史 back-compat），S2+ 为 season*10000+ep
+    check("key S1 透传纯集数", eparse.episode_key(1, 26) == 26 and eparse.episode_key(1, 1) == 1)
+    check("key S2E13 复合", eparse.episode_key(2, 13) == 20013)
+    check("key S2+ 恒 >10000 不与单季纯集数碰撞", eparse.episode_key(2, 1) == 20001)
+    check("label 单季", eparse.episode_label(26) == "第26集")
+    check("label 第二季", eparse.episode_label(20013) == "第2季13集")
+    check("label/key 往返（跨季）", eparse.episode_label(eparse.episode_key(3, 7)) == "第3季7集")
+end
+
 do -- parse_player：Re:0 第四季 ep19 播放页（弹幕播放器 iframe 内嵌 nk + sign）
     local parsed = eparse.parse_player(read_file("ezd_player.html"))
     check("播放页 ok", parsed.ok)
@@ -93,6 +130,11 @@ do -- parse_player：Re:0 第四季 ep19 播放页（弹幕播放器 iframe 内�
     end)())
     check("缺 sign 无匹配", eparse.parse_player(
         '<iframe src="https://player.ezdmw.com/danmuku/?nk=abc/abc_01"></iframe>').ok == false)
+    do -- 第三方解析源播放页实抓（圣诞之吻SS ep1）：仅 jx.aidouer.net 解析 iframe + 评论区
+        -- iframe、无 E站弹幕播放器 → ok=false（E站未给该集绑弹幕资源，无 nk/sign 可取）
+        local np = eparse.parse_player(read_file("ezd_player_noplayer.html"))
+        check("第三方解析源播放页无弹幕播放器", np.ok == false and np.nk == nil and np.sign == nil)
+    end
     check("空页面安全", eparse.parse_player("<html></html>").ok == false)
     check("非字符串安全", eparse.parse_player(nil).ok == false)
 end

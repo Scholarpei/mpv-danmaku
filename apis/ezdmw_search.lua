@@ -4,7 +4,9 @@
 --   选条目后抓 /Index/bangumi/{bangumiId}.html 集数列表（主线线路）渲染选集菜单 →
 --   选集后拼 https://www.ezdmw.org/Index/video/{videoId}.html 规范 URL 交给
 --   add_danmaku_source 现有管线（ezdmw 域名跳过 extcomment 直连 sites/ezdmw.lua）
--- 历史续载：DANMAKU.extra 记 kind="ezd"（含 bangumi_id，续载重抓集数表按集数号定位
+-- 多季番：详情页 span 为「{季}-{集}」（2-13=第二季第13集），菜单/续载/预取的集数定位
+--   一律用 eparse.episode_key(season, ep) 复合键（S1 纯集数兼容旧历史，S2+ 季*10000+集）
+-- 历史续载：DANMAKU.extra 记 kind="ezd"（含 bangumi_id，续载重抓集数表按集数复合键定位
 --   目标集的 videoId——videoId 每集独立且与集数无规律，必须重查），main.lua 的
 --   dandanplay_flow 按 kind 分发
 
@@ -47,7 +49,8 @@ end
 
 -- ============ 选集列表（菜单与续载共用） ============
 
--- bangumiId → 集数列表 [{video_id, ep}]（主线线路，按集数升序=正片顺序）
+-- bangumiId → 集数列表 [{video_id, ep, season}]（主线线路，按 (季,集) 升序=正片顺序；
+-- 多季番 season>1，集数定位一律用 eparse.episode_key(season, ep) 复合键）
 local function fetch_ezdmw_episodes(bangumi_id, callback)
     fetch_page(BANGUMI_PAGE .. tostring(bangumi_id) .. ".html", 15, function(html)
         if not html then
@@ -68,7 +71,7 @@ end
 local function load_ezdmw_danmaku(bangumi_id, video_id, episodenum, title)
     ENABLED = true
     DANMAKU.anime = title
-    DANMAKU.episode = "第" .. episodenum .. "集"
+    DANMAKU.episode = eparse.episode_label(episodenum)
     DANMAKU.source = "ezd"
     DANMAKU.extra = {
         kind = "ezd",
@@ -84,7 +87,7 @@ local function load_ezdmw_danmaku(bangumi_id, video_id, episodenum, title)
         { anime = DANMAKU.anime, episode = DANMAKU.episode, kind = "ezd" })
 end
 
--- 历史续载入口：按 kind="ezd" 记录重抓集数表、按集数号定位目标集的 videoId，
+-- 历史续载入口：按 kind="ezd" 记录重抓集数表、按集数复合键定位目标集的 videoId，
 -- 由 main.lua 调入；超出集数按失败上报不静默
 function resume_ezdmw_episode(extra, episodenum)
     fetch_ezdmw_episodes(extra.bangumi_id, function(eps)
@@ -94,28 +97,29 @@ function resume_ezdmw_episode(extra, episodenum)
         end
         local target
         for _, e in ipairs(eps) do
-            if e.ep == tonumber(episodenum) then
+            if eparse.episode_key(e.season, e.ep) == tonumber(episodenum) then
                 target = e
                 break
             end
         end
         if not target then
             source_status.mark_failed("extra:ezd",
-                ("第 %d 集｜共 %d 集"):format(episodenum, #eps), "ezdmw弹幕续载失败")
+                eparse.episode_label(episodenum) .. "｜共 " .. #eps .. " 集",
+                "ezdmw弹幕续载失败")
             return
         end
         load_ezdmw_danmaku(extra.bangumi_id, target.video_id, episodenum, extra.title)
     end)
 end
 
--- 下一集预取：目标集数 → 对应 videoId → 拉弹幕写 ezd: 磁盘缓存（sites/ezdmw.lua；
+-- 下一集预取：目标集数复合键 → 对应 videoId → 拉弹幕写 ezd: 磁盘缓存（sites/ezdmw.lua；
 -- 仅取集数表与弹幕，无 OSD/history/sources 副作用，与 resume 路径同源）
 function prefetch_ezdmw_episode(extra, episodenum, callback)
     callback = callback or function() end
     fetch_ezdmw_episodes(extra.bangumi_id, function(eps)
         local target
         for _, e in ipairs(eps) do
-            if e.ep == tonumber(episodenum) then
+            if eparse.episode_key(e.season, e.ep) == tonumber(episodenum) then
                 target = e
                 break
             end
@@ -251,10 +255,12 @@ mp.register_script_message("get-ezd-event", function(bangumi_id, title)
             },
         }
         for _, e in ipairs(eps) do
+            -- 多季番标题与集数键均按复合键派生（第2季13集 / 20013）
+            local key = eparse.episode_key(e.season, e.ep)
             items[#items + 1] = {
-                title = "第" .. e.ep .. "集",
+                title = eparse.episode_label(key),
                 value = { "script-message-to", mp.get_script_name(), "add-ezd-event",
-                    tostring(bangumi_id), e.video_id, tostring(e.ep), title },
+                    tostring(bangumi_id), e.video_id, tostring(key), title },
                 keep_open = true,
             }
         end

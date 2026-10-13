@@ -1,8 +1,9 @@
 -- 站点 add-XX-event 多选改造回归测试（tencent + maccms + acfun + ezdmw + girigirilove +
--- aiyifan 六站）：
+-- aiyifan 六站 + ezdmw 多季复合集数键）：
 -- 添加集数后不再向 uosc 发 close-menu（菜单保持打开）、add_danmaku_source 被
 -- 以预期参数调用（tencent/acfun）、同源换选驱逐旧集源（数据层单选收紧）+ 旧标记
--- 清除新标记高亮（标记层 exclusive）、update-menu 原地刷新
+-- 清除新标记高亮（标记层 exclusive）、update-menu 原地刷新、
+-- ezdmw 多季番第二季以 season*10000+ep 复合键换选（显示名 第2季13集）
 -- 运行：mpv.com --idle=once --no-config --script=<本文件路径>
 -- 退出码非 0 或输出含 FAIL 即失败
 
@@ -296,6 +297,40 @@ local steps = {
             st.items[2].active == nil and st.items[2].hint == nil
                 and st.items[3].active == true and st.items[3].hint == "已添加")
         check("6e 原地刷新走 update-menu", sent[#sent] ~= nil and sent[#sent].cmd == "update-menu")
+
+        -- ===== ezdmw 多季：第二季换选（span「2-13」→ 复合集数键 20013，标题 第2季13集）=====
+        local z2_items = {
+            { title = "↩️ 返回搜索结果",
+                value = { "script-message-to", "uosc", "open-menu", "{}" },
+                keep_open = false, selectable = true },
+            { title = "第26集",
+                value = { "script-message-to", name, "add-ezd-event",
+                    "32869", "32894", "26", "圣诞之吻SS" },
+                keep_open = true },
+            { title = "第2季13集",
+                value = { "script-message-to", name, "add-ezd-event",
+                    "32869", "51170", "20013", "圣诞之吻SS" },
+                keep_open = true },
+        }
+        remember_details_menu("menu_details", "圣诞之吻SS", z2_items, "使用 / 打开筛选", true)
+        mp.commandv("script-message-to", name, "add-ezd-event",
+            "32869", "51170", "20013", "圣诞之吻SS")
+    end,
+    function()
+        local st = current_details_menu
+        check("7 ezdmw 多季添加不发 close-menu", close_menu_count() == 0)
+        check("7b 第二季以复合键正确落源",
+            #stub.sources == 11
+                and stub.sources[11].query == "https://www.ezdmw.org/Index/video/51170.html"
+                and stub.sources[11].from_menu == true and stub.sources[11].provider == "ezdmw")
+        check("7c 集显示名派生为 第2季13集", DANMAKU.episode == "第2季13集",
+            tostring(DANMAKU.episode))
+        check("7d 复合集数键入 extra（续载/预取按此定位）",
+            DANMAKU.extra ~= nil and DANMAKU.extra.episodenum == 20013
+                and DANMAKU.extra.bangumi_id == "32869")
+        check("7e 标记层高亮与原地刷新",
+            st.items[3].active == true and sent[#sent] ~= nil
+                and sent[#sent].cmd == "update-menu")
 
         print(failures == 0 and "ALL PASS" or (failures .. " FAILED"))
         -- os.exit 直杀：mpv 正常 quit 的关机路径在 Windows 控制台代理下偶发挂起（测试环境已知问题）
