@@ -44,7 +44,7 @@
 
 | 弹幕源 | 接入方式 | 单搜后缀 | 备注 |
 | --- | --- | --- | --- |
-| 弹弹play 开放弹幕网络 | 默认 API 代理，开箱即用 | `@备注` 选服务器 | 走项目维护代理，无需注册；可自设多个 `api_server` 并发先到先用，亦兼容 [danmu-api 自建服务](#自建弹幕服务器danmu-api-兼容) |
+| 弹弹play 开放弹幕网络 | 默认 API 代理，开箱即用 | `@备注` 选服务器 | 走项目维护代理，无需注册；可自设多个 `api_server` 并发先到先用，亦兼容 [danmu-api 自建服务](#自建弹幕服务器danmu-api-兼容)；搜索优先打无 25 条上限的 `/api/v2/search/episodes`（v2），服务器不放行时自动回退 `/api/v2/search/anime`（详见[弹弹play 搜索端点](#弹弹play-搜索端点v2-与回退)） |
 | 腾讯视频 | 直连 | `\|tx` | 公开搜索接口，搜剧 → 选集一步到位 |
 | 优酷 | 直连 | `\|yk` | 版权内容直连（站外条目自动过滤），花絮 / 预告剔除 |
 | 爱奇艺 | 直连 | `\|iq` | 分集列表直接取自搜索响应，超长剧集（1000+ 集）无截断 |
@@ -100,6 +100,7 @@
 | `\|mac` | MacCMS 采集站（需配置 [`maccms_servers`](#弹幕源搜索)） |
 
 - 聚合与非 dandanplay 源的条目选中后，弹幕获取自动走现有管线：先尝试各 `api_server` 的 extcomment，失败回退域名直连（腾讯条目即直连腾讯弹幕接口），最后由 `fallback_server`（dmku / danmu.icu 协议，多服务器顺序尝试）兜底；animeko / 埋堆堆 / AcFun / ezdmw / girigirilove / 爱壹帆 这类弹弹play 不支持的域名会跳过 extcomment 直接直连，不浪费等待
+- **弹弹play 搜索无 25 条上限**（v2 端点 + 自动回退）：搜索优先打 `/api/v2/search/episodes?anime=&v2=true`，服务器不放行时按台回退 `/api/v2/search/anime` 并记住能力——详见[弹弹play 搜索端点](#弹弹play-搜索端点v2-与回退)
 - **选集菜单多选**：点击集数后菜单保持打开，已添加集数高亮标注（hint 追加「已添加」、底部计数），可点「↩️ 返回搜索结果」换下一个源叠加——一次搜索配齐多源，无需重复搜索；**同源单选**：每个源同一时刻只保留最新选中的一集（换选即替换——旧集弹幕源被驱逐、标记清除，与弹弹play 的按集拉取语义一致），跨源叠加不受影响
 - **换集自动续载（多源并行）**：选过的剧记入文件夹历史，换集时全部源一起按集数差自动定位续载，详见[文件夹弹幕记忆](#文件夹弹幕记忆)
 - `|tx` 顺手修复了腾讯弹幕颜色恒为白色的问题：接口的 `content_style` 实为字符串化 JSON，渐变弹幕取首色呈现
@@ -262,11 +263,21 @@ B站多分P合集（多季混排、剧场版夹杂的投稿）不用每集贴一
 api_server=http://192.168.1.5:9321
 ```
 
-- 端点兼容 `/api/v2/search/anime`、`/api/v2/match`、`/api/v2/bangumi`、`/api/v2/comment/{id}`、`/api/v2/extcomment`——本脚本的哈希匹配 / 搜索匹配 / URL 取弹幕全流程可用
+- 端点兼容 `/api/v2/search/anime`、`/api/v2/search/episodes`、`/api/v2/match`、`/api/v2/bangumi`、`/api/v2/comment/{id}`、`/api/v2/extcomment`——本脚本的哈希匹配 / 搜索匹配 / URL 取弹幕全流程可用
 - **token 是 URL 路径前缀**：服务端自定义 token 后填 `api_server=http://host:9321/你的token`（默认 token 可省略），URL 拼接方式天然兼容
 - 对 `api.dandanplay.net` 的 AppId/Signature 签名头只按域名自动附加，第三方服务器自动免签
 - 可与其它服务器逗号分隔混排、`|` / `#` 追加备注，多服务器并发先到先用
 - 其 XML 输出为B站格式（本脚本默认请求 JSON，不受影响）
+- 其 `/api/v2/search/episodes` 实现无 25 条结果上限且带 `hasMore` 截断标志——作为 `api_server` 时本脚本的弹弹play 搜索自动走 v2 端点（见[弹弹play 搜索端点](#弹弹play-搜索端点v2-与回退)），免探测回退
+
+### 弹弹play 搜索端点（v2 与回退）
+
+弹弹play 搜索按服务器逐台选用端点：
+
+- **优先 `/api/v2/search/episodes?anime={关键词}&v2=true`**——官方 v2 搜索端点，**无 25 条结果上限**（旧 `/api/v2/search/anime` 每次最多 25 条，宽关键词易截断）；`hasMore=true` 表示结果集被截断（该端点无翻页参数，只能收窄关键词），分组尾部会出一行提示
+- **不放行的服务器自动回退**：响应形状不含 `animes`/`hasMore` 键（如默认代理对白名单外端点返回 404 `Unsupported API`）即判不支持，立刻改打 `/api/v2/search/anime` 重试该服务器；结论按服务器记入会话级能力记忆——默认代理用户仅首次搜索多一次 404 往返，之后零成本；自建 [danmu-api](#自建弹幕服务器danmu-api-兼容) 已实现 v2 端点，配好即自动生效
+- 网络失败 / 超时不算「不支持」证据，不下结论只影响当次（下次仍先探测）；v2 响应内嵌的分集列表有意不用，选集恒走 `/api/v2/bangumi/{id}`（与旧端点同一流程，官方语义下内嵌列表可能截断）
+- 兼容性注：官方 `api.dandanplay.net` 整域对本项目测试网络 403（IP 屏蔽），v2 响应形状以 Kazumi / danmu-api 实现交叉核对；`/api/v2/bangumi/bgmtv/{bgmId}`（Bangumi 条目直映射弹弹番剧）因默认代理与自建 danmu-api 均无实现且官方直连不可达，暂不接入
 
 ### 公共兜底服务器
 
@@ -670,8 +681,9 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 | `tests/animeko_items_test.lua` | animeko 搜索/MAIN 过滤/弹幕解析（顶层 `danmakuList`、location→mode 映射） | `mpv.com --idle=once --no-config --script=tests/animeko_items_test.lua` |
 | `tests/maiduidui_items_test.lua` | 埋堆堆签名确定性、分组搜索/分集/弹幕解析（颜色兜底） | `mpv.com --idle=once --no-config --script=tests/maiduidui_items_test.lua` |
 | `tests/iqiyi_items_test.lua` | 爱奇艺搜索/分集解析（站外与短剧频道过滤、videos 分集提取与排序、专访/坏条目剔除） | `mpv.com --idle=once --no-config --script=tests/iqiyi_items_test.lua` |
-| `tests/search_hub_test.lua` | 聚合搜索纯函数（分组构建 / 进度行 / provider 标签映射） | `mpv.com --idle=once --no-config --script=tests/search_hub_test.lua` |
+| `tests/search_hub_test.lua` | 聚合搜索纯函数（分组构建含 hasMore 截断提示行 / 进度行 / provider 标签映射 / 弹弹play v2+旧端点搜索响应解析归一——animeId→bangumiId 字符串归一、Unsupported API 判不支持、畸形条目跳过；fixtures：代理实抓 ×2 + danmu-api 形状合成 ×2） | `mpv.com --idle=once --no-config --script=tests/search_hub_test.lua` |
 | `tests/search_hub_flow_test.lua` | 聚合搜索编排流（stub 各源 fetch，验证聚合 / 超时 / 取消 / @备注过滤） | `mpv.com --idle=once --no-config --script=tests/search_hub_flow_test.lua` |
+| `tests/ddp_search_fallback_test.lua` | 弹弹play 搜索 v2 端点探测/回退流（stub parallel_requests：探测轮→不支持即时回退轮/会话级能力记忆不支持只探一次·支持恒走 v2/网络失败不回退不下结论/混合能力两轮并行分拣/跨服务器跨端点 bangumiId 去重/has_more 透传与截断行/取消传导迟到丢弃/进度分母随回退扩大/全错口径/零服务器守卫） | `mpv.com --idle=once --no-config --script=tests/ddp_search_fallback_test.lua` |
 | `tests/history_merge_test.lua` | 文件夹记忆多源合并（旧 extra 迁移、同 kind 替换、dandanplay/直连源互不挤占、残留防护） | `mpv.com --idle=once --no-config --script=tests/history_merge_test.lua` |
 | `tests/source_status_test.lua` | 多源加载状态聚合器（会话生命周期、逐源汇总格式化，44 用例） | `mpv.com --idle=once --no-config --script=tests/source_status_test.lua` |
 | `tests/timeline_align_test.lua` | 跨源时间轴对齐（投票/四重门槛含支持跨度/归一化/基准选择/双重校正防护/skip 固定/片尾附加内容防护 + 管线集成、手动微调 pin 流程与 XML 导出） | `mpv.com --idle=once --no-config --script=tests/timeline_align_test.lua` |

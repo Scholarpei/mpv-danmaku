@@ -1,0 +1,29 @@
+{
+  "errorCode": 0,
+  "success": true,
+  "errorMessage": "",
+  "hasMore": false,
+  "animes": [
+    {
+      "animeId": 17617,
+      "animeTitle": "葬送的芙莉莲",
+      "type": "tvseries",
+      "typeDescription": "TV动画",
+      "episodes": [
+        { "episodeId": 176170001, "episodeTitle": "第1话 冒险结束" },
+        { "episodeId": 176170002, "episodeTitle": "第2话 不见得一定是靠魔法…" },
+        { "episodeId": 176170003, "episodeTitle": "第3话 杀人魔法" },
+        { "episodeId": 176170004, "episodeTitle": "第4话 灵魂长眠之地" }
+      ]
+    },
+    {
+      "animeId": 18886,
+      "animeTitle": "葬送的芙莉莲 第二季",
+      "type": "tvseries",
+      "typeDescription": "TV动画",
+      "episodes": [
+        { "episodeId": 188860001, "episodeTitle": "第1话" }
+      ]
+    }
+  ]
+}

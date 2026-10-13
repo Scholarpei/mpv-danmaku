@@ -4,6 +4,17 @@
 -- 后缀 |tx/|mac/|ds 等单源流程不走此文件（仍在各 api 模块内）；@备注 仅作用于 dandanplay 组。
 -- 取消：菜单关闭 → cancel-active-request → set_active_request 注册的 cancel_all；
 --   迟到回调由 session.aborted / task.done 双 guard 丢弃。
+--
+-- dandanplay 组用 /api/v2/search/episodes?anime=&v2=true 取代 /api/v2/search/anime 搜索：
+--   v2 端点无 25 条结果上限（官方语义，Kazumi/animeko 等客户端同款用法），hasMore=true 表示
+--   结果集被截断（该端点无翻页参数，只能收窄关键词，分组尾部出一行提示）。
+--   兼容性：端点并非所有 api_server 都放行（默认代理 danmaku-api.152468.xyz 白名单未含，
+--   返回 404 "Unsupported API"；自建 danmu-api 已实现；官方直连需注册凭证）。故按服务器
+--   探测 + 会话级能力记忆：未知/已支持的服务器先打 v2 端点，响应形状明确不支持（合法 JSON
+--   但无 animes/hasMore 键）才标记不支持并即时回退旧端点重试该服务器——网络失败/超时不算
+--   不支持证据（只影响本次、不下结论），默认代理用户仅首次搜索多一次 404 往返。
+--   v2 响应内嵌的 episodes[] 有意不用（选集恒走 /bangumi/{id}，保持与旧端点同一流程——
+--   官方语义下内嵌列表可能截断，且聚合菜单内嵌集数会显著膨胀菜单 JSON）。
 
 local msg = require("mp.msg")
 local utils = require("mp.utils")
@@ -74,6 +85,47 @@ function M.empty_overall_row()
     }
 end
 
+-- dandanplay v2 搜索 hasMore=true 时的组内尾部提示行（结果被截断、无翻页参数）
+function M.truncation_row()
+    return {
+        title = "ⓘ 结果过多已截断，可细化关键词",
+        value = "",
+        italic = true,
+        muted = true,
+        keep_open = true,
+        selectable = false,
+        align = "center",
+    }
+end
+
+-- /api/v2/search/episodes（v2）或 /api/v2/search/anime（旧）响应解析与归一（纯函数）
+-- 两端点响应同构度足够共用：判定「支持」看形状（合法表且含 animes 或 hasMore 键）——
+--   默认代理对白名单外端点回 {"success":false,"errorMessage":"Unsupported API"}（无两键）→ 不支持。
+-- 归一为旧端点条目形状：bangumiId 统一取 anime.bangumiId 或 anime.animeId（v2 只有 animeId，
+--   两值在弹弹play语义下相同）并 tostring——menu.lua embed_episodes 的 value[5] == 集数消息参数
+--   （恒字符串）匹配依赖两侧同为字符串；typeDescription/type 透传供菜单 hint。
+-- 返回 { supported=bool, animes={...}, has_more=bool }；条目缺 animeTitle 或缺两 id 整条跳过。
+function M.parse_search_episodes(d)
+    local result = { supported = false, animes = {}, has_more = false }
+    if type(d) ~= "table" then return result end
+    if d.animes == nil and d.hasMore == nil then return result end
+    result.supported = true
+    result.has_more = d.hasMore == true
+    if type(d.animes) ~= "table" then return result end
+    for _, anime in ipairs(d.animes) do
+        if type(anime) == "table" and anime.animeTitle ~= nil
+            and (anime.bangumiId ~= nil or anime.animeId ~= nil) then
+            result.animes[#result.animes + 1] = {
+                animeTitle = anime.animeTitle,
+                bangumiId = tostring(anime.bangumiId or anime.animeId),
+                typeDescription = anime.typeDescription,
+                type = anime.type,
+            }
+        end
+    end
+    return result
+end
+
 -- 等待期进度行：必须位于 items[1] 且 italic+icon=spinner，
 -- 供 menu.lua strip_loading_from_latest_menu_anime 识别剥离
 function M.progress_row(title)
@@ -89,7 +141,8 @@ function M.progress_row(title)
 end
 
 -- results: { [key] = {items={...}} 或 {err="..."} }；nil 的 key 整组跳过（源未参与）。
--- 规则：err 组=组头+错误行；空 items 组整组隐藏（连组头都不出）；全空 → 单行「无结果」。
+-- 规则：err 组=组头+错误行；空 items 组整组隐藏（连组头都不出）；全空 → 单行「无结果」；
+--   has_more=true（dandanplay v2 搜索截断）在组内条目后追加一行提示。
 function M.build_grouped_items(results)
     local out = {}
     for _, key in ipairs(M.GROUP_ORDER) do
@@ -102,6 +155,9 @@ function M.build_grouped_items(results)
                 out[#out + 1] = M.group_header(GROUP_LABEL[key])
                 for _, it in ipairs(r.items) do
                     out[#out + 1] = it
+                end
+                if r.has_more then
+                    out[#out + 1] = M.truncation_row()
                 end
             end
         end
@@ -138,8 +194,16 @@ end
 
 -- ============ 取数适配器 ============
 
--- dandanplay 组：全部 api_server 并发（沿旧 get_animes 的扇出/跨服务器去重/配置顺序拼接语义）
--- sink: { progress(done, total), done(result) }；返回取消函数
+-- dandanplay /search/episodes 服务器能力记忆（模块级会话缓存）：url -> true|false，nil=未探测。
+-- 仅在确定性证据下标记：响应为合法 JSON 且含 animes/hasMore 键 → true；合法 JSON 但缺两键
+-- （如默认代理的 "Unsupported API"）→ false。网络失败/超时不标记——只影响本次搜索。
+local episodes_capability = {}
+
+-- dandanplay 组：全部 api_server 并发（沿旧 get_animes 的扇出/跨服务器去重/配置顺序拼接语义）。
+-- 端点选择见文件头：未探测/已支持的服务器打 /search/episodes?anime=&v2=true，已确认不支持
+-- （或本轮探测失败回退）的打 /search/anime?keyword=；探测不支持即时发起旧端点回退轮。
+-- sink: { progress(done, total), done(result) }；result 为 {items=, has_more=} 或 {err=}；
+--   返回取消函数（取消全部在途轮，回退轮不再发起）。
 function M.start_dandan_search(query, server_metas, sink)
     local servers, notes = {}, {}
     for _, m in ipairs(server_metas) do
@@ -150,32 +214,28 @@ function M.start_dandan_search(query, server_metas, sink)
     end
 
     local encoded = url_encode(query)
-    local build_args = function(server)
-        return make_danmaku_request_args("GET",
-            server .. "/api/v2/search/anime?keyword=" .. encoded)
-    end
 
     local buckets, seen = {}, {}
-    local err_count, done_count = 0, 0
-    return parallel_requests(servers, build_args, function(server, err, out)
-        done_count = done_count + 1
-        if err == nil then
-            local data = utils.parse_json(out)
-            for _, anime in ipairs((data and data.animes) or {}) do
-                local key = anime.bangumiId
-                    or (anime.animeTitle and anime.animeTitle:gsub("%s+", " ") or nil)
-                if key and not seen[key] then
-                    seen[key] = true
-                    buckets[server] = buckets[server] or {}
-                    buckets[server][#buckets[server] + 1] =
-                        build_dandanplay_menu_item(anime, server, notes[server])
-                end
+    local err_count, done_count, total = 0, 0, 0
+    local has_more = false
+    local aborted = false
+    local active_cancels, active_rounds = {}, 0
+
+    local function add_animes(server, animes)
+        for _, anime in ipairs(animes) do
+            local key = anime.bangumiId
+                or (anime.animeTitle and anime.animeTitle:gsub("%s+", " ") or nil)
+            if key and not seen[key] then
+                seen[key] = true
+                buckets[server] = buckets[server] or {}
+                buckets[server][#buckets[server] + 1] =
+                    build_dandanplay_menu_item(anime, server, notes[server])
             end
-        else
-            err_count = err_count + 1
         end
-        sink.progress(done_count, #servers)
-    end, function()
+    end
+
+    local function finish()
+        if aborted then return end
         -- 按配置的 server 顺序拼接（与旧 get_animes 终版一致）
         local items = {}
         for _, srv in ipairs(servers) do
@@ -183,12 +243,87 @@ function M.start_dandan_search(query, server_metas, sink)
                 items[#items + 1] = it
             end
         end
-        if #items == 0 and #servers > 0 and err_count == #servers then
+        -- 全部请求（含回退轮）皆网络失败才报「请求失败」；形状不支持但服务器活着不在此列
+        if #items == 0 and #servers > 0 and total > 0 and err_count == total then
             sink.done({ err = "请求失败" })
         else
-            sink.done({ items = items })
+            sink.done({ items = items, has_more = has_more })
         end
-    end, { concurrency = 5, per_request_timeout = M.PER_SOURCE_TIMEOUT })
+    end
+
+    -- 一轮并发请求；round_servers 用同一端点。use_episodes 决定端点与不支持时的回退排队。
+    local function run_round(round_servers, use_episodes)
+        total = total + #round_servers
+        local fallback_queue = {}
+
+        local function build_args(server)
+            local url
+            if use_episodes then
+                url = server .. "/api/v2/search/episodes?anime=" .. encoded .. "&v2=true"
+            else
+                url = server .. "/api/v2/search/anime?keyword=" .. encoded
+            end
+            return make_danmaku_request_args("GET", url)
+        end
+
+        active_rounds = active_rounds + 1
+        local round_cancel = parallel_requests(round_servers, build_args,
+            function(server, err, out)
+                done_count = done_count + 1
+                if err == nil then
+                    local parsed = M.parse_search_episodes(utils.parse_json(out))
+                    if parsed.supported then
+                        if use_episodes then
+                            episodes_capability[server] = true
+                        end
+                        if parsed.has_more then has_more = true end
+                        add_animes(server, parsed.animes)
+                    elseif use_episodes then
+                        -- 形状明确不支持（非网络失败）：记能力、排旧端点回退轮
+                        episodes_capability[server] = false
+                        fallback_queue[#fallback_queue + 1] = server
+                    end
+                    -- 旧端点响应形状不完整：与旧行为一致——贡献零条目、不计错误
+                else
+                    -- 网络失败：不算不支持证据（不标能力），v2 探测轮也不回退——
+                    -- 服务器已不可达时再打一轮只会白等（整体「请求失败」口径见 finish）
+                    err_count = err_count + 1
+                end
+                sink.progress(done_count, total)
+            end,
+            function()
+                active_rounds = active_rounds - 1
+                if aborted then return end
+                if #fallback_queue > 0 then
+                    run_round(fallback_queue, false)
+                elseif active_rounds == 0 then
+                    finish()
+                end
+            end,
+            { concurrency = 5, per_request_timeout = M.PER_SOURCE_TIMEOUT })
+
+        active_cancels[#active_cancels + 1] = round_cancel
+    end
+
+    -- 初始轮按能力分拣：已确认不支持 → 直接旧端点；其余（未知/已支持）→ v2 端点
+    local probe, legacy = {}, {}
+    for _, srv in ipairs(servers) do
+        if episodes_capability[srv] == false then
+            legacy[#legacy + 1] = srv
+        else
+            probe[#probe + 1] = srv
+        end
+    end
+    if #probe > 0 then run_round(probe, true) end
+    if #legacy > 0 then run_round(legacy, false) end
+    if #probe == 0 and #legacy == 0 then finish() end
+
+    return function()
+        aborted = true
+        for _, c in ipairs(active_cancels) do
+            pcall(c)
+        end
+    end
 end
 
 -- ============ 编排 ============

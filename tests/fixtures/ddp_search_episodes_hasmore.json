@@ -1,0 +1,17 @@
+{
+  "errorCode": 0,
+  "success": true,
+  "errorMessage": "",
+  "hasMore": true,
+  "animes": [
+    {
+      "animeId": 100889,
+      "animeTitle": "海贼王",
+      "type": "tvseries",
+      "typeDescription": "TV动画",
+      "episodes": [
+        { "episodeId": 100889001, "episodeTitle": "第1话" }
+      ]
+    }
+  ]
+}
