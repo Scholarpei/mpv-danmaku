@@ -1,8 +1,10 @@
--- 站点直连加载器磁盘缓存集成测试（animeko / 埋堆堆 / 巴哈姆特 / AcFun / ezdmw）：
+-- 站点直连加载器磁盘缓存集成测试（animeko / 埋堆堆 / 巴哈姆特 / AcFun / ezdmw / girigirilove）：
 -- TTL 内命中零网络、未命中走网络且写缓存（原始载荷 roundtrip）、
 -- 断网回退过期缓存、合法空结果不写缓存、巴哈主/降级端口取数均写同键缓存、
 -- AcFun 两级缓存（映射 acfmap + 弹幕 acf）与分页游标聚合、
--- ezdmw 单级缓存（播放页取 nk+sign → getData XML）与双域降级、预取伴生函数同键写/命中跳过
+-- ezdmw 单级缓存（播放页取 nk+sign → getData XML）与双域降级、预取伴生函数同键写/命中跳过、
+-- girigirilove 单级缓存（播放页 player_aaaa 解裸 m3u8 → POST getScrolling）与
+-- 备用域 URL 同键命中、接口错误（code≠1）与合法空（code=1 空表）两口径区分
 -- （自断言，输出 PASS/FAIL 行）
 -- 运行：mpv.com --idle=once --no-config --script=<本文件路径>
 -- 退出码非 0 或输出含 FAIL 即失败
@@ -13,6 +15,7 @@ local root = script_dir:match("^(.*)[/\\]") or "."
 package.path = root .. "/?.lua;" .. package.path
 
 local utils = require("mp.utils")
+local b64 = require("modules/base64")
 
 local PLATFORM = mp.get_property_native("platform")
     or (os.getenv("windir") ~= nil and "windows" or "linux")
@@ -40,7 +43,8 @@ end
 local stub = { net_calls = 0, fail = false, ako = nil, mdd = nil, loads = 0,
     baha = nil, baha_api = nil, baha_fail_main = false,
     acf_page = nil, acf_p0 = nil, acf_p1 = nil,
-    ezd_page = nil, ezd_data = nil, ezd_fail_main = false }
+    ezd_page = nil, ezd_data = nil, ezd_fail_main = false,
+    ggl_page = nil, ggl_data = nil, ggl_body = nil }
 show_message = function() end
 load_danmaku = function(from_menu) stub.loads = stub.loads + 1 end
 DANMAKU = { sources = {}, count = 1 }
@@ -84,6 +88,23 @@ local EZD_XML = '<?xml version="1.0" encoding="utf-8"?><i>'
     .. '<d p="3.5,4,25,16711680,0,0,u,3">底</d>'
     .. '<d p="4.5,1,25,16777215,0,0,u,4">a&lt;b&gt;c&amp;d</d></i>'
 local EZD_EMPTY = '<?xml version="1.0" encoding="utf-8"?><i></i>'
+-- girigirilove：播放页内嵌 player_aaaa（encrypt=2，站方为逐字符 %XX 全编码后 base64——
+-- 测试运行时自建编码链避免手抄常量；弹幕 getScrolling 为 JSON，mode 1/2/3=滚动/顶/底 →
+-- B站 1/5/4，色在 style.color 含 8 位变体）
+local GGL_M3U8 = "https://test.girigirilove.com/anime/2026/01/cht/StubCHT/01/playlist.m3u8"
+local GGL_PCT = GGL_M3U8:gsub(".", function(c) return string.format("%%%02X", c:byte()) end)
+local GGL_PAGE_HTML = '<html><script>var player_aaaa={"flag":"play","encrypt":2,'
+    .. '"url":"' .. b64.encode(GGL_PCT) .. '","from":"cht","id":"26868","sid":1,"nid":1};'
+    .. '</script></html>'
+local GGL_JSON = '{"code":1,"msg":"success","info":['
+    .. '{"scroll_id":1,"scroll_json":{"stime":0,"mode":1,"text":"","color":"","time":1.5,'
+    .. '"content":"hi","style":{"color":"#ffffff","border":"x"},"duration":8}},'
+    .. '{"scroll_id":2,"scroll_json":{"stime":0,"mode":2,"text":"","color":"","time":2.5,'
+    .. '"content":"顶","style":{"color":"#ffffffff","border":"x"},"duration":4}},'
+    .. '{"scroll_id":3,"scroll_json":{"stime":0,"mode":3,"text":"","color":"","time":3.5,'
+    .. '"content":"底","style":{"color":"#ff33ff","border":"x"},"duration":4}}]}'
+local GGL_EMPTY = '{"code":1,"msg":"success","info":[]}'
+local GGL_ERR = '{"code":0,"msg":"error"}'
 
 require("modules/options")
 require("modules/utils")
@@ -143,6 +164,14 @@ call_cmd_async = function(args, cb)
             cb(nil, stub.ezd_data)
         elseif url:find("player%.danmuzf%.vip/index/getData") then
             cb(nil, stub.ezd_data)
+        elseif url:find("girigirilove%.com/playGV") then
+            cb(nil, stub.ggl_page)
+        elseif url:find("m3u8%.girigirilove%.com/api%.php/Scrolling/getScrolling") then
+            -- 弹幕 POST：真实 curl 经 -d 携带 JSON body（捕获供断言解码后的裸 m3u8）
+            for i, v in ipairs(args) do
+                if v == "-d" then stub.ggl_body = args[i + 1] break end
+            end
+            cb(nil, stub.ggl_data)
         else
             cb("unexpected url: " .. tostring(url), nil)
         end
@@ -157,6 +186,7 @@ require("sites/maiduidui")
 require("sites/bahamut")
 require("sites/acfun")
 require("sites/ezdmw")
+require("sites/ggl")
 
 local dc = require("modules/danmaku_cache")
 local function dc_setup(now_fn)
@@ -707,6 +737,135 @@ end
 
 steps[53] = function()
     check("ezd 预取 TTL 命中零网络", steps._ezd_pf_hit == true and stub.net_calls == 0)
+end
+
+-- ---------- girigirilove：TTL 命中零网络（单级缓存 ggl:{GVid}-{src}-{ep}，存原始 JSON；
+-- ---------- 经海外备用域 .icu URL 加载——URL 提取两域均认且同键命中） ----------
+local GGL_URL = "https://ani.girigirilove.com/playGV26868-1-1/"
+local GGL_URL_ICU = "https://anime.girigirilove.icu/playGV26868-1-1/"
+local GGL_KEY = "ggl:26868-1-1"
+
+steps[54] = function()
+    stub.ggl_page = GGL_PAGE_HTML
+    stub.ggl_data = GGL_JSON
+    dc.put(GGL_KEY, GGL_JSON, { type = "json", count = 3 })
+    stub.net_calls = 0
+    stub.loads = 0
+    load_danmaku_for_ggl(GGL_URL_ICU, function(success)
+        steps._ggl_hit_cb = success
+    end)
+end
+
+steps[55] = function()
+    local src = DANMAKU.sources[GGL_URL_ICU]
+    check("ggl 命中零网络（.icu 域同键）", stub.net_calls == 0)
+    check("ggl 命中回调成功", steps._ggl_hit_cb == true)
+    check("ggl 命中标记 cache", DANMAKU.cache_hit == "cache")
+    check("ggl 命中走 load_danmaku", stub.loads == 1)
+    check("ggl 命中数据入 sources", src ~= nil and src.data ~= nil and #src.data == 3)
+    check("ggl 数据字段正确（mode 2→5 顶/3→4 底、8 位色剥 alpha）",
+        src and src.data[1].text == "hi" and src.data[1].time == 1.5
+        and src.data[1].color == 16777215 and src.data[1].type == 1
+        and src.data[2].type == 5 and src.data[2].color == 16777215
+        and src.data[3].type == 4 and src.data[3].color == 16724991)
+    DANMAKU.cache_hit = nil
+end
+
+-- ---------- girigirilove：未命中走网络（播放页 player_aaaa 解裸 m3u8 → POST）且写缓存 ----------
+steps[56] = function()
+    dc.remove(GGL_KEY)
+    stub.net_calls = 0
+    load_danmaku_for_ggl(GGL_URL, function() end)
+end
+
+steps[57] = function()
+    local cached = dc.get(GGL_KEY)
+    local src = DANMAKU.sources[GGL_URL]
+    check("ggl 网络两跳请求（播放页 + getScrolling）", stub.net_calls == 2)
+    check("ggl 网络成功不标 cache", DANMAKU.cache_hit == nil)
+    check("ggl POST body 为解码后裸 m3u8",
+        stub.ggl_body == '{"play_url":"' .. GGL_M3U8 .. '"}', tostring(stub.ggl_body))
+    check("ggl 原始 JSON 写缓存 roundtrip", cached ~= nil and cached.payload == GGL_JSON)
+    check("ggl 缓存 meta 计数", cached ~= nil and cached.meta ~= nil and cached.meta.count == 3)
+    check("ggl 网络数据入 sources", src ~= nil and src.data ~= nil and #src.data == 3
+        and src.data[3].type == 4)
+end
+
+-- ---------- girigirilove：断网回退过期缓存（播放页请求失败即走过期兜底） ----------
+steps[58] = function()
+    dc_setup(function() return os.time() + 7200 end)
+    stub.net_calls = 0
+    stub.loads = 0
+    stub.fail = true
+    load_danmaku_for_ggl(GGL_URL, function(success)
+        steps._ggl_stale_cb = success
+    end)
+end
+
+steps[59] = function()
+    check("ggl 断网播放页请求失败（不再 POST 弹幕）", stub.net_calls == 1)
+    check("ggl 断网走过期缓存加载", stub.loads == 1)
+    check("ggl 断网标记 stale", DANMAKU.cache_hit == "stale")
+    check("ggl 断网回调成功", steps._ggl_stale_cb == true)
+    DANMAKU.cache_hit = nil
+    stub.fail = false
+end
+
+-- ---------- girigirilove：接口错误（code≠1）与网络失败同口径走过期兜底 ----------
+steps[60] = function()
+    stub.net_calls = 0
+    stub.loads = 0
+    stub.ggl_data = GGL_ERR
+    load_danmaku_for_ggl(GGL_URL, function(success)
+        steps._ggl_err_cb = success
+    end)
+end
+
+steps[61] = function()
+    check("ggl 接口错误两跳请求（播放页 + POST 均达）", stub.net_calls == 2)
+    check("ggl 接口错误走过期缓存兜底", stub.loads == 1 and DANMAKU.cache_hit == "stale"
+        and steps._ggl_err_cb == true)
+    DANMAKU.cache_hit = nil
+    stub.ggl_data = GGL_JSON
+end
+
+-- ---------- girigirilove：合法空结果不缓存（code=1 空表是有效响应） ----------
+steps[62] = function()
+    dc.remove(GGL_KEY)
+    dc_setup()
+    stub.net_calls = 0
+    stub.ggl_data = GGL_EMPTY
+    load_danmaku_for_ggl(GGL_URL, function(success)
+        steps._ggl_empty_cb = success
+    end)
+end
+
+steps[63] = function()
+    check("ggl 空结果两跳请求", stub.net_calls == 2)
+    check("ggl 空结果不缓存", dc.get(GGL_KEY) == nil)
+    check("ggl 空结果回调失败", steps._ggl_empty_cb == false)
+    stub.ggl_data = GGL_JSON
+end
+
+-- ---------- girigirilove：预取伴生函数走网络写同键 / TTL 命中零网络 ----------
+steps[64] = function()
+    stub.net_calls = 0
+    prefetch_ggl_danmaku("26868", 1, 1, function(done)
+        steps._ggl_pf_net = done
+    end)
+end
+
+steps[65] = function()
+    check("ggl 预取走网络写同键缓存",
+        steps._ggl_pf_net == true and dc.get(GGL_KEY) ~= nil)
+    stub.net_calls = 0
+    prefetch_ggl_danmaku("26868", 1, 1, function(done)
+        steps._ggl_pf_hit = done
+    end)
+end
+
+steps[66] = function()
+    check("ggl 预取 TTL 命中零网络", steps._ggl_pf_hit == true and stub.net_calls == 0)
 end
 
 local function finish()

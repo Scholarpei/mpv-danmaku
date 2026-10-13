@@ -29,6 +29,7 @@ local KIND_LABELS = {
     iqiyi = "爱奇艺",
     acf = "AcFun",
     ezd = "ezdmw",
+    ggl = "girigirilove",
     maccms = "maccms",
     ["360kan"] = "360kan",
 }
