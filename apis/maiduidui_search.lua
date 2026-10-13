@@ -80,8 +80,11 @@ local function load_maiduidui_danmaku(vod_uuid, ep_uuid, episodenum, title, mate
         episodenum = tonumber(episodenum),
     }
     write_history()
-    add_danmaku_source(("https://www.mddcloud.com.cn/video/%s.html?uuid=%s"):format(vod_uuid, ep_uuid),
-        true, "埋堆堆", {anime = DANMAKU.anime, episode = DANMAKU.episode, kind = "maiduidui"})
+    -- 同源单选收紧：驱逐埋堆堆旧集源（标记层 exclusive 同步，见 add-mdd-event）
+    local src_url = ("https://www.mddcloud.com.cn/video/%s.html?uuid=%s"):format(vod_uuid, ep_uuid)
+    remove_same_provider_sources("埋堆堆", src_url)
+    add_danmaku_source(src_url, true, "埋堆堆",
+        {anime = DANMAKU.anime, episode = DANMAKU.episode, kind = "maiduidui"})
 end
 
 -- 历史续载入口：按 kind="maiduidui" 记录推算目标集数后由 main.lua 调入
@@ -242,9 +245,11 @@ mp.register_script_message("get-mdd-event", function(vod_uuid, title, material_n
                 title = ep.name ~= "" and ep.name or ("第" .. i .. "集"),
                 value = { "script-message-to", mp.get_script_name(), "add-mdd-event",
                     vod_uuid, ep.uuid, tostring(i), title, material_name },
+                keep_open = true,
             }
         end
         if uosc_available then
+            remember_details_menu(menu_type, menu_title, items, footnote, true)
             update_menu_uosc(menu_type, menu_title, items, footnote)
         else
             show_message("", 0)
@@ -256,8 +261,7 @@ mp.register_script_message("get-mdd-event", function(vod_uuid, title, material_n
 end)
 
 mp.register_script_message("add-mdd-event", function(vod_uuid, ep_uuid, episodenum, title, material_name)
-    if uosc_available then
-        mp.commandv("script-message-to", "uosc", "close-menu", "menu_details")
-    end
     load_maiduidui_danmaku(vod_uuid, ep_uuid, episodenum, title, material_name)
+    mark_details_episode_added({ "script-message-to", mp.get_script_name(),
+        "add-mdd-event", vod_uuid, ep_uuid, episodenum, title, material_name })
 end)

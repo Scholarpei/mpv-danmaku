@@ -312,6 +312,8 @@ mp.add_hook("on_unload", 50, function()
 
     DANMAKU = {sources = {}, count = 1}
     if source_status then source_status.reset() end
+    -- 清空选集菜单多选会话注册表，避免换集后恢复过期高亮
+    if reset_details_session then reset_details_session() end
     mp.set_property_native(DANMAKU_COUNT, 0)
     mp.set_property_bool(HAS_DANMAKU, false)
 end)

@@ -154,7 +154,10 @@ local function load_tencent_danmaku(cid, vid, episodenum, title, year, type_name
         episodenum = tonumber(episodenum),
     }
     write_history()
-    add_danmaku_source(("https://v.qq.com/x/cover/%s/%s.html"):format(cid, vid), true, "腾讯视频",
+    -- 同源单选收紧：驱逐腾讯旧集源（标记层 exclusive 同步，见 add-tx-event）
+    local src_url = ("https://v.qq.com/x/cover/%s/%s.html"):format(cid, vid)
+    remove_same_provider_sources("腾讯视频", src_url)
+    add_danmaku_source(src_url, true, "腾讯视频",
         {anime = DANMAKU.anime, episode = DANMAKU.episode, kind = "qq"})
 end
 
@@ -327,9 +330,11 @@ mp.register_script_message("get-tx-event", function(cid, title, year, type_name,
                 hint = ep.title ~= "" and ep.title or nil,
                 value = { "script-message-to", mp.get_script_name(), "add-tx-event",
                     cid, ep.vid, tostring(i), title, year, type_name },
+                keep_open = true,
             }
         end
         if uosc_available then
+            remember_details_menu(menu_type, menu_title, items, footnote, true)
             update_menu_uosc(menu_type, menu_title, items, footnote)
         else
             show_message("", 0)
@@ -341,8 +346,7 @@ mp.register_script_message("get-tx-event", function(cid, title, year, type_name,
 end)
 
 mp.register_script_message("add-tx-event", function(cid, vid, episodenum, title, year, type_name)
-    if uosc_available then
-        mp.commandv("script-message-to", "uosc", "close-menu", "menu_details")
-    end
     load_tencent_danmaku(cid, vid, episodenum, title, year, type_name)
+    mark_details_episode_added({ "script-message-to", mp.get_script_name(),
+        "add-tx-event", cid, vid, episodenum, title, year, type_name })
 end)

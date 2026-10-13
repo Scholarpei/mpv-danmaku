@@ -125,7 +125,10 @@ local function load_animeko_danmaku(subject_id, episode_id, episodenum, title, y
         episodenum = tonumber(episodenum),
     }
     write_history()
-    add_danmaku_source(("https://api.animeko.org/episode/%s"):format(episode_id), true, "animeko",
+    -- 同源单选收紧：驱逐 animeko 旧集源（标记层 exclusive 同步，见 add-ako-event）
+    local src_url = ("https://api.animeko.org/episode/%s"):format(episode_id)
+    remove_same_provider_sources("animeko", src_url)
+    add_danmaku_source(src_url, true, "animeko",
         {anime = DANMAKU.anime, episode = DANMAKU.episode, kind = "animeko"})
 end
 
@@ -288,9 +291,11 @@ mp.register_script_message("get-ako-event", function(subject_id, title, year)
                 title = ep_title,
                 value = { "script-message-to", mp.get_script_name(), "add-ako-event",
                     subject_id, ep.episode_id, tostring(i), title, year },
+                keep_open = true,
             }
         end
         if uosc_available then
+            remember_details_menu(menu_type, menu_title, items, footnote, true)
             update_menu_uosc(menu_type, menu_title, items, footnote)
         else
             show_message("", 0)
@@ -302,8 +307,7 @@ mp.register_script_message("get-ako-event", function(subject_id, title, year)
 end)
 
 mp.register_script_message("add-ako-event", function(subject_id, episode_id, episodenum, title, year)
-    if uosc_available then
-        mp.commandv("script-message-to", "uosc", "close-menu", "menu_details")
-    end
     load_animeko_danmaku(subject_id, episode_id, episodenum, title, year)
+    mark_details_episode_added({ "script-message-to", mp.get_script_name(),
+        "add-ako-event", subject_id, episode_id, episodenum, title, year })
 end)

@@ -92,6 +92,7 @@
 | `\|mac` | MacCMS 采集站（需配置 [`maccms_servers`](#弹幕源搜索)） |
 
 - 聚合与非 dandanplay 源的条目选中后，弹幕获取自动走现有管线：先尝试各 `api_server` 的 extcomment，失败回退域名直连（腾讯条目即直连腾讯弹幕接口），最后由 `fallback_server`（dmku / danmu.icu 协议）兜底；animeko / 埋堆堆这类弹弹play 不支持的域名会跳过 extcomment 直接直连，不浪费等待
+- **选集菜单多选**：点击集数后菜单保持打开，已添加集数高亮标注（hint 追加「已添加」、底部计数），可点「↩️ 返回搜索结果」换下一个源叠加——一次搜索配齐多源，无需重复搜索；**同源单选**：每个源同一时刻只保留最新选中的一集（换选即替换——旧集弹幕源被驱逐、标记清除，与弹弹play 的按集拉取语义一致），跨源叠加不受影响
 - **换集自动续载（多源并行）**：选过的剧记入文件夹历史，换集时全部源一起按集数差自动定位续载，详见[文件夹弹幕记忆](#文件夹弹幕记忆)
 - `|tx` 顺手修复了腾讯弹幕颜色恒为白色的问题：接口的 `content_style` 实为字符串化 JSON，渐变弹幕取首色呈现
 - `|yk` 顺带给 `sites/youku.lua` 补了 cna 本地生成兜底：优酷弹幕接口不校验 cna 来源，`log.mmstat.com` 被广告 DNS 拦截时不再整源失败
@@ -619,6 +620,8 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 | `tests/bilibili_autoload_test.lua` | B站合集文件夹记忆自动加载（历史恢复的空壳源就地装载不依赖 addon_danmaku 重放、已到货/被屏蔽零网络、无既有源走规范化 URL、源显示标题用B站投稿标题且 view 会话缓存零重复请求） | `mpv.com --idle=once --no-config --script=tests/bilibili_autoload_test.lua` |
 | `tests/e2e_pipeline_test.lua` | 模式转换→合并→黑名单→密度→布局全管线（黑名单夹具 `tests/black_e2e.txt` 自足加载，script-opts 传 `blacklist_path` 可覆盖） | `mpv.com --idle=once --no-config --script=tests/e2e_pipeline_test.lua` |
 | `tests/menu_handler_test.lua` | 过滤菜单各项回调、内容菜单索引映射与屏蔽、延迟菜单合计口径 | `mpv.com --idle=once --no-config --script=tests/menu_handler_test.lua` |
+| `tests/menu_multiselect_test.lua` | 选集菜单多选 helper（remember/mark 打标、幂等、计数 footnote、注册表恢复、exclusive 单选互斥、未命中静默、dandanplay load-danmaku 全链路打标 + latest_menu_anime 重嵌、reset 换集清空、remove_same_provider_sources 同源驱逐） | `mpv.com --idle=once --no-config --script=tests/menu_multiselect_test.lua` |
+| `tests/menu_multiselect_site_test.lua` | 站点 add-event 多选改造回归（tencent + maccms：添加集数后不发 close-menu、add_danmaku_source 记参、同源换选驱逐旧集源 + exclusive 标记替换、update-menu 原地刷新） | `mpv.com --idle=once --no-config --script=tests/menu_multiselect_site_test.lua` |
 | `tests/danmaku_cache_test.lua` | 缓存读写/TTL/断网兜底/容量淘汰（B站路径的缓存读写由本测试覆盖） | `mpv.com --idle=once --no-config --script=tests/danmaku_cache_test.lua` |
 | `tests/danmaku_cache_fetch_test.lua` | 弹弹play 拉取链路缓存命中不发网络（B站下载函数为模块内局部，由单测+手动场景覆盖） | `mpv.com --idle=once --no-config --script=tests/danmaku_cache_fetch_test.lua` |
 | `tests/extcomment_cache_test.lua` | extcomment 直连源拉取链路缓存（命中零网络 / 未命中写缓存 / 损坏条目回网络重写 / 空结果走兜底不缓存 / 断网回退过期缓存 / 键稳定性） | `mpv.com --idle=once --no-config --script=tests/extcomment_cache_test.lua` |

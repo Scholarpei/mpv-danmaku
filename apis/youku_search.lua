@@ -126,7 +126,10 @@ local function load_youku_danmaku(show_id, vid, episodenum, title, year, type_na
         episodenum = tonumber(episodenum),
     }
     write_history()
-    add_danmaku_source(("https://v.youku.com/v_show/id_%s.html"):format(vid), true, "优酷",
+    -- 同源单选收紧：驱逐优酷旧集源（标记层 exclusive 同步，见 add-yk-event）
+    local src_url = ("https://v.youku.com/v_show/id_%s.html"):format(vid)
+    remove_same_provider_sources("优酷", src_url)
+    add_danmaku_source(src_url, true, "优酷",
         {anime = DANMAKU.anime, episode = DANMAKU.episode, kind = "youku"})
 end
 
@@ -296,9 +299,11 @@ mp.register_script_message("get-yk-event", function(show_id, title, year, type_n
                 title = yparse.format_episode_title(ep.title, i, type_name, ep.published),
                 value = { "script-message-to", mp.get_script_name(), "add-yk-event",
                     show_id, ep.vid, tostring(i), title, year, type_name },
+                keep_open = true,
             }
         end
         if uosc_available then
+            remember_details_menu(menu_type, menu_title, items, footnote, true)
             update_menu_uosc(menu_type, menu_title, items, footnote)
         else
             show_message("", 0)
@@ -310,8 +315,7 @@ mp.register_script_message("get-yk-event", function(show_id, title, year, type_n
 end)
 
 mp.register_script_message("add-yk-event", function(show_id, vid, episodenum, title, year, type_name)
-    if uosc_available then
-        mp.commandv("script-message-to", "uosc", "close-menu", "menu_details")
-    end
     load_youku_danmaku(show_id, vid, episodenum, title, year, type_name)
+    mark_details_episode_added({ "script-message-to", mp.get_script_name(),
+        "add-yk-event", show_id, vid, episodenum, title, year, type_name })
 end)

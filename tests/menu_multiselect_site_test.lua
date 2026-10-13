@@ -1,0 +1,157 @@
+-- 站点 add-XX-event 多选改造回归测试（tencent + maccms 两种 value 形状）：
+-- 添加集数后不再向 uosc 发 close-menu（菜单保持打开）、add_danmaku_source 被
+-- 以预期参数调用（tencent）、同源换选驱逐旧集源（数据层单选收紧）+ 旧标记
+-- 清除新标记高亮（标记层 exclusive）、update-menu 原地刷新
+-- 运行：mpv.com --idle=once --no-config --script=<本文件路径>
+-- 退出码非 0 或输出含 FAIL 即失败
+
+local script_path = debug.getinfo(1, "S").source:sub(2)
+local script_dir = script_path:match("^(.*)[/\\]") or "."
+local root = script_dir:match("^(.*)[/\\]") or "."
+package.path = root .. "/?.lua;" .. package.path
+
+local utils = require("mp.utils")
+
+-- ---- 打桩（require 前置；模块运行时按全局查找这些名字）----
+local stub = { msgs = {}, sources = {} }
+show_message = function(text, time) stub.msgs[#stub.msgs + 1] = tostring(text) end
+load_danmaku = function() end
+add_source_to_history = function() end
+write_history = function() end
+-- 半真桩：记录调用参数并模拟真实登记（写 DANMAKU.sources，供驱逐断言）
+add_danmaku_source = function(query, from_menu, provider, meta)
+    stub.sources[#stub.sources + 1] =
+        { query = query, from_menu = from_menu, provider = provider }
+    DANMAKU.sources[query] = { from = "user_custom", provider = provider }
+end
+PLATFORM = "windows"
+DANMAKU = { sources = {}, count = 1 }
+
+require("modules/options")
+require("modules/utils")
+require("modules/parse")
+require("modules/menu")
+require("apis/tencent_search")
+require("apis/maccms")
+
+-- 模拟 uosc 环境（menu.lua 加载时检测为 false，需在其后覆盖）
+uosc_available = true
+
+-- 捕获发往 uosc 的菜单命令（重点盯 close-menu）
+local sent = {}
+local real_commandv = mp.commandv
+mp.commandv = function(...)
+    local args = { ... }
+    if args[1] == "script-message-to" and args[2] == "uosc"
+        and (args[3] == "open-menu" or args[3] == "update-menu" or args[3] == "close-menu") then
+        sent[#sent + 1] = { cmd = args[3], json = args[4] }
+    end
+    return real_commandv(...)
+end
+local function close_menu_count()
+    local n = 0
+    for _, s in ipairs(sent) do
+        if s.cmd == "close-menu" then n = n + 1 end
+    end
+    return n
+end
+
+mp.set_property_native("user-data/uosc/menu/type", "menu_details")
+
+local failures = 0
+local function check(name, cond)
+    if cond then
+        print("PASS " .. name)
+    else
+        failures = failures + 1
+        print("FAIL " .. name)
+    end
+end
+
+local name = mp.get_script_name()
+
+local steps = {
+    function()
+        -- ===== tencent：add-tx-event 不关菜单 + 记参 + 同源换选驱逐 =====
+        local items = {
+            { title = "↩️ 返回搜索结果",
+                value = { "script-message-to", "uosc", "open-menu", "{}" },
+                keep_open = false, selectable = true },
+            { title = "第1集",
+                value = { "script-message-to", name, "add-tx-event",
+                    "cid1", "vid1", "1", "T", "2024", "动漫" },
+                keep_open = true },
+            { title = "第2集", hint = "标题甲",
+                value = { "script-message-to", name, "add-tx-event",
+                    "cid1", "vid2", "2", "T", "2024", "动漫" },
+                keep_open = true },
+        }
+        -- 生产行为：各站渲染处均以 exclusive=true 记快照（同源单选）
+        remember_details_menu("menu_details", "T (2024)", items, "使用 / 打开筛选", true)
+        mp.commandv("script-message-to", name, "add-tx-event",
+            "cid1", "vid1", "1", "T", "2024", "动漫")
+    end,
+    function()
+        -- 换选第2集：应驱逐第1集源（数据层）+ 清第1集标记（标记层）
+        mp.commandv("script-message-to", name, "add-tx-event",
+            "cid1", "vid2", "2", "T", "2024", "动漫")
+    end,
+    function()
+        local st = current_details_menu
+        check("1 tencent 两次添加均不发 close-menu", close_menu_count() == 0)
+        check("1b add_danmaku_source 以预期 URL/provider 被调两次",
+            #stub.sources == 2
+                and stub.sources[1].query == "https://v.qq.com/x/cover/cid1/vid1.html"
+                and stub.sources[2].query == "https://v.qq.com/x/cover/cid1/vid2.html"
+                and stub.sources[2].from_menu == true and stub.sources[2].provider == "腾讯视频")
+        check("1c 数据层单选收紧：同源旧集源被驱逐、只留新选",
+            DANMAKU.sources["https://v.qq.com/x/cover/cid1/vid1.html"] == nil
+                and DANMAKU.sources["https://v.qq.com/x/cover/cid1/vid2.html"] ~= nil)
+        check("1d 标记层 exclusive：旧集标记清除（active+hint 还原）、新集高亮",
+            st.items[2].active == nil and st.items[2].hint == nil
+                and st.items[3].active == true and st.items[3].hint == "标题甲 | 已添加")
+        check("1e footnote 计数为 1",
+            st.footnote:find("已添加 1 个源", 1, true) ~= nil)
+        check("1f 原地刷新走 update-menu",
+            sent[#sent] ~= nil and sent[#sent].cmd == "update-menu")
+
+        -- ===== maccms：cached_vod miss 走提示路径，mark 仍刷新不关菜单 =====
+        local m_items = {
+            { title = "↩️ 返回搜索结果",
+                value = { "script-message-to", "uosc", "open-menu", "{}" },
+                keep_open = false, selectable = true },
+            { title = "第1集",
+                value = { "script-message-to", name, "add-maccms-event",
+                    "srv", "vod1", "1", "1" },
+                keep_open = true },
+            { title = "第2集",
+                value = { "script-message-to", name, "add-maccms-event",
+                    "srv", "vod1", "1", "2" },
+                keep_open = true },
+        }
+        remember_details_menu("menu_details", "采集剧 (2024)", m_items, "使用 / 打开筛选", true)
+        mp.commandv("script-message-to", name, "add-maccms-event", "srv", "vod1", "1", "2")
+    end,
+    function()
+        check("2 maccms 添加后不发 close-menu", close_menu_count() == 0)
+        check("2b load 路径可达（cached_vod miss 走缺失提示）",
+            #stub.msgs == 1 and stub.msgs[1]:find("剧集信息缺失", 1, true) ~= nil)
+        check("2c 点击集打标（mark 不依赖 load 成败）",
+            current_details_menu.items[3].active == true)
+        check("2d 原地刷新走 update-menu", sent[#sent] ~= nil and sent[#sent].cmd == "update-menu")
+
+        print(failures == 0 and "ALL PASS" or (failures .. " FAILED"))
+        -- os.exit 直杀：mpv 正常 quit 的关机路径在 Windows 控制台代理下偶发挂起（测试环境已知问题）
+        os.exit(failures > 0 and 1 or 0)
+    end,
+}
+
+local i = 0
+local function run_step()
+    i = i + 1
+    if steps[i] then
+        steps[i]()
+        mp.add_timeout(0.1, run_step)
+    end
+end
+mp.add_timeout(0.1, run_step)

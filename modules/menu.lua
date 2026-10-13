@@ -73,6 +73,28 @@ function build_dandanplay_menu_item(anime, server, note)
     }
 end
 
+-- 把集数 items[2..] 嵌回 latest_menu_anime 对应 dandanplay 条目的子菜单。
+-- latest_menu_anime 是 JSON 字符串快照，mark 原地变异 items 后需重嵌同步高亮。
+local function embed_episodes_into_latest(items_to_embed, bangumiId, api_server)
+    if latest_menu_anime and latest_menu_anime ~= "" then
+        local menu_table = utils.parse_json(latest_menu_anime)
+        if menu_table and type(menu_table.items) == "table" then
+            for i, back_item in ipairs(menu_table.items) do
+                -- 仅匹配 dandanplay 条目：聚合菜单里其它源的 value[5]/value[6]
+                -- （如 maccms 的 server/vod_id）可能与 bangumiId/api_server 撞值
+                if type(back_item.value) == "table" and
+                back_item.value[3] == "search-episodes-event" and
+                back_item.value[5] == bangumiId and back_item.value[6] == api_server then
+                    menu_table.items[i].footnote = mp.get_property("filename")
+                    menu_table.items[i].items = { unpack(items_to_embed, 2) }
+                    break
+                end
+            end
+            latest_menu_anime = utils.format_json(menu_table)
+        end
+    end
+end
+
 function get_episodes(animeTitle, bangumiId, api_server)
     local url = api_server .. "/api/v2/bangumi/" .. bangumiId
     local items = {}
@@ -156,32 +178,19 @@ function get_episodes(animeTitle, bangumiId, api_server)
                 hint = episode.episodeNumber,
                 value = { "script-message-to", mp.get_script_name(), "load-danmaku",
                 animeTitle, episode.episodeTitle, episode.episodeId, api_server },
-                keep_open = false,
+                keep_open = true,
                 selectable = true,
             })
         end
 
-        -- ====== 新增：更新 latest_menu_anime ======
-        if latest_menu_anime and latest_menu_anime ~= "" then
-            local menu_table = utils.parse_json(latest_menu_anime)
-            if menu_table and type(menu_table.items) == "table" then
-                for i, back_item in ipairs(menu_table.items) do
-                    -- 仅匹配 dandanplay 条目：聚合菜单里其它源的 value[5]/value[6]
-                    -- （如 maccms 的 server/vod_id）可能与 bangumiId/api_server 撞值
-                    if type(back_item.value) == "table" and
-                    back_item.value[3] == "search-episodes-event" and
-                    back_item.value[5] == bangumiId and back_item.value[6] == api_server then
-                        menu_table.items[i].footnote = mp.get_property("filename")
-                        menu_table.items[i].items = { unpack(items, 2) }
-                        break
-                    end
-                end
-                latest_menu_anime = utils.format_json(menu_table)
-            end
-        end
+        -- 把集数嵌回 latest_menu_anime 的 dandanplay 条目子菜单
+        embed_episodes_into_latest(items, bangumiId, api_server)
 
         if uosc_available then
             footnote = mp.get_property("filename")
+            -- exclusive 单选：set_episode_id 会驱逐旧 api_server 源，多标即撒谎
+            remember_details_menu(menu_type, menu_title, items, footnote, true,
+                { bangumiId = bangumiId, api_server = api_server })
             update_menu_uosc(menu_type, menu_title, items, footnote)
         elseif input_loaded then
             show_message("", 0)
@@ -235,6 +244,149 @@ function update_menu_uosc(menu_type, menu_title, menu_item, menu_footnote, menu_
     mp.commandv("script-message-to", "uosc", cmd, json_props)
 
     return json_props
+end
+
+-- ===== 选集菜单多选状态 =====
+-- 点击集数后菜单保持打开（集数 item keep_open=true），已添加集数高亮回显，
+-- 支持一次搜索内多源/多集叠加，免重复搜索。各站在 get-XX-event 渲染成功处
+-- remember_details_menu 存快照，add-XX-event 加载后 mark_details_episode_added
+-- 原地打标刷新（update-menu 同 type 原地刷，不丢滚动/选中位置）。
+-- 不变式：mark 路径只变异 item 字段，绝不增删/重排 items——uosc 按索引保留
+-- selected_index/scroll_y，条目错位会串位。
+current_details_menu = nil
+added_details_values = {}
+local ADDED_HINT = "已添加"
+
+-- value 数组逐元素 tostring 宽松相等：script-message 到达后均为 string，
+-- 而 JSON 解析出的可能是 number
+local function details_values_equal(a, b)
+    if type(a) ~= "table" or type(b) ~= "table" then return false end
+    if #a ~= #b then return false end
+    for i = 1, #a do
+        if tostring(a[i]) ~= tostring(b[i]) then return false end
+    end
+    return true
+end
+
+-- 幂等打标：active 高亮 + hint 追加（不替换，hint 承载集数标题）
+local function append_added_hint(it)
+    if it.active then return end
+    it.active = true
+    it.hint = it.hint and (it.hint .. " | " .. ADDED_HINT) or ADDED_HINT
+end
+
+-- 打标逆操作：exclusive 换选时恢复原样
+local function remove_added_hint(it)
+    if not it.active then return end
+    it.active = nil
+    local suffix = " | " .. ADDED_HINT
+    if it.hint then
+        if it.hint:sub(-#suffix) == suffix then
+            it.hint = it.hint:sub(1, #it.hint - #suffix)
+        elseif it.hint == ADDED_HINT then
+            it.hint = nil
+        end
+    end
+end
+
+-- 各站 get-XX-event 渲染成功后调用：先按会话注册表恢复本会话历史标记
+-- （换集后注册表被 reset_details_session 清空，不会恢复过期高亮），再存快照。
+-- exclusive=true 为单选语义（dandanplay：set_episode_id 驱逐旧 api_server 源，
+-- 多标即撒谎）；context 存站内不透明上下文（dandanplay 的 bangumiId/api_server）。
+function remember_details_menu(menu_type, menu_title, items, footnote, exclusive, context)
+    for _, it in ipairs(items) do
+        if type(it.value) == "table" and not it.active then
+            for _, entry in ipairs(added_details_values) do
+                if entry.menu_type == menu_type and details_values_equal(it.value, entry.value) then
+                    append_added_hint(it)
+                    break
+                end
+            end
+        end
+    end
+    current_details_menu = {
+        menu_type = menu_type,
+        menu_title = menu_title,
+        items = items,
+        footnote_base = footnote or "",
+        exclusive = exclusive and true or false,
+        context = context,
+    }
+end
+
+-- add-XX-event 里加载后调用，mark 为完整重构的 value 数组（头三元素固定
+-- "script-message-to"/脚本名/"add-XX-event"，其余照抄同文件 item 构造处）。
+-- 点击 = 同步登记源完成（add_danmaku_source 幂等），拉取异步、失败有
+-- source_status OSD 汇总兜底——标记如实反映「已登记」。返回是否命中
+-- （菜单已关/非本菜单触发时未命中，静默）。
+function mark_details_episode_added(mark)
+    local st = current_details_menu
+    if not st or not st.items then return false end
+    if st.exclusive then
+        for _, it in ipairs(st.items) do
+            remove_added_hint(it)
+        end
+        for i = #added_details_values, 1, -1 do
+            if added_details_values[i].menu_type == st.menu_type then
+                table.remove(added_details_values, i)
+            end
+        end
+    end
+    local hit = false
+    for _, it in ipairs(st.items) do
+        if type(it.value) == "table" and details_values_equal(it.value, mark) then
+            append_added_hint(it)
+            hit = true
+        end
+    end
+    if not hit then return false end
+    -- 注册表查重：重复点击同一集不堆积（exclusive 路径上方已清过本菜单旧条目）
+    local already = false
+    for _, entry in ipairs(added_details_values) do
+        if entry.menu_type == st.menu_type and details_values_equal(entry.value, mark) then
+            already = true
+            break
+        end
+    end
+    if not already then
+        table.insert(added_details_values, { menu_type = st.menu_type, value = mark })
+    end
+    local n = 0
+    for _, it in ipairs(st.items) do
+        if it.active then n = n + 1 end
+    end
+    st.footnote = n > 0
+        and ("已添加 " .. n .. " 个源，可继续选择或返回"
+            .. (st.footnote_base ~= "" and (" · " .. st.footnote_base) or ""))
+        or st.footnote_base
+    if uosc_available then
+        update_menu_uosc(st.menu_type, st.menu_title, st.items, st.footnote)
+    end
+    return true
+end
+
+-- 换集/卸载时清空会话注册表（render.lua on_unload 调用，与 source_status.reset 同点）
+function reset_details_session()
+    added_details_values = {}
+    current_details_menu = nil
+end
+
+-- 同源单选收紧（数据层）：驱逐同 provider 的旧集源。各 load_XX_danmaku 在
+-- add_danmaku_source 前调用，keep_url 为本次新选。不立即重建管线——新源到货的
+-- load_danmaku 自然只剩新源（与 dandanplay set_episode_id 的驱逐语义一致）；
+-- source_status 旧条目同样不清（同范本）。粘贴 URL / 历史续载路径不经此函数，
+-- 多源并存不受影响。
+function remove_same_provider_sources(provider, keep_url)
+    if not provider then return false end
+    if type(DANMAKU) ~= "table" or type(DANMAKU.sources) ~= "table" then return false end
+    local removed = false
+    for url, source in pairs(DANMAKU.sources) do
+        if url ~= keep_url and type(source) == "table" and source.provider == provider then
+            DANMAKU.sources[url] = nil
+            removed = true
+        end
+    end
+    return removed
 end
 
 function open_menu_select(menu_items, is_time)
@@ -1585,6 +1737,14 @@ mp.register_script_message("load-danmaku", function(animeTitle, episodeTitle, ep
     DANMAKU.anime = animeTitle
     DANMAKU.episode = episodeTitle
     set_episode_id(episodeId, true, api_server)
+    -- 多选：打标 + 原地刷新 menu_episodes；重嵌 latest_menu_anime 同步嵌套子菜单高亮
+    if mark_details_episode_added({ "script-message-to", mp.get_script_name(),
+        "load-danmaku", animeTitle, episodeTitle, episodeId, api_server }) then
+        local st = current_details_menu
+        if st and st.menu_type == "menu_episodes" and st.context then
+            embed_episodes_into_latest(st.items, st.context.bangumiId, st.context.api_server)
+        end
+    end
 end)
 
 mp.register_script_message("add-source-event", function(query)

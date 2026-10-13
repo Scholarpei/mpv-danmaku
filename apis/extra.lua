@@ -55,7 +55,10 @@ local function load_extra_danmaku(url, episode, number, class, id, site, title, 
         episodenum = tonumber(episode),
     }
     write_history()
-    add_danmaku_source(play_url, true, extra_site_label(site),
+    -- 同源单选收紧：驱逐同站旧集源（标记层 exclusive 同步，见 add-extra-event）
+    local provider = extra_site_label(site)
+    remove_same_provider_sources(provider, play_url)
+    add_danmaku_source(play_url, true, provider,
         {anime = DANMAKU.anime, episode = DANMAKU.episode, kind = "360kan"})
 end
 
@@ -350,11 +353,13 @@ function get_details(class, id, site, title, year, number, episodenum)
                     "add-extra-event",
                     ep.url, ep.index, tostring(number), class, id, site, title, year
                 },
+                keep_open = true,
             })
         end
     end
     if #items > 0 then
         if uosc_available and not episodenum then
+            remember_details_menu(menu_type, menu_title, items, footnote, true)
             update_menu_uosc(menu_type, menu_title, items, footnote)
         elseif not episodenum then
             show_message("", 0)
@@ -534,7 +539,9 @@ mp.register_script_message("get-extra-event", function(cat, id, playlink, source
         DANMAKU.source = source_id
         write_history()
         -- 电影分支不设 DANMAKU.extra（无续载记忆），meta 不带 kind
-        add_danmaku_source(playlink, true, extra_site_label(source_id),
+        local provider = extra_site_label(source_id)
+        remove_same_provider_sources(provider, playlink)
+        add_danmaku_source(playlink, true, provider,
             {anime = DANMAKU.anime, episode = DANMAKU.episode})
     else
         get_details(cat, id, source_id, title, year)
@@ -542,8 +549,7 @@ mp.register_script_message("get-extra-event", function(cat, id, playlink, source
 end)
 
 mp.register_script_message("add-extra-event", function(url, episode, number, class, id, site, title, year)
-    if uosc_available then
-        mp.commandv("script-message-to", "uosc", "close-menu", "menu_details")
-    end
     load_extra_danmaku(url, episode, number, class, id, site, title, year)
+    mark_details_episode_added({ "script-message-to", mp.get_script_name(),
+        "add-extra-event", url, episode, number, class, id, site, title, year })
 end)

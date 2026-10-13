@@ -111,7 +111,10 @@ local function load_maccms_danmaku(server, vod_id, group_idx, ep_idx, title, yea
         episodenum = tonumber(ep_idx),
     }
     write_history()
-    add_danmaku_source(ep.url, true, "maccms·" .. host_label(server),
+    -- 同源单选收紧：驱逐同一采集站旧集源（标记层 exclusive 同步，见 add-maccms-event）
+    local provider = "maccms·" .. host_label(server)
+    remove_same_provider_sources(provider, ep.url)
+    add_danmaku_source(ep.url, true, provider,
         {anime = DANMAKU.anime, episode = DANMAKU.episode, kind = "maccms"})
 end
 
@@ -170,9 +173,11 @@ local function show_episode_menu(server, vod_id, group_idx)
             hint = ep.title ~= "" and ep.title ~= tostring(i) and ep.title or nil,
             value = { "script-message-to", mp.get_script_name(), "add-maccms-event",
                 tostring(server), tostring(vod_id), tostring(group_idx), tostring(i) },
+            keep_open = true,
         }
     end
     if uosc_available then
+        remember_details_menu(menu_type, menu_title, items, footnote, true)
         update_menu_uosc(menu_type, menu_title, items, footnote)
     else
         show_message("", 0)
@@ -350,8 +355,8 @@ mp.register_script_message("maccms-group-event", function(server, vod_id, group_
 end)
 
 mp.register_script_message("add-maccms-event", function(server, vod_id, group_idx, ep_idx)
-    if uosc_available then
-        mp.commandv("script-message-to", "uosc", "close-menu", "menu_details")
-    end
     load_maccms_danmaku(server, vod_id, tonumber(group_idx), tonumber(ep_idx))
+    -- value 构造处四参均 tostring 过，mark 直接用 handler 参数（宽松比较兜底）
+    mark_details_episode_added({ "script-message-to", mp.get_script_name(),
+        "add-maccms-event", server, vod_id, group_idx, ep_idx })
 end)

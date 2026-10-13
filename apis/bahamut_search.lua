@@ -97,7 +97,10 @@ local function load_bahamut_danmaku(video_sn, ep_sn, episodenum, title, year)
         episodenum = tonumber(episodenum),
     }
     write_history()
-    add_danmaku_source(("https://ani.gamer.com.tw/animeVideo.php?sn=%s"):format(ep_sn), true, "巴哈姆特",
+    -- 同源单选收紧：驱逐巴哈旧集源（标记层 exclusive 同步，见 add-baha-event）
+    local src_url = ("https://ani.gamer.com.tw/animeVideo.php?sn=%s"):format(ep_sn)
+    remove_same_provider_sources("巴哈姆特", src_url)
+    add_danmaku_source(src_url, true, "巴哈姆特",
         {anime = DANMAKU.anime, episode = DANMAKU.episode, kind = "bahamut"})
 end
 
@@ -277,9 +280,11 @@ mp.register_script_message("get-baha-event", function(video_sn, title, year)
                 title = "第" .. display_no .. "话",
                 value = { "script-message-to", mp.get_script_name(), "add-baha-event",
                     video_sn, ep.video_sn, tostring(i), title, year },
+                keep_open = true,
             }
         end
         if uosc_available then
+            remember_details_menu(menu_type, menu_title, items, footnote, true)
             update_menu_uosc(menu_type, menu_title, items, footnote)
         else
             show_message("", 0)
@@ -291,8 +296,7 @@ mp.register_script_message("get-baha-event", function(video_sn, title, year)
 end)
 
 mp.register_script_message("add-baha-event", function(video_sn, ep_sn, episodenum, title, year)
-    if uosc_available then
-        mp.commandv("script-message-to", "uosc", "close-menu", "menu_details")
-    end
     load_bahamut_danmaku(video_sn, ep_sn, episodenum, title, year)
+    mark_details_episode_added({ "script-message-to", mp.get_script_name(),
+        "add-baha-event", video_sn, ep_sn, episodenum, title, year })
 end)

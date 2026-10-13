@@ -106,7 +106,10 @@ local function load_bilibili_danmaku(season_id, ep_id, episodenum, title, year, 
         episodenum = tonumber(episodenum),
     }
     write_history()
-    add_danmaku_source(("https://www.bilibili.com/bangumi/play/ep%s"):format(ep_id), true, "bilibili",
+    -- 同源单选收紧：驱逐B站旧集源（标记层 exclusive 同步，见 add-bili-event）
+    local src_url = ("https://www.bilibili.com/bangumi/play/ep%s"):format(ep_id)
+    remove_same_provider_sources("bilibili", src_url)
+    add_danmaku_source(src_url, true, "bilibili",
         {anime = DANMAKU.anime, episode = DANMAKU.episode, kind = "bilibili"})
 end
 
@@ -307,9 +310,11 @@ mp.register_script_message("get-bili-event", function(season_id, title, year, ty
                 title = ep_title,
                 value = { "script-message-to", mp.get_script_name(), "add-bili-event",
                     season_id, ep.ep_id, tostring(i), title, year, type_name },
+                keep_open = true,
             }
         end
         if uosc_available then
+            remember_details_menu(menu_type, menu_title, items, footnote, true)
             update_menu_uosc(menu_type, menu_title, items, footnote)
         else
             show_message("", 0)
@@ -321,8 +326,7 @@ mp.register_script_message("get-bili-event", function(season_id, title, year, ty
 end)
 
 mp.register_script_message("add-bili-event", function(season_id, ep_id, episodenum, title, year, type_name)
-    if uosc_available then
-        mp.commandv("script-message-to", "uosc", "close-menu", "menu_details")
-    end
     load_bilibili_danmaku(season_id, ep_id, episodenum, title, year, type_name)
+    mark_details_episode_added({ "script-message-to", mp.get_script_name(),
+        "add-bili-event", season_id, ep_id, episodenum, title, year, type_name })
 end)

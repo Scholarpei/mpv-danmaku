@@ -105,6 +105,8 @@ local function load_iqiyi_danmaku(link_id, url, episodenum, title, year, type_na
         episodenum = tonumber(episodenum),
     }
     write_history()
+    -- 同源单选收紧：驱逐爱奇艺旧集源（标记层 exclusive 同步，见 add-iq-event）
+    remove_same_provider_sources("爱奇艺", url)
     add_danmaku_source(url, true, "爱奇艺",
         {anime = DANMAKU.anime, episode = DANMAKU.episode, kind = "iqiyi"})
 end
@@ -262,9 +264,11 @@ mp.register_script_message("get-iq-event", function(link_id, title, year, type_n
                 title = ep.title ~= "" and ep.title or ("第" .. i .. "集"),
                 value = { "script-message-to", mp.get_script_name(), "add-iq-event",
                     link_id, ep.link_id, tostring(i), title, year, type_name },
+                keep_open = true,
             }
         end
         if uosc_available then
+            remember_details_menu(menu_type, menu_title, items, footnote, true)
             update_menu_uosc(menu_type, menu_title, items, footnote)
         else
             show_message("", 0)
@@ -276,10 +280,9 @@ mp.register_script_message("get-iq-event", function(link_id, title, year, type_n
 end)
 
 mp.register_script_message("add-iq-event", function(link_id, ep_link_id, episodenum, title, year, type_name)
-    if uosc_available then
-        mp.commandv("script-message-to", "uosc", "close-menu", "menu_details")
-    end
     load_iqiyi_danmaku(link_id,
         ("https://www.iqiyi.com/v_%s.html"):format(ep_link_id), episodenum,
         title, year, type_name)
+    mark_details_episode_added({ "script-message-to", mp.get_script_name(),
+        "add-iq-event", link_id, ep_link_id, episodenum, title, year, type_name })
 end)
