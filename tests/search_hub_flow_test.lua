@@ -82,6 +82,7 @@ stub_site_fetch("bahamut")
 stub_site_fetch("animeko")
 stub_site_fetch("maiduidui")
 stub_site_fetch("acfun")
+stub_site_fetch("ezdmw")
 fetch_maccms_found = function(name, cb, opts)
     fetch_calls.maccms = { name = name, opts = opts }
     cb({}, false)

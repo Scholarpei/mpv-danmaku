@@ -147,6 +147,13 @@ function get_danmaku_fallback(query)
         return
     end
 
+    if query:find('ezdmw.org') or query:find('ezdmw.com') then
+        load_danmaku_for_ezdmw(query, function(success)
+            if not success then do_fallback() end
+        end)
+        return
+    end
+
     if query:find('mgtv.com') then
         load_danmaku_for_mgtv(query, function(success)
             if not success then do_fallback() end
@@ -864,7 +871,7 @@ function add_danmaku_source_online(query, from_menu)
     -- 自有直连域名（本地 sites/ 加载器独占，弹弹play extcomment 不支持）：
     -- 跳过 extcomment 直接走域名直连，避免整轮无效等待（extcomment 单请求超时高达 60s）
     if type(query) == "string" and (query:find("animeko%.org") or query:find("mddcloud%.com%.cn")
-        or query:find("acfun%.cn")) then
+        or query:find("acfun%.cn") or query:find("ezdmw%.org") or query:find("ezdmw%.com")) then
         get_danmaku_fallback(query)
         return
     end

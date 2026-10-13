@@ -1,0 +1,1042 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Re:0-全站搜索结果</title>
+<meta name="keywords" content="Re:0" />
+<meta name="description" content="Re:0：在E站弹幕网上的搜索结果" />
+<link rel="Shortcut Icon" href="/Public/images/icon.png" type="image/x-icon"> <!-- icon -->
+<meta content="width=device-width,user-scalable=no" name="viewport"> <!-- 禁止移动端缩放 - Disable mobile terminal scaling -->
+<script type="text/javascript" src="/Public/js/jquery.js"></script>  <!-- 引入jquery - public jquery-->
+<script type="text/javascript" src="/Public/js/public.js"></script>  <!-- 引入公共js - public javascript -->
+<link rel="stylesheet" type="text/css" href="/Public/css/public.css" /> <!-- 引入公共css - public css  -->
+<link rel="stylesheet" type="text/css" href="/Public/css/index.css" /> <!-- 引入首页css - index css  -->
+<link rel="stylesheet" type="text/css" href="/Public/css/img_comic.css" />
+<style>
+@media screen and (min-width: 830px) { 
+    .some_ranking{
+	    float:right; margin-top:25px;
+    }
+    #some_drama{
+    	float:left; border:1px solid #ccc; border-radius:20px; height:285px; width:1200px;
+    }
+}
+@media screen and (max-width: 830px) { 
+    .some_ranking{
+	    clear:both;
+    }
+}
+</style>
+</head>
+
+<body>
+<!-- 公共头部 - public_header -->
+<script>
+// borwserRedirect
+(function browserRedirect(){
+    var sUserAgent = navigator.userAgent.toLowerCase();
+    var bIsIpad = sUserAgent.match(/ipad/i) == 'ipad';
+    var bIsIphone = sUserAgent.match(/iphone os/i) == 'iphone os';
+    var bIsMidp = sUserAgent.match(/midp/i) == 'midp';
+    var bIsUc7 = sUserAgent.match(/rv:1.2.3.4/i) == 'rv:1.2.3.4';
+    var bIsUc = sUserAgent.match(/ucweb/i) == 'web';
+    var bIsCE = sUserAgent.match(/windows ce/i) == 'windows ce';
+    var bIsWM = sUserAgent.match(/windows mobile/i) == 'windows mobile';
+    var bIsAndroid = sUserAgent.match(/android/i) == 'android';
+    if(bIsIpad || bIsIphone || bIsMidp || bIsUc7 || bIsUc || bIsCE || bIsWM || bIsAndroid){
+        window.location.href = "https://m.ezdmw.org/Index/search.html?searchText=Re:0";
+    }else if(window.innerWidth < 1078){
+        window.location.href = "https://m.ezdmw.org/Index/search.html?searchText=Re:0";
+    }
+})();
+</script>
+
+<script>var public_timer = ""; var public_timer_comic = "";</script>
+
+<link rel="stylesheet" href="/src/css/header.css">
+  
+
+<!--头部-->
+<div class="header">
+    <div class="nav-top">
+        <div class="nav-ct clearfix">
+            <div class="menu-nav">
+                <ul class="clearfix">
+                    <li><img src="/Public/images/icon.png" style="position:relative;left:28px;top:4px;" />
+                        <a class="top-link" href="/">主站</a>
+                    </li>
+                    <li>
+                        <a class="top-link" href="/Index/up_details/983.html" style="color:red;">手机APP</a>
+                        <div class="download"></div>
+                    </li>
+
+                    <li>
+                        <a class="top-link" href="/Index/up_details/1337.html" style="color:pink;">网站公益</a>
+                        <div class="download"></div>
+                    </li>
+                    <!--
+                    <li>
+                        <a class="top-link" onclick="alert('群号：');">申请入群</a>
+                    </li>
+                    -->
+                                                            <li>
+                        <a class="top-link" href="/Index/login.html">登录</a>
+                    </li>
+                </ul>
+            </div>
+            <div class="user-nav">
+                <ul class="clearfix">
+                    <li class="avatar item">
+                        <a class="top-link" href="/Index/userstate.html?name=[匿名网友]">空间</a>
+                    </li>
+                    <li class="avatar item">
+                        <a class="top-link" href="/Index/modify.html">简介</a>
+                    </li>
+                    <li class="item">
+                        <a class="top-link" href="/Index/comment_news.html">消息</a>
+                    </li>
+                    <li class="item">
+                        <a class="top-link" href="/Index/my_follow.html">关注</a>
+                    </li>
+                    <li class="item">
+                        <a class="top-link" href="/Index/my_collection.html">收藏</a>
+                    </li>
+                    <li class="item">
+                        <a class="top-link" href="/Index/historical_watch.html">历史</a>
+                    </li>
+                    
+                    <li class="item" id="sign_span">
+                                    <a class="top-link" id="addon_sign" style="color:orange;">签到<em style="color:red;font-size:8px;"></em></a>
+                                    <span style="position:absolute;background:#fff;color:green;padding:0 8px;margin-left:10px;" id="sign_success"></span>
+                                </li>                    <script>
+                    $("#addon_sign").click(function(){
+                        $.ajax({
+                              error: function(XMLHttpRequest, textStatus, errorThrown) {
+                              //if(textStatus == "error") alert("请求失败QaQ\nXMLHttpRequest.readyState状态码："+XMLHttpRequest.readyState+"\nXMLHttpRequest.status状态码："+XMLHttpRequest.status);
+                          },
+                          type : "POST",
+                          data: {"addon_sign":false},
+                          url: "/Index/table_addon_sign.html",//后台映射的URL 
+                          dataType:"json",//返回的数据格式
+                          success : function(result) { //result即你的返回值
+                              if(result != null){
+                                  setTimeout(function(){
+                                      $("#sign_span").css("display", "none");
+                                  },3600);
+                                  if(result == "请先登录"){ $("#sign_success").html('请先登录'); }
+                                  else if(result == "今日已签到"){ $("#sign_success").html('今日已签到，明天在签到试试手气吧~'); }
+                                  else{ $("#sign_success").html('<img src="/Public/images/yesGo.png" style="width:15px;position:relative;top:3px;" /> 签到成功！您随机获得'+result+'萌币奖励！'); }
+                              }  
+                          }
+                        });
+                    });
+                    </script>
+                  
+                    <li class="avatar item">
+                        <a class="top-link" href="/Index/userstate.html?name=风轻云淡">
+                        <!-- 头像（登录显示，否则提示未登录）  - head portrait -->
+                        <a class="top-link" href="/Index/login.html" target="_blank" style="color:#b0e2ee;margin-left:-30px;">尚未登录</a>                        </a>
+                    </li>
+                    <li class="item contribute">
+                        <a class="top-link" href="/Index/app_tiezi.html">投稿</a>
+                        <ul class="sec-menu">
+                            <li></li>
+                            <li></li>
+                            <li></li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    
+    
+            <div class="nav-img" style='background-image: url("//www.ezdmw.org/Public/images/html_bj.jpg");'>
+        <div class="img-content">
+            <a href="#">
+                <!--<img src="" alt="">-->
+            </a> 
+            <div class="top-logo">
+                <img src="/src/images/header/top-logo.png">
+            </div>
+            <div class="extra">
+                <a class="rank" href="/Index/fan_ranking.html?name=2026年10月【连载中】&atype=hor" target="_blank">
+                    <span>新番排行榜</span>
+                </a>
+                <div class="search">
+                    <form action="/Index/search.html" method="get">
+                        <input type="text" name="searchText" required="required" autocomplete="off" maxlength="100" placeholder="搜索，输入一个简短的关键字~">
+                        <button type="submit"></button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+  
+  
+  
+    <!-- 公告 -->
+            
+    
+    
+    
+    
+    <div class="nav-guide" id="nav_guide">
+        <div class="guide-wrapper">
+            <ul class="nav clearfix">
+                <li>
+                    <a href="/">
+                    <span>首页</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="/Index/end_comic.html">
+                      <span>追番</span><div class="num"><span class='public_new_comic'>^0^ </span></div>
+                    </a>
+                    <ul>
+                        <li><a href="/Index/end_comic.html"><span class="icon"></span><span>追番综合</span></a></li>
+                        <li><a href="/Index/search_some.html?searchText=连载&page=0"><span class="icon"></span><span>连载动画</span></a></li>
+                        <li><a href="/Index/search_some.html?searchText=完&page=0"><span class="icon"></span><span>完结动画</span></a></li>
+                        <li><a href="/Index/end_comic.html#span_index"><span class="icon"></span><span>番剧索引</span></a></li>
+                        <li><a href="/Index/fan_ranking.html?name=2026年1月【连载中】&atype=hor"><span class="icon"></span><span>新番排行榜</span></a></li>
+                        <li><a href="/Index/end_comic_after.html"><span class="icon"></span><span>新番时间表</span></a></li>
+                    </ul>
+                </li>
+                <li>
+                    <a href="/Index/anime.html">
+                    <span>动漫</span><div class="num"><span>^_^ </span></div>
+                    </a>
+                    <ul>
+                        <li><a href="/Index/anime.html"><span class="icon"></span><span>动漫综合</span></a></li>
+                        <li><a href="/Index/search_some.html?searchText=补番&page=0&hot=true"><span class="icon"></span><span>补番推荐</span></a></li>
+                        <li><a href="/Index/search_some.html?searchText=剧场&page=0"><span class="icon"></span><span>动漫电影</span></a></li>
+                        <li><a href="/Index/search_some.html?searchText=热血&page=0"><span class="icon"></span><span>热血动漫</span></a></li>
+                        <li><a href="/Index/search_some.html?searchText=后宫&page=0"><span class="icon"></span><span>后宫动漫</span></a></li>
+                        <li><a href="/Index/search_some.html?searchText=完&page=0"><span class="icon"></span><span>完结动漫</span></a></li>
+                    </ul>
+                </li>
+                <li>
+                    <a href="/Index/contribution/contribution.html?type=community&order=new">
+                        <span style="position:relative;top:-1px;">社区</span><div class="num"><img src="/Public/images/shequ.png" style="width:26px;position:relative;top:-10px;" /></div>
+                    </a>
+                    <ul>
+                        <li><a href="/Index/contribution.html?type=community&order=new"><span class="icon"></span><span>综合</span></a></li>
+                        <li><a href="/Index/contribution/up_article.html?type=whole&order=new"><span class="icon"></span><span>文章</span></a></li>
+                        <li><a href="/Index/contribution/contribution.html?type=佳句&order=new"><span class="icon"></span><span>佳句</span></a></li>
+                        <li><a href="/Index/contribution/up_ask.html?type=问答&order=new"><span class="icon"></span><span>问答</span></a></li>
+                        <li><a href="/Index/contribution/up_review.html?type=whole&order=new"><span class="icon"></span><span>漫评</span></a></li>
+                    </ul>
+                </li>
+                <li>
+                    <a href="/Index/contribution/up_atlas.html?type=whole&order=new">
+                    <span>图集</span><div class="num"><span>TaT</span></div>
+                    </a>
+                    <ul>
+                        <li><a href="/Index/contribution/up_atlas.html?type=whole&order=new"><span class="icon"></span><span>图集综合</span></a></li>
+                        <li><a href="/Index/contribution/up_atlas.html?type=动漫&order=new"><span class="icon"></span><span>动漫图集</span></a></li>
+                        <li><a href="/Index/contribution/up_atlas.html?type=壁纸&order=new"><span class="icon"></span><span>动漫壁纸</span></a></li>
+                        <li><a href="/Index/contribution/up_atlas.html?type=表情&order=new"><span class="icon"></span><span>动漫表情</span></a></li>
+                        <li><a href="/Index/contribution/up_atlas.html?type=头像&order=new"><span class="icon"></span><span>动漫头像</span></a></li>
+                        <li><a href="/Index/contribution/up_atlas.html?type=其他/综合&order=new"><span class="icon"></span><span>其他/综合</span></a></li>
+                    </ul>
+                </li>
+                                                <li>
+                     <a href="/Index/contribution/contribution.html?type=【资源】学习园地&order=new" style="position:relative;top:-8px;"><span class="square-1">学习园地</span></a>
+                 </li>
+            </ul>
+            <!--小图banner
+            <a href="" target="_blank">
+                <div><img src="" alt=""></div>
+            </a>
+            -->
+        </div>
+    </div>
+</div>
+
+
+    <!-- 用户信息面板 - user panel-->
+    <div class="user_mask"></div> <!-- 遮罩层 - user_mask-->
+    <div class="user_panel">
+        <div class="head_portrait_panel">
+        <!-- 显示用户的详细信息 -->
+                </div>
+        <h3 class="user_update"></h3>
+        <!--<h3 class="user_update"><img src="/Public/images/dan.png" style="width:21px; height:22px; position:relative; left:3px;top:6px;" /><a style="font-size:16px;margin-left:2px;" id="danmu"> 默认关闭弹幕</a></h3>-->
+        <script>var public_user=""; var ROOT = "";$('.portrait_img').click(function(){window.location = ROOT+"/Index/userstate.html?name="+public_user;}); $('.portrait_img1').click(function(){window.location = ROOT+"/Index/userstate.html?name="+public_user;}); $('.public_new_flashing').click(function(){window.location = ROOT+"/Index/comment_news.html";}); $('.public_new_flashing1').click(function(){window.location = ROOT+"/Index/comment_news.html";});</script>
+        <h3 class="user_update" style="height:0;overflow:hidden; text-indent:-9999px" ><img src="/Public/images/collection3.png" style="height:21px; position:relative; left:3px; top:5px; margin-right:2px;" /><a href="/Index/my_collection.html" style="font-size:16px; position:relative; left:2px; top:2px;">我的收藏</a><img src="/Public/images/collection4.png" style="height:21px; position:relative; left:3px; top:5px; margin-right:2px;margin-left:27px;" /><a href="/Index/my_follow.html" style="font-size:16px; position:relative; top:1px; left:2px;">我的关注</a></h3>
+        <h3 class="user_update" style="height:0;overflow:hidden; text-indent:-9999px" ><img src="/Public/images/clock1.png" style="height:18px; width:19px; position:relative; top:5px; left:4px; margin-right:2px;" /> <a href="/Index/submit_up.html" style="font-size:16px; position:relative; top:1px;">投稿管理</a><img src="/Public/images/nav/nav_submission1.png" style="height:18px; position:relative; top:5px; left:4px; margin-right:5px;margin-left:25px;" /><a href="/Index/app_tiezi.html" style="font-size:16px;margin-left:2px; position:relative; top:1px;">投稿作品</a></h3>
+        <h3 class="user_update" id="user_update" style="height:0;overflow:hidden; text-indent:-9999px" ><img src="/Public/images/browse1.png" style="width:23px; height:24px; position:relative; left:2px;top:4px;" /><a href="/Index/modify.html" style="font-size:16px;margin-left:2px;position:relative; top:-2px;">个人信息</a><img src="/Public/images/user.png" style="height:25px; position:relative; top:3px;margin-left:25px;" /><a style="font-size:16px; position:relative; top:-3px;">账户管理</a></h3>
+        <h3 class="user_update"  ><img src="/Public/images/user.png" style="width:22px; height:24px; position:relative; left:4px;top:5px;" /><a href="/Index/login.html" style="font-size:16px;margin-left:2px;"> 登录发现新天地~</a></h3>
+        <h3 class="user_update"  ><img src="/Public/images/user.png" style="width:22px; height:24px; position:relative; left:4px;top:5px;" /><a href="/Index/reg.html" style="font-size:16px;margin-left:2px;"> 注册账号~</a></h3>
+        <div style="display:none;" id="user_update1">
+            <h3 class="user_update" id="user_update1" style="margin-left:16px; width:80%;margin-top:-10px;" style="height:0;overflow:hidden; text-indent:-9999px" ><a href="/Index/user_out.html" style="font-size:16px; position:relative; top:1px;">退出登录</a><a href="/Index/back_pass.html" style="font-size:16px; position:relative; top:1px;margin-left:30px;">修改密码</a></h3>
+            <h3 class="user_update" id="user_update1" style="margin-left:16px; width:80%;margin-top:-10px;" style="height:0;overflow:hidden; text-indent:-9999px" ><a href="/Index/login.html" style="font-size:16px; position:relative; top:1px;">切换账号</a><a href="/Index/reg.html" style="font-size:16px; position:relative; top:1px;margin-left:30px;">注册账号</a></h3>
+        </div>       
+        <!--<h3 class="user_update"><img src="/Public/images/user.png" style="width:22px; height:24px; position:relative; left:4px;top:5px;" /><a href="/Home/Index/exchange.html" style="font-size:16px;margin-left:2px;color:red;" target="_blank"> 口令兑换萌币~</a></h3>-->
+        <!--
+        <h3 class="user_update"><img src="/Public/images/user.png" style="width:22px; height:24px; position:relative; left:4px;top:5px;" /><a href="/Home/Index/websiteTasks.html" style="font-size:16px;margin-left:2px;color:red;" target="_blank"> 完成新手任务，领取丰厚奖励！</a>
+        <style>.user_update{border:1px solid #000;position:relative;top:-3px;height:28px;line-height:28px;padding:0;border:none;padding-bottom:3px;}.nav span{color:#000;}</style>
+        -->
+    </div>
+  
+  
+    <!-- 消息推送 -->
+    <script type="text/javascript"> 
+    /* //ajax定时查询有无消息*/
+    if(public_user != ""){
+        setInterval(function(){
+            $.ajax({
+                error: function(XMLHttpRequest, textStatus, errorThrown) {
+                //if(textStatus == "error") alert("请求失败QaQ\nXMLHttpRequest.readyState状态码："+XMLHttpRequest.readyState+"\nXMLHttpRequest.status状态码："+XMLHttpRequest.status);
+            },
+            type : "GET",
+            data: {"username":public_user},
+            url: "/Index/get_user_news.html",//后台映射的URL 
+            dataType:'json',//返回的数据格式
+            success : function(result) { //result即你的返回值
+                //判断是否私聊，私聊自动刷新
+                var comment_private_href = location.href;
+                if(comment_private_href.indexOf('comment_private') != -1 && result=="private"){
+                    //window.location = location.href;
+                }
+                if(result >= 1 || result=="private"){
+                    var public_timer = setInterval(function(){ $('.public_new_flashing').fadeOut(100).fadeIn(100); },350);
+                    //$('.public_new_flashing').css("position", "relative");
+                    //$('.public_new_flashing').css("left", "0px");
+                }else{
+                    //$('.public_new_flashing').css("position", "absolute");
+                    //$('.public_new_flashing').css("left", "-999999px");
+                }
+            }
+            });	
+        },21600000);
+    }
+    //每隔6小时查询有无新消息 https://www.baidu.com/s?ie=UTF-8&wd=1分钟等于多少毫秒
+      
+    /*弹幕开关*/
+    $('#danmu').click(function(){
+        if($('#danmu').html() == " 默认关闭弹幕"){
+            if(window.confirm('关闭后将不显示任何弹幕，确定吗？')){
+                 $.ajax({
+                          error: function(XMLHttpRequest, textStatus, errorThrown) {
+                          //if(textStatus == "error") alert("请求失败QaQ\nXMLHttpRequest.readyState状态码："+XMLHttpRequest.readyState+"\nXMLHttpRequest.status状态码："+XMLHttpRequest.status);
+                      },
+                      type : "POST",
+                      data: {"danmu_c":"close"},
+                      url: "/Index/danmu_cookie.html",//后台映射的URL 
+                      dataType:'json',//返回的数据格式
+                      success : function(result) { //result即你的返回值
+                          alert(result);
+                      }
+                 });	
+                 window.location.href = location.href;
+            }
+        }
+        if($('#danmu').html() == " 默认开启弹幕"){
+            if(window.confirm('开启后将显示弹幕，确定吗？')){
+                 $.ajax({
+                          error: function(XMLHttpRequest, textStatus, errorThrown) {
+                          //if(textStatus == "error") alert("请求失败QaQ\nXMLHttpRequest.readyState状态码："+XMLHttpRequest.readyState+"\nXMLHttpRequest.status状态码："+XMLHttpRequest.status);
+                      },
+                      type : "POST",
+                      data: {"danmu_c":"open"},
+                      url: "/Index/danmu_cookie.html",//后台映射的URL 
+                      dataType:'json',//返回的数据格式
+                      success : function(result) { //result即你的返回值
+                          alert(result);
+                      }
+                 });	
+                 window.location.href = location.href;
+            }
+        }
+    });
+    </script>
+
+
+    <!--追番消息提醒-->
+    <a id="zhuifan" class="gonggao" href="/Index/end_comic.html" target="_blank" style="position:relative;z-index:10;display:none;"></a>
+  
+  
+    <!-- 追番消息推送 -->
+    <script type="text/javascript"> 
+        var public_user="";
+        if(public_user != ""){ 
+          $.ajax({
+            error: function(XMLHttpRequest, textStatus, errorThrown) {
+              //if(textStatus == "error") alert("请求失败QaQ\nXMLHttpRequest.readyState状态码："+XMLHttpRequest.readyState+"\nXMLHttpRequest.status状态码："+XMLHttpRequest.status);
+            },
+            type : "GET",
+            data: {"username":public_user},
+            url: "/Index/comic_new.html",//后台映射的URL 
+            dataType:'json',//返回的数据格式
+            success : function(result) { //result即你的返回值
+              if(result >= 1){
+                $('.public_new_comic').html("new");
+                $('.public_new_comic').css("color","red");
+                var public_timer_comic = setInterval(function(){ $('.public_new_comic').fadeOut(100).fadeIn(100); },350);
+                $('#zhuifan').html('<p style="color:orange; text-align:center; background:#f4eeee; padding:6px; width:1160px;display:block; margin:0 auto; margin-bottom:20px; border-top-right-radius:10px; border-top-left-radius:10px;"><img src="/Public/images/public.png" style="position:relative; top:3px;" />您追的番剧更新了，点此查看</p>');
+                $('#zhuifan').fadeIn();
+              }
+            }
+          });
+          /*  //ajax定时查询有追番更新 */
+          setInterval(function(){
+            $.ajax({
+              error: function(XMLHttpRequest, textStatus, errorThrown) {
+                //if(textStatus == "error") alert("请求失败QaQ\nXMLHttpRequest.readyState状态码："+XMLHttpRequest.readyState+"\nXMLHttpRequest.status状态码："+XMLHttpRequest.status);
+              },
+              type : "GET",
+              data: {"username":public_user},
+              url: "/Index/comic_new.html",//后台映射的URL 
+              dataType:'json',//返回的数据格式
+              success : function(result) { //result即你的返回值
+                if(result >= 1){
+                  $('.public_new_comic').html("new");
+                  var public_timer_comic = setInterval(function(){ $('.public_new_comic').fadeOut(200).fadeIn(200); },650);
+                  $('#zhuifan').html('<p style="color:orange; text-align:center; background:#f4eeee; padding:6px; width:1160px;display:block; margin:0 auto; margin-bottom:20px; border-top-right-radius:10px; border-top-left-radius:10px;"><img src="/Public/images/public.png" style="position:relative; top:3px;" />您追的番剧更新了，点此查看</p>');
+                  $('#zhuifan').fadeIn();
+                }
+              }
+            });	
+          },600000);
+        }
+        //每隔10分钟查询有无更新 https://www.baidu.com/s?ie=UTF-8&wd=1分钟等于多少毫秒
+    </script>
+
+
+   <!-- 统计-->
+   <script>
+   if(public_user != "风轻云淡"){
+       var _hmt = _hmt || [];
+        (function() {
+          var hm = document.createElement("script");
+          hm.src = "https://hm.baidu.com/hm.js?cd233fa6d59713f4143fc9a460159193";
+          var s = document.getElementsByTagName("script")[0]; 
+          s.parentNode.insertBefore(hm, s);
+        })();
+   }
+   </script>
+   
+
+   <!--jx sm-->
+   <script type="text/javascript">
+   if (document.location.host != "www.ezdmw.org") {
+       location.href = location.href.replace(document.location.host,'www.ezdmw.org');
+   }
+   </script>
+
+
+   <!-- 百度推送-->
+   <script>
+    (function(){
+        var bp = document.createElement('script');
+        var curProtocol = window.location.protocol.split(':')[0];
+        if (curProtocol === 'https') {
+            bp.src = 'https://zz.bdstatic.com/linksubmit/push.js';
+        }
+        else {
+            bp.src = 'http://push.zhanzhang.baidu.com/push.js';
+        }
+        var s = document.getElementsByTagName("script")[0];
+        s.parentNode.insertBefore(bp, s);
+    })();
+   </script>
+   
+
+    <!--点击返回顶部卡通-->
+    <span style="font-size:14px" id="top_katong"><p id="back-to-top"><a href="#top"><img src="/Public/images/app/top_katong.png?update=1.0" />点我返回顶部</a></p></span>
+    <style>
+    p#back-to-top{
+        position:fixed;
+        display:none;
+        bottom:285px;
+        right:-5px;
+        z-index:9;
+    }
+    p#back-to-top a{
+        text-align:center;
+        text-decoration:none;
+        color:#d1d1d1;
+        display:block;
+        width:105px;
+        -moz-transition:color 1s;
+        -webkit-transition:color 1s;
+        -o-transition:color 1s; word-spacing:8px; letter-spacing:1px;
+    }
+    p#back-to-top a:hover{
+        color:#979797;
+    }
+    @media screen and (max-width: 830px) { #top_katong{display:none;} }
+    .nav-img {
+        /*background-image: url("");*/
+    }
+    </style>
+    <script>
+    //当滚动条的位置处于距顶部860像素以下时，跳转链接出现，否则消失
+    $(window).scroll(function(){
+        if ($(window).scrollTop()>860){
+            $("#back-to-top").fadeIn(1500);
+        }
+        else
+        {
+            $("#back-to-top").fadeOut(1500);
+        }
+    });
+    //当点击跳转链接后，回到页面顶部位置
+    $("#back-to-top").click(function(){
+        if ($("html").scrollTop()) {
+            $("html").animate({ scrollTop: 0 }, 300);
+            return false;
+        }
+        $("body").animate({ scrollTop: 0 }, 300);
+        return false;            
+    });
+    </script>
+    
+    <!-- 有无激活账户，开启真实邮箱验证时取消注销 -->
+    
+
+   <!--canvas绘制雪花特效，开启时取消注销（cpu占用很高）
+    <script type="text/javascript" src="//www.ezdmw.org/demo/snow-master/snow2.js"></script>
+    <script type="text/javascript" src="//www.ezdmw.org/demo/snow-master/ac.header-newyear.js"></script>
+    <style type="text/css">
+    body {
+        margin: 0;
+        padding: 0;
+    }
+    canvas { width:100%;
+        display: block;
+        margin: 0 auto;
+        position: absolute;
+        top: 0;
+        left: 0;
+        pointer-events: none; height:296px;
+    }
+    .header_content {
+        position: relative;
+        width: 1200px;
+        height: 180px;
+        margin: 0 auto;
+    }
+    .header_content a {
+        display: block;
+        position: absolute;
+        top: 137px;
+        right: 111px;
+        width: 92px;
+        height: 35px;
+        font-size: 14px;
+        color: #7d360f;
+        text-align: center;
+        line-height: 35px;
+        text-decoration: none;
+        border-radius: 2px;
+        background: #f9e2ba;
+    }
+    .header_content a:hover {
+        background: #f6cf89;
+    }
+    </style>
+    -->
+
+
+<script>
+$(document).ready(function(){
+    if ($(window).width() >= 830) {  
+	    //该页搜索默认展开
+       $('.search').fadeIn(0); //展开
+    }
+});
+</script>
+
+
+<!-- 主页内容 - index_centent -->
+<section class="index_centent">
+    <!-- 搜索结果 - search Result -->
+              <section class="some_drama" id="some_drama">
+                <h2 style="padding-top:15px;">搜索结果
+                   <!-- <a href="#">更多></a> -->
+                </h2><div style="margin-left:18px;"><a href="/Index/bangumi/80918.html" target="_blank"><img src="https://www.ezdmw.org/Public/atlas_oss/Public/images/some_img/2129.jpg" class="img1" /></a><p><span class="play_some" style="font-weight:bold;border:1px solid #ccc;display:block;width:99%;"><!--<img src="/Public/images/play.png" style="margin-left:10px;position:relative;top:1px;width:13px;" /> 12万</span>-->Re:Monster 怪物转生</p></div><div style="margin-left:18px;"><a href="/Index/bangumi/57725.html" target="_blank"><img src="https://www.ezdmw.org/Public/atlas_oss/Public/images/some_img/1866.jpg" class="img1" /></a><p><span class="play_some" style="font-weight:bold;border:1px solid #ccc;display:block;width:99%;"><!--<img src="/Public/images/play.png" style="margin-left:10px;position:relative;top:1px;width:13px;" /> 4.5万</span>-->公主连结Re:Dive</p></div><div style="margin-left:18px;"><a href="/Index/bangumi/54460.html" target="_blank"><img src="https://www.ezdmw.org/Public/atlas_oss/Public/images/some_img/1775.jpg" class="img1" /></a><p><span class="play_some" style="font-weight:bold;border:1px solid #ccc;display:block;width:99%;"><!--<img src="/Public/images/play.png" style="margin-left:10px;position:relative;top:1px;width:13px;" /> 8万</span>-->高达创形者Re:Rise</p></div><div style="margin-left:18px;"><a href="/Index/bangumi/52881.html" target="_blank"><img src="https://www.ezdmw.org/Public/atlas_oss/Public/images/some_img/1712.jpg" class="img1" /></a><p><span class="play_some" style="font-weight:bold;border:1px solid #ccc;display:block;width:99%;"><!--<img src="/Public/images/play.png" style="margin-left:10px;position:relative;top:1px;width:13px;" /> 6.7万</span>-->Re:STAGE! Dream Days♪</p></div><div style="margin-left:18px;"><a href="/Index/bangumi/4728.html" target="_blank"><img src="https://www.ezdmw.org/Public/atlas_oss/Public/images/some_img/325.jpg" class="img1" /></a><p><span class="play_some" style="font-weight:bold;border:1px solid #ccc;display:block;width:99%;"><!--<img src="/Public/images/play.png" style="margin-left:10px;position:relative;top:1px;width:13px;" /> 16.4万</span>-->Re:CREATORS</p></div><a href="/Index/search_some?searchText=Re:&page=0" style="background:#F8F8F8; padding:5px; border-radius:6px; margin-top:30px;text-align:center;color:blue;display:inline-block; width:96%; margin-left:1%;font-size:16px;">查看更多番剧搜素结果></a></section></section>
+
+
+
+
+<style>
+/*移动端样式 - Mobile terminal style*/
+@media screen and (min-width: 600px) {  
+    .none{padding-top:76px;}
+}
+@media screen and (min-width: 1078px) {  
+    .none{padding-top:12px;}
+}
+</style>
+<div class="none" style="clear:both; padding-top:30px;"> 
+    <!-- 瀑布流图片 -->
+    <div id="main">
+                
+                                    <div class="box">
+                                        <div class="pic"> 
+                                            <a href="/Index/up_details/6541.html" target="__blank">
+                                                <img src="/Public/images/upload/img_comic/cover_58_655.jpg" title="公主连结Re:Dive"  class="a-img1">
+                                            </a>
+                                            <section class="mask">
+                                                <div class="li-title" title="公主连结Re:Dive">公主连结Re:Dive</div>
+                                                <div class="looked">
+                                                    <img src="/Public/images/browse.png" class="browse" style="display:none;"/>
+                                                    <small style="display:none;">130</small>
+                                                    <span style="display:none;">2020-04-07 00:20:30</span>
+                                                    <img src="/Public/images/clock.png" class="clock" style="display:none;"/>
+                                                </div>
+                                                <div class="introduce">
+                                                    <a href="/Index/img_search.html?img_searchText=【资源】动漫下载" target="__blank">
+                                                        <img src="/Public/images/label.png" class="label" />【资源】动漫下载
+                                                    </a>
+                                                </div>
+                                                <div class="up">
+                                                    <a href="/Index/userstate.html?name=真系精彩" target="__blank">
+                                                        <img src="/Public/images/upload/head_portrait/58.jpg" class="head_pic" />
+                                                        真系精彩
+                                                    </a>
+                                                </div>
+                                            </section>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="box">
+                                        <div class="pic"> 
+                                            <a href="/Index/up_details/5422.html" target="__blank">
+                                                <img src="/Public/images/upload/img_comic/cover_58_553.jpg" title="高达创形者 Re:Rise"  class="a-img1">
+                                            </a>
+                                            <section class="mask">
+                                                <div class="li-title" title="高达创形者 Re:Rise">高达创形者 Re:Rise</div>
+                                                <div class="looked">
+                                                    <img src="/Public/images/browse.png" class="browse" style="display:none;"/>
+                                                    <small style="display:none;">101</small>
+                                                    <span style="display:none;">2019-10-10 22:42:26</span>
+                                                    <img src="/Public/images/clock.png" class="clock" style="display:none;"/>
+                                                </div>
+                                                <div class="introduce">
+                                                    <a href="/Index/img_search.html?img_searchText=【资源】动漫下载" target="__blank">
+                                                        <img src="/Public/images/label.png" class="label" />【资源】动漫下载
+                                                    </a>
+                                                </div>
+                                                <div class="up">
+                                                    <a href="/Index/userstate.html?name=真系精彩" target="__blank">
+                                                        <img src="/Public/images/upload/head_portrait/58.jpg" class="head_pic" />
+                                                        真系精彩
+                                                    </a>
+                                                </div>
+                                            </section>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="box">
+                                        <div class="pic"> 
+                                            <a href="/Index/up_details/4545.html" target="__blank">
+                                                <img src="/Public/images/upload/img_comic/cover_58_505.jpg" title="Re:STAGE! Dream Days♪"  class="a-img1">
+                                            </a>
+                                            <section class="mask">
+                                                <div class="li-title" title="Re:STAGE! Dream Days♪">Re:STAGE! Dream Days♪</div>
+                                                <div class="looked">
+                                                    <img src="/Public/images/browse.png" class="browse" style="display:none;"/>
+                                                    <small style="display:none;">83</small>
+                                                    <span style="display:none;">2019-07-08 10:44:46</span>
+                                                    <img src="/Public/images/clock.png" class="clock" style="display:none;"/>
+                                                </div>
+                                                <div class="introduce">
+                                                    <a href="/Index/img_search.html?img_searchText=【资源】动漫下载" target="__blank">
+                                                        <img src="/Public/images/label.png" class="label" />【资源】动漫下载
+                                                    </a>
+                                                </div>
+                                                <div class="up">
+                                                    <a href="/Index/userstate.html?name=真系精彩" target="__blank">
+                                                        <img src="/Public/images/upload/head_portrait/58.jpg" class="head_pic" />
+                                                        真系精彩
+                                                    </a>
+                                                </div>
+                                            </section>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="box">
+                                        <div class="pic"> 
+                                            <a href="/Index/up_details/3822.html" target="__blank">
+                                                <img src="/Public/images/upload/img_comic/cover_14525_164.jpg" title="Re:CREATORS 第三弹"  class="a-img1">
+                                            </a>
+                                            <section class="mask">
+                                                <div class="li-title" title="Re:CREATORS 第三弹">Re:CREATORS 第三弹</div>
+                                                <div class="looked">
+                                                    <img src="/Public/images/browse.png" class="browse" style="display:none;"/>
+                                                    <small style="display:none;">140</small>
+                                                    <span style="display:none;">2019-05-04 18:38:08</span>
+                                                    <img src="/Public/images/clock.png" class="clock" style="display:none;"/>
+                                                </div>
+                                                <div class="introduce">
+                                                    <a href="/Index/img_search.html?img_searchText=【图集】动漫图集" target="__blank">
+                                                        <img src="/Public/images/label.png" class="label" />【图集】动漫图集
+                                                    </a>
+                                                </div>
+                                                <div class="up">
+                                                    <a href="/Index/userstate.html?name=苏菲·托莱特" target="__blank">
+                                                        <img src="/Public/images/upload/head_portrait/14525.jpg" class="head_pic" />
+                                                        苏菲·托莱特
+                                                    </a>
+                                                </div>
+                                            </section>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="box">
+                                        <div class="pic"> 
+                                            <a href="/Index/up_details/3800.html" target="__blank">
+                                                <img src="/Public/images/upload/img_comic/cover_14525_154.png" title="Re:CREATORS 第二弹"  class="a-img1">
+                                            </a>
+                                            <section class="mask">
+                                                <div class="li-title" title="Re:CREATORS 第二弹">Re:CREATORS 第二弹</div>
+                                                <div class="looked">
+                                                    <img src="/Public/images/browse.png" class="browse" style="display:none;"/>
+                                                    <small style="display:none;">347</small>
+                                                    <span style="display:none;">2019-04-30 11:21:20</span>
+                                                    <img src="/Public/images/clock.png" class="clock" style="display:none;"/>
+                                                </div>
+                                                <div class="introduce">
+                                                    <a href="/Index/img_search.html?img_searchText=【图集】动漫图集" target="__blank">
+                                                        <img src="/Public/images/label.png" class="label" />【图集】动漫图集
+                                                    </a>
+                                                </div>
+                                                <div class="up">
+                                                    <a href="/Index/userstate.html?name=苏菲·托莱特" target="__blank">
+                                                        <img src="/Public/images/upload/head_portrait/14525.jpg" class="head_pic" />
+                                                        苏菲·托莱特
+                                                    </a>
+                                                </div>
+                                            </section>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="box">
+                                        <div class="pic"> 
+                                            <a href="/Index/up_details/3750.html" target="__blank">
+                                                <img src="/Public/images/upload/img_comic/cover_14525_143.png" title="Re:CREATORS 第一弹"  class="a-img1">
+                                            </a>
+                                            <section class="mask">
+                                                <div class="li-title" title="Re:CREATORS 第一弹">Re:CREATORS 第一弹</div>
+                                                <div class="looked">
+                                                    <img src="/Public/images/browse.png" class="browse" style="display:none;"/>
+                                                    <small style="display:none;">992</small>
+                                                    <span style="display:none;">2019-04-22 20:21:35</span>
+                                                    <img src="/Public/images/clock.png" class="clock" style="display:none;"/>
+                                                </div>
+                                                <div class="introduce">
+                                                    <a href="/Index/img_search.html?img_searchText=【图集】动漫图集" target="__blank">
+                                                        <img src="/Public/images/label.png" class="label" />【图集】动漫图集
+                                                    </a>
+                                                </div>
+                                                <div class="up">
+                                                    <a href="/Index/userstate.html?name=苏菲·托莱特" target="__blank">
+                                                        <img src="/Public/images/upload/head_portrait/14525.jpg" class="head_pic" />
+                                                        苏菲·托莱特
+                                                    </a>
+                                                </div>
+                                            </section>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="box">
+                                        <div class="pic"> 
+                                            <a href="/Index/up_details/3446.html" target="__blank">
+                                                <img src="/Public/images/upload/img_comic/cover_1_212.png" title="Re:0第二季制作决定 有生之年系列"  class="a-img1">
+                                            </a>
+                                            <section class="mask">
+                                                <div class="li-title" title="Re:0第二季制作决定 有生之年系列">Re:0第二季制作决定 有生之年系列</div>
+                                                <div class="looked">
+                                                    <img src="/Public/images/browse.png" class="browse" style="display:none;"/>
+                                                    <small style="display:none;">611</small>
+                                                    <span style="display:none;">2019-03-23 21:33:40</span>
+                                                    <img src="/Public/images/clock.png" class="clock" style="display:none;"/>
+                                                </div>
+                                                <div class="introduce">
+                                                    <a href="/Index/img_search.html?img_searchText=【文章】综合" target="__blank">
+                                                        <img src="/Public/images/label.png" class="label" />【文章】综合
+                                                    </a>
+                                                </div>
+                                                <div class="up">
+                                                    <a href="/Index/userstate.html?name=风轻云淡" target="__blank">
+                                                        <img src="/Public/images/upload/head_portrait/1.jpg" class="head_pic" />
+                                                        风轻云淡
+                                                    </a>
+                                                </div>
+                                            </section>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="box">
+                                        <div class="pic"> 
+                                            <a href="/Index/up_details/2314.html" target="__blank">
+                                                <img src="/Public/images/upload/img_comic/cover_4230_35.jpg" title="Re:从零开始的异世界生活 无删减"  class="a-img1">
+                                            </a>
+                                            <section class="mask">
+                                                <div class="li-title" title="Re:从零开始的异世界生活 无删减">Re:从零开始的异世界生活 无删减</div>
+                                                <div class="looked">
+                                                    <img src="/Public/images/browse.png" class="browse" style="display:none;"/>
+                                                    <small style="display:none;">1288</small>
+                                                    <span style="display:none;">2019-01-29 21:37:25</span>
+                                                    <img src="/Public/images/clock.png" class="clock" style="display:none;"/>
+                                                </div>
+                                                <div class="introduce">
+                                                    <a href="/Index/img_search.html?img_searchText=【资源】动漫下载" target="__blank">
+                                                        <img src="/Public/images/label.png" class="label" />【资源】动漫下载
+                                                    </a>
+                                                </div>
+                                                <div class="up">
+                                                    <a href="/Index/userstate.html?name=呱唧君" target="__blank">
+                                                        <img src="/Public/images/upload/head_portrait/4230.jpg" class="head_pic" />
+                                                        呱唧君
+                                                    </a>
+                                                </div>
+                                            </section>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="box">
+                                        <div class="pic"> 
+                                            <a href="/Index/up_details/2155.html" target="__blank">
+                                                <img src="/Public/images/upload/img_comic/cover_4282_333.jpg" title="Re:CREATORS"  class="a-img1">
+                                            </a>
+                                            <section class="mask">
+                                                <div class="li-title" title="Re:CREATORS">Re:CREATORS</div>
+                                                <div class="looked">
+                                                    <img src="/Public/images/browse.png" class="browse" style="display:none;"/>
+                                                    <small style="display:none;">52</small>
+                                                    <span style="display:none;">2019-01-22 15:51:05</span>
+                                                    <img src="/Public/images/clock.png" class="clock" style="display:none;"/>
+                                                </div>
+                                                <div class="introduce">
+                                                    <a href="/Index/img_search.html?img_searchText=【资源】动漫下载" target="__blank">
+                                                        <img src="/Public/images/label.png" class="label" />【资源】动漫下载
+                                                    </a>
+                                                </div>
+                                                <div class="up">
+                                                    <a href="/Index/userstate.html?name=露易丝" target="__blank">
+                                                        <img src="/Public/images/upload/head_portrait/default.jpg" class="head_pic" />
+                                                        露易丝
+                                                    </a>
+                                                </div>
+                                            </section>
+                                        </div>
+                                    </div>
+                                        </div>
+</div>
+
+
+<script>
+var oEsc = "https://www.ezdmw.org/Public/atlas_oss/";
+var olimetNum = "10";
+var oGetSearch = "Re:";
+var sUser = "";
+var ESCIMGHOST = "https://www.ezdmw.org";
+
+/*alert(oEsc+olimetNum+oGetSearch);
+.pic .mask:hover{
+	transform:scale(1.2);
+}
+*/
+
+//limit起始数
+var oStart = parseInt(olimetNum);
+//limit显示数
+var oNum = 2; 
+
+//是否请求ajax，true为请求
+var oflagAjax = true;
+
+$(window).on('load',function(){
+	waterFall(); 
+	$(window).on('scroll',function(){
+		if(checkScrollSlide()){
+			if(oflagAjax){				
+				$('#imloading').html("加载数据中，请稍后..");
+    			//ajax请求数据
+    			$.ajax({
+    				error: function(XMLHttpRequest, textStatus, errorThrown) {
+    		            //if(textStatus == "error") alert("请求失败QaQ\nXMLHttpRequest.readyState状态码："+XMLHttpRequest.readyState+"\nXMLHttpRequest.status状态码："+XMLHttpRequest.status);
+    		        },
+    		        async:false, //同步加载
+    		        type : "POST",
+    		        data: {"start":oStart, "num":oNum, "img_searchText":oGetSearch},
+    		        url: "/Index/ajax_img_search.html",//后台映射的URL 
+    		        dataType:'json',//返回的数据格式
+    		        success : function(result) { //result即你的返回值
+    		        	$('#imloading').css("display", "none");
+    		        	for(var i in result){
+    			        	if(result[i].id == null) {
+    			        		//$('#main').append('<div class="box"><div class="pic"><h4 style="text-align:center;">没有啦(｀・ω・´)</h4></div></div>');
+    			        		oflagAjax = false;
+    			        		return false;
+    			        	}
+    			        	
+    			        	//将请求到的数据追加在mian之后
+    			        	if(result[i].examine == 1){
+    			        	    if(sUser == ""){
+                                    if(result[i].view_flag == 1) {
+                                        var res_src = result[i].src;
+            			        	    var res_src_str = "";
+            			        	    if(res_src.indexOf("imageBed") !== -1){
+            			        	        let replacedStr = res_src.replace("https://www.guguxz.com", "https://wdbed.vip");
+            			        	        res_src_str = '<img src="'+replacedStr+'" title="'+result[i].title+'" class="a-img1">';
+            			        	    }else{
+            			        	        res_src_str = '<img src="/Public/images/upload/img_comic/cover_'+res_src+'" title="'+result[i].title+'" class="a-img1">';
+            			        	    }
+                		        		$('#main').append('\
+                		        	        <div class="box">\
+                		        		        <div class="pic">\
+                    		        				<a href="/Index/up_details/'+result[i].id+'.html" target="_blank">\
+                            		                    '+res_src_str+'\
+                            		                </a>\
+                            		                <section class="mask">\
+                                		                <div class="li-title" title="'+result[i].title+'">'+result[i].title+'</div>\
+                                		                <!--\
+                                		                <div class="looked">\
+                                    	                    <img src="/Public/images/browse.png" class="browse" />\
+                                    	                    <small>'+result[i].looked+'</small>\
+                                    	                    <span>'+result[i].date+'</span>\
+                                    	                    <img src="/Public/images/clock.png" class="clock" />\
+                                    	                </div>\
+                                    	                -->\
+                                    	                <div class="introduce">\
+                                                            <a href="/Index/img_search.html?img_searchText='+result[i].comic_name+'" target="__blank">\
+                                                                <img src="/Public/images/label.png" class="label" />'+result[i].comic_name+'\
+                                                            </a>\
+                                                        </div>\
+                                                        <div class="up">\
+                                                            <a href="/Index/userstate.html?name='+result[i].writer+'" target="__blank">\
+                                        				        <img src="/Public/images/upload/head_portrait/'+result[i].head_pir+'" class="head_pic" />\
+                                        				        '+result[i].writer+'\
+                                        			        </a>\
+                                                        </div>\
+                                                    </div>\
+                            		            </div>\
+                            		        </div>\
+                				        ');
+                                    }
+    			        	    }else{
+    			        	        var res_src = result[i].src;
+        			        	    var res_src_str = "";
+        			        	    if(res_src.indexOf("imageBed") !== -1){
+        			        	        let replacedStr = res_src.replace("https://www.guguxz.com", "https://wdbed.vip");
+        			        	        res_src_str = '<img src="'+replacedStr+'" title="'+result[i].title+'" class="a-img1">';
+        			        	    }else{
+        			        	        res_src_str = '<img src="/Public/images/upload/img_comic/cover_'+res_src+'" title="'+result[i].title+'" class="a-img1">';
+        			        	    }
+            		        		$('#main').append('\
+            		        	        <div class="box">\
+            		        		        <div class="pic">\
+                		        				<a href="/Index/up_details/'+result[i].id+'.html" target="_blank">\
+                        		                    '+res_src_str+'\
+                        		                </a>\
+                        		                <section class="mask">\
+                            		                <div class="li-title" title="'+result[i].title+'">'+result[i].title+'</div>\
+                            		                <!--\
+                            		                <div class="looked">\
+                                	                    <img src="/Public/images/browse.png" class="browse" />\
+                                	                    <small>'+result[i].looked+'</small>\
+                                	                    <span>'+result[i].date+'</span>\
+                                	                    <img src="/Public/images/clock.png" class="clock" />\
+                                	                </div>\
+                                	                -->\
+                                	                <div class="introduce">\
+                                                        <a href="/Index/img_search.html?img_searchText='+result[i].comic_name+'" target="__blank">\
+                                                            <img src="/Public/images/label.png" class="label" />'+result[i].comic_name+'\
+                                                        </a>\
+                                                    </div>\
+                                                    <div class="up">\
+                                                        <a href="/Index/userstate.html?name='+result[i].writer+'" target="__blank">\
+                                    				        <img src="/Public/images/upload/head_portrait/'+result[i].head_pir+'" class="head_pic" />\
+                                    				        '+result[i].writer+'\
+                                    			        </a>\
+                                                    </div>\
+                                                </div>\
+                        		            </div>\
+                        		        </div>\
+            				        ');
+    			        	    }
+    			        	}
+    			        	
+    		            }    
+    		        }
+    		    });
+			}
+			//ajax查询的上次的分页起始点
+			oStart+=oNum;
+			waterFall();
+		}
+	});
+});
+
+function waterFall() {
+	var $boxs=$('#main>div');
+	var w=$boxs.eq(0).outerWidth();
+	var cols=Math.floor($(window).width()/w); //判断应显示的条数
+	//判断设备，手动设置条数
+	if($(window).width() >= 1079){
+		cols = 5;
+	}else if($(window).width() >= 560 && $(window).width() <= 1078){
+		cols = 3;
+	}else{
+		cols = 2;
+	}
+	$("#main").width(w*cols+5).css('margin','0 auto');
+	var hArr=[];
+	$boxs.each(function(index,value){
+		var h=$boxs.eq(index).outerHeight();
+		if(index<cols){
+			hArr.push(h);
+		}else {
+			minH=Math.min.apply(null,hArr);
+			var minHeightIndex=$.inArray(minH,hArr);
+			// console.log(value);
+			$(value).css({
+				'position':'absolute',
+				'top':minH+'px',
+				'left':minHeightIndex*w+'px'
+			});
+			hArr[minHeightIndex]+=$boxs.eq(index).outerHeight();
+		}
+	});
+	// console.log(hArr);
+}
+
+function checkScrollSlide() {
+	var $lastBox=$('#main>div').last();
+	var lastBoxDis=$lastBox.offset().top+Math.floor($lastBox.outerHeight()/2);
+	var scrollTop=$(window).scrollTop();
+	var documentH=$(window).height();
+	return (lastBoxDis<scrollTop+documentH)?true:false;
+
+}
+
+
+//反馈
+$('.feedback').click(function(){
+	var oReason = prompt("输入反馈内容");
+	if (oReason != null){
+		//发送反馈的ajax请求
+		$.ajax({
+			error: function(XMLHttpRequest, textStatus, errorThrown) {
+                if(textStatus == "error") alert("请求失败QaQ\nXMLHttpRequest.readyState状态码："+XMLHttpRequest.readyState+"\nXMLHttpRequest.status状态码："+XMLHttpRequest.status);
+            },
+            type : "POST",
+            data: {"text": oReason},
+            url: "/Index/feedback.html",//后台映射的URL 
+            dataType:'json',//返回的数据格式
+            success : function(result) { //result即你的返回值
+	            alert(result);
+	            if(result == "我们已经收到您的反馈~\n\n提示：（切勿反馈垃圾信息，否则禁止访问本站）")
+	              $('.feedback').css("display", "none");
+            }
+        });
+	}
+});
+</script>
+</body>
+</html>

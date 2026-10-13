@@ -1,4 +1,4 @@
--- 站点 add-XX-event 多选改造回归测试（tencent + maccms + acfun 三种 value 形状）：
+-- 站点 add-XX-event 多选改造回归测试（tencent + maccms + acfun + ezdmw 四种 value 形状）：
 -- 添加集数后不再向 uosc 发 close-menu（菜单保持打开）、add_danmaku_source 被
 -- 以预期参数调用（tencent/acfun）、同源换选驱逐旧集源（数据层单选收紧）+ 旧标记
 -- 清除新标记高亮（标记层 exclusive）、update-menu 原地刷新
@@ -34,6 +34,7 @@ require("modules/menu")
 require("apis/tencent_search")
 require("apis/maccms")
 require("apis/acfun_search")
+require("apis/ezdmw_search")
 
 -- 模拟 uosc 环境（menu.lua 加载时检测为 false，需在其后覆盖）
 uosc_available = true
@@ -178,6 +179,44 @@ local steps = {
             st.items[2].active == nil and st.items[2].hint == nil
                 and st.items[3].active == true and st.items[3].hint == "ED1 | 已添加")
         check("3e 原地刷新走 update-menu", sent[#sent] ~= nil and sent[#sent].cmd == "update-menu")
+
+        -- ===== ezdmw：番剧集数换选（每集独立 videoId，规范 URL 直达播放页）=====
+        local z_items = {
+            { title = "↩️ 返回搜索结果",
+                value = { "script-message-to", "uosc", "open-menu", "{}" },
+                keep_open = false, selectable = true },
+            { title = "第18集",
+                value = { "script-message-to", name, "add-ezd-event",
+                    "98626", "102508", "18", "Re：从零开始的异世界生活第四季" },
+                keep_open = true },
+            { title = "第19集",
+                value = { "script-message-to", name, "add-ezd-event",
+                    "98626", "102578", "19", "Re：从零开始的异世界生活第四季" },
+                keep_open = true },
+        }
+        remember_details_menu("menu_details", "Re：从零开始的异世界生活第四季", z_items, "使用 / 打开筛选", true)
+        mp.commandv("script-message-to", name, "add-ezd-event",
+            "98626", "102508", "18", "Re：从零开始的异世界生活第四季")
+    end,
+    function()
+        mp.commandv("script-message-to", name, "add-ezd-event",
+            "98626", "102578", "19", "Re：从零开始的异世界生活第四季")
+    end,
+    function()
+        local st = current_details_menu
+        check("4 ezdmw 两次添加均不发 close-menu", close_menu_count() == 0)
+        check("4b add_danmaku_source 以预期 URL/provider 被调两次",
+            #stub.sources == 6
+                and stub.sources[5].query == "https://www.ezdmw.org/Index/video/102508.html"
+                and stub.sources[6].query == "https://www.ezdmw.org/Index/video/102578.html"
+                and stub.sources[6].from_menu == true and stub.sources[6].provider == "ezdmw")
+        check("4c 数据层单选收紧：同源旧集源被驱逐、只留新选",
+            DANMAKU.sources["https://www.ezdmw.org/Index/video/102508.html"] == nil
+                and DANMAKU.sources["https://www.ezdmw.org/Index/video/102578.html"] ~= nil)
+        check("4d 标记层 exclusive：无 hint 条目打标为纯「已添加」、旧集还原",
+            st.items[2].active == nil and st.items[2].hint == nil
+                and st.items[3].active == true and st.items[3].hint == "已添加")
+        check("4e 原地刷新走 update-menu", sent[#sent] ~= nil and sent[#sent].cmd == "update-menu")
 
         print(failures == 0 and "ALL PASS" or (failures .. " FAILED"))
         -- os.exit 直杀：mpv 正常 quit 的关机路径在 Windows 控制台代理下偶发挂起（测试环境已知问题）

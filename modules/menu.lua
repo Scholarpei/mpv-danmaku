@@ -1708,6 +1708,8 @@ mp.register_script_message("search-anime-event", function(query)
             query_maiduidui_search(name)
         elseif class == "acf" then
             query_acfun_search(name)
+        elseif class == "ezd" then
+            query_ezdmw_search(name)
         else
             query_extra(name, class)
         end

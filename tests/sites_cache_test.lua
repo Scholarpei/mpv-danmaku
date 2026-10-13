@@ -1,7 +1,8 @@
--- 站点直连加载器磁盘缓存集成测试（animeko / 埋堆堆 / 巴哈姆特 / AcFun）：
+-- 站点直连加载器磁盘缓存集成测试（animeko / 埋堆堆 / 巴哈姆特 / AcFun / ezdmw）：
 -- TTL 内命中零网络、未命中走网络且写缓存（原始载荷 roundtrip）、
 -- 断网回退过期缓存、合法空结果不写缓存、巴哈主/降级端口取数均写同键缓存、
--- AcFun 两级缓存（映射 acfmap + 弹幕 acf）与分页游标聚合、预取伴生函数同键写/命中跳过
+-- AcFun 两级缓存（映射 acfmap + 弹幕 acf）与分页游标聚合、
+-- ezdmw 单级缓存（播放页取 nk+sign → getData XML）与双域降级、预取伴生函数同键写/命中跳过
 -- （自断言，输出 PASS/FAIL 行）
 -- 运行：mpv.com --idle=once --no-config --script=<本文件路径>
 -- 退出码非 0 或输出含 FAIL 即失败
@@ -38,7 +39,8 @@ end
 -- save_danmaku_json 用 apis/dandanplay.lua 真身（写 DANMAKU.sources，与在线路径同构）
 local stub = { net_calls = 0, fail = false, ako = nil, mdd = nil, loads = 0,
     baha = nil, baha_api = nil, baha_fail_main = false,
-    acf_page = nil, acf_p0 = nil, acf_p1 = nil }
+    acf_page = nil, acf_p0 = nil, acf_p1 = nil,
+    ezd_page = nil, ezd_data = nil, ezd_fail_main = false }
 show_message = function() end
 load_danmaku = function(from_menu) stub.loads = stub.loads + 1 end
 DANMAKU = { sources = {}, count = 1 }
@@ -73,6 +75,15 @@ local ACF_P0 = '{"result":0,"totalCount":3,"pcursor":"2","danmakus":['
 local ACF_P1 = '{"result":0,"totalCount":3,"pcursor":"no_more","danmakus":['
     .. '{"body":"底","position":3000,"color":16711680,"mode":4}]}'
 local ACF_EMPTY = '{"result":0,"totalCount":0,"pcursor":"no_more","danmakus":[]}'
+-- ezdmw：播放页内嵌弹幕播放器 iframe（nk+sign）；getData 为 B站标准 XML（mode 1/5/4 + 实体）
+local EZD_PAGE_HTML = '<html><iframe src="https://player.ezdmw.com/danmuku/'
+    .. '?nk=testres/testres_01&name=x&sign=abc123abc123abc123abc123abc123ab"></iframe></html>'
+local EZD_XML = '<?xml version="1.0" encoding="utf-8"?><i>'
+    .. '<d p="1.5,1,22,16777215,0,0,u,1">hi</d>'
+    .. '<d p="2.5,5,25,9830415,0,0,u,2">顶</d>'
+    .. '<d p="3.5,4,25,16711680,0,0,u,3">底</d>'
+    .. '<d p="4.5,1,25,16777215,0,0,u,4">a&lt;b&gt;c&amp;d</d></i>'
+local EZD_EMPTY = '<?xml version="1.0" encoding="utf-8"?><i></i>'
 
 require("modules/options")
 require("modules/utils")
@@ -122,6 +133,16 @@ call_cmd_async = function(args, cb)
             end
             local cur = form and form:match("pcursor=(%d+)") or "0"
             cb(nil, cur == "0" and stub.acf_p0 or stub.acf_p1)
+        elseif url:find("ezdmw%.org/Index/video/") then
+            cb(nil, stub.ezd_page)
+        elseif url:find("player%.ezdmw%.com/index/getData") then
+            if stub.ezd_fail_main then
+                cb("curl: (7) Failed to connect", nil)
+                return
+            end
+            cb(nil, stub.ezd_data)
+        elseif url:find("player%.danmuzf%.vip/index/getData") then
+            cb(nil, stub.ezd_data)
         else
             cb("unexpected url: " .. tostring(url), nil)
         end
@@ -135,6 +156,7 @@ require("sites/animeko")
 require("sites/maiduidui")
 require("sites/bahamut")
 require("sites/acfun")
+require("sites/ezdmw")
 
 local dc = require("modules/danmaku_cache")
 local function dc_setup(now_fn)
@@ -559,6 +581,132 @@ end
 
 steps[40] = function()
     check("acf 预取 TTL 命中零网络", steps._acf_pf_hit == true and stub.net_calls == 0)
+end
+
+-- ---------- ezdmw：TTL 命中零网络（单级缓存 ezd:{videoId}，存原始 XML） ----------
+local EZD_URL = "https://www.ezdmw.org/Index/video/102578.html"
+local EZD_KEY = "ezd:102578"
+
+steps[41] = function()
+    stub.ezd_page = EZD_PAGE_HTML
+    stub.ezd_data = EZD_XML
+    dc.put(EZD_KEY, EZD_XML, { type = "xml", count = 4 })
+    stub.net_calls = 0
+    stub.loads = 0
+    load_danmaku_for_ezdmw(EZD_URL, function(success)
+        steps._ezd_hit_cb = success
+    end)
+end
+
+steps[42] = function()
+    local src = DANMAKU.sources[EZD_URL]
+    check("ezd 命中零网络", stub.net_calls == 0)
+    check("ezd 命中回调成功", steps._ezd_hit_cb == true)
+    check("ezd 命中标记 cache", DANMAKU.cache_hit == "cache")
+    check("ezd 命中走 load_danmaku", stub.loads == 1)
+    check("ezd 命中数据入 sources", src ~= nil and src.data ~= nil and #src.data == 4)
+    check("ezd 数据字段正确（mode 透传、实体反转义）", src and src.data[1].text == "hi"
+        and src.data[1].time == 1.5 and src.data[1].color == 16777215 and src.data[1].type == 1
+        and src.data[2].type == 5 and src.data[3].type == 4 and src.data[3].color == 16711680
+        and src.data[4].text == "a<b>c&d")
+    DANMAKU.cache_hit = nil
+end
+
+-- ---------- ezdmw：未命中走网络（播放页取 nk+sign → getData）且聚合写缓存 ----------
+steps[43] = function()
+    dc.remove(EZD_KEY)
+    stub.net_calls = 0
+    load_danmaku_for_ezdmw(EZD_URL, function() end)
+end
+
+steps[44] = function()
+    local cached = dc.get(EZD_KEY)
+    local src = DANMAKU.sources[EZD_URL]
+    check("ezd 网络两跳请求（播放页 + getData）", stub.net_calls == 2)
+    check("ezd 网络成功不标 cache", DANMAKU.cache_hit == nil)
+    check("ezd 原始 XML 写缓存 roundtrip", cached ~= nil and cached.payload == EZD_XML)
+    check("ezd 缓存 meta 计数", cached ~= nil and cached.meta ~= nil and cached.meta.count == 4)
+    check("ezd 网络数据入 sources", src ~= nil and src.data ~= nil and #src.data == 4
+        and src.data[4].text == "a<b>c&d")
+end
+
+-- ---------- ezdmw：断网回退过期缓存（播放页请求失败即走过期兜底） ----------
+steps[45] = function()
+    dc_setup(function() return os.time() + 7200 end)
+    stub.net_calls = 0
+    stub.loads = 0
+    stub.fail = true
+    load_danmaku_for_ezdmw(EZD_URL, function(success)
+        steps._ezd_stale_cb = success
+    end)
+end
+
+steps[46] = function()
+    check("ezd 断网播放页请求失败（不再取弹幕）", stub.net_calls == 1)
+    check("ezd 断网走过期缓存加载", stub.loads == 1)
+    check("ezd 断网标记 stale", DANMAKU.cache_hit == "stale")
+    check("ezd 断网回调成功", steps._ezd_stale_cb == true)
+    DANMAKU.cache_hit = nil
+    stub.fail = false
+    dc_setup()
+end
+
+-- ---------- ezdmw：主域 getData 失败降级备用域（同写同键） ----------
+steps[47] = function()
+    dc.remove(EZD_KEY)
+    stub.net_calls = 0
+    stub.ezd_fail_main = true
+    load_danmaku_for_ezdmw(EZD_URL, function(success)
+        steps._ezd_backup_cb = success
+    end)
+end
+
+steps[48] = function()
+    local src = DANMAKU.sources[EZD_URL]
+    check("ezd 主域失败三跳请求（播放页 + 主域 + 备用域）", stub.net_calls == 3)
+    check("ezd 备用域取数回调成功", steps._ezd_backup_cb == true)
+    check("ezd 备用域取数写同键缓存", dc.get(EZD_KEY) ~= nil)
+    check("ezd 备用域数据入 sources", src ~= nil and src.data ~= nil and #src.data == 4)
+    stub.ezd_fail_main = false
+end
+
+-- ---------- ezdmw：合法空结果不缓存（空 <i></i> 是有效响应，不再降级备用域） ----------
+steps[49] = function()
+    dc.remove(EZD_KEY)
+    stub.net_calls = 0
+    stub.ezd_data = EZD_EMPTY
+    load_danmaku_for_ezdmw(EZD_URL, function(success)
+        steps._ezd_empty_cb = success
+    end)
+end
+
+steps[50] = function()
+    check("ezd 空结果两跳请求（主域响应即止，不试备用域）", stub.net_calls == 2)
+    check("ezd 空结果不缓存", dc.get(EZD_KEY) == nil)
+    check("ezd 空结果回调失败", steps._ezd_empty_cb == false)
+    stub.ezd_data = EZD_XML
+end
+
+-- ---------- ezdmw：预取伴生函数走网络写同键 / TTL 命中零网络 ----------
+steps[51] = function()
+    dc.remove(EZD_KEY)
+    stub.net_calls = 0
+    prefetch_ezdmw_danmaku("102578", function(done)
+        steps._ezd_pf_net = done
+    end)
+end
+
+steps[52] = function()
+    check("ezd 预取走网络写同键缓存",
+        steps._ezd_pf_net == true and dc.get(EZD_KEY) ~= nil)
+    stub.net_calls = 0
+    prefetch_ezdmw_danmaku("102578", function(done)
+        steps._ezd_pf_hit = done
+    end)
+end
+
+steps[53] = function()
+    check("ezd 预取 TTL 命中零网络", steps._ezd_pf_hit == true and stub.net_calls == 0)
 end
 
 local function finish()
