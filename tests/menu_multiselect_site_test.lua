@@ -1,4 +1,5 @@
--- 站点 add-XX-event 多选改造回归测试（tencent + maccms + acfun + ezdmw + girigirilove 五站）：
+-- 站点 add-XX-event 多选改造回归测试（tencent + maccms + acfun + ezdmw + girigirilove +
+-- aiyifan 六站）：
 -- 添加集数后不再向 uosc 发 close-menu（菜单保持打开）、add_danmaku_source 被
 -- 以预期参数调用（tencent/acfun）、同源换选驱逐旧集源（数据层单选收紧）+ 旧标记
 -- 清除新标记高亮（标记层 exclusive）、update-menu 原地刷新
@@ -36,6 +37,7 @@ require("apis/maccms")
 require("apis/acfun_search")
 require("apis/ezdmw_search")
 require("apis/ggl_search")
+require("apis/aiyifan_search")
 
 -- 模拟 uosc 环境（menu.lua 加载时检测为 false，需在其后覆盖）
 uosc_available = true
@@ -256,6 +258,44 @@ local steps = {
             st.items[2].active == nil and st.items[2].hint == nil
                 and st.items[3].active == true and st.items[3].hint == "已添加")
         check("5e 原地刷新走 update-menu", sent[#sent] ~= nil and sent[#sent].cmd == "update-menu")
+
+        -- ===== aiyifan：番剧集数换选（规范 URL 直达播放页，带 id/videoId/videoType 三参）=====
+        local y_items = {
+            { title = "↩️ 返回搜索结果",
+                value = { "script-message-to", "uosc", "open-menu", "{}" },
+                keep_open = false, selectable = true },
+            { title = "第1集",
+                value = { "script-message-to", name, "add-ayf-event",
+                    "aIEHicrw641", "OUOLuGAsKu5", "912438", "1", "1", "葬送的芙莉莲", "01" },
+                keep_open = true },
+            { title = "第2集",
+                value = { "script-message-to", name, "add-ayf-event",
+                    "aIEHicrw641", "vFOwdFUykNM", "912441", "1", "2", "葬送的芙莉莲", "02" },
+                keep_open = true },
+        }
+        remember_details_menu("menu_details", "葬送的芙莉莲", y_items, "使用 / 打开筛选", true)
+        mp.commandv("script-message-to", name, "add-ayf-event",
+            "aIEHicrw641", "OUOLuGAsKu5", "912438", "1", "1", "葬送的芙莉莲", "01")
+    end,
+    function()
+        mp.commandv("script-message-to", name, "add-ayf-event",
+            "aIEHicrw641", "vFOwdFUykNM", "912441", "1", "2", "葬送的芙莉莲", "02")
+    end,
+    function()
+        local st = current_details_menu
+        check("6 aiyifan 两次添加均不发 close-menu", close_menu_count() == 0)
+        check("6b add_danmaku_source 以预期 URL/provider 被调两次",
+            #stub.sources == 10
+                and stub.sources[9].query == "https://www.yfsp.tv/play/aIEHicrw641?id=OUOLuGAsKu5&videoId=912438&videoType=1"
+                and stub.sources[10].query == "https://www.yfsp.tv/play/aIEHicrw641?id=vFOwdFUykNM&videoId=912441&videoType=1"
+                and stub.sources[10].from_menu == true and stub.sources[10].provider == "爱壹帆")
+        check("6c 数据层单选收紧：同源旧集源被驱逐、只留新选",
+            DANMAKU.sources["https://www.yfsp.tv/play/aIEHicrw641?id=OUOLuGAsKu5&videoId=912438&videoType=1"] == nil
+                and DANMAKU.sources["https://www.yfsp.tv/play/aIEHicrw641?id=vFOwdFUykNM&videoId=912441&videoType=1"] ~= nil)
+        check("6d 标记层 exclusive：无 hint 条目打标为纯「已添加」、旧集还原",
+            st.items[2].active == nil and st.items[2].hint == nil
+                and st.items[3].active == true and st.items[3].hint == "已添加")
+        check("6e 原地刷新走 update-menu", sent[#sent] ~= nil and sent[#sent].cmd == "update-menu")
 
         print(failures == 0 and "ALL PASS" or (failures .. " FAILED"))
         -- os.exit 直杀：mpv 正常 quit 的关机路径在 Windows 控制台代理下偶发挂起（测试环境已知问题）

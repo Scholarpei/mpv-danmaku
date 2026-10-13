@@ -1712,6 +1712,8 @@ mp.register_script_message("search-anime-event", function(query)
             query_ezdmw_search(name)
         elseif class == "ggl" then
             query_ggl_search(name)
+        elseif class == "ayf" then
+            query_aiyifan_search(name)
         else
             query_extra(name, class)
         end

@@ -161,6 +161,13 @@ function get_danmaku_fallback(query)
         return
     end
 
+    if query:find('yfsp.tv') then
+        load_danmaku_for_aiyifan(query, function(success)
+            if not success then do_fallback() end
+        end)
+        return
+    end
+
     if query:find('mgtv.com') then
         load_danmaku_for_mgtv(query, function(success)
             if not success then do_fallback() end
@@ -879,7 +886,8 @@ function add_danmaku_source_online(query, from_menu)
     -- 跳过 extcomment 直接走域名直连，避免整轮无效等待（extcomment 单请求超时高达 60s）
     if type(query) == "string" and (query:find("animeko%.org") or query:find("mddcloud%.com%.cn")
         or query:find("acfun%.cn") or query:find("ezdmw%.org") or query:find("ezdmw%.com")
-        or query:find("girigirilove%.com") or query:find("girigirilove%.icu")) then
+        or query:find("girigirilove%.com") or query:find("girigirilove%.icu")
+        or query:find("yfsp%.tv") or query:find("tripdata%.app")) then
         get_danmaku_fallback(query)
         return
     end

@@ -7,7 +7,8 @@
 -- 键名约定：弹弹play "ep:{episodeId}"、B站 "cid:{cid}"（纯数字，无碰撞）、
 --   extcomment "ext:{URL哈希}"、animeko "ako:{episodeId}"、埋堆堆 "mdd:{分集uuid}"、
 --   巴哈姆特 "baha:{sn}"、AcFun "acfmap:{ac号}:{part}"（页面解析映射）与 "acf:{videoId}"、
---   ezdmw "ezd:{videoId}"、girigirilove "ggl:{GVid}-{线路src}-{集ep}"。
+--   ezdmw "ezd:{videoId}"、girigirilove "ggl:{GVid}-{线路src}-{集ep}"、
+--   爱壹帆 "ayf:{mediaKey}:{videoId}"。
 --
 -- 语义：
 --   get       —— TTL 内命中才返回；过期不删文件（留给 get_stale 断网兜底），返回 nil 走网络刷新

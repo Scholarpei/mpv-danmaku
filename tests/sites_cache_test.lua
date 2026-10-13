@@ -1,10 +1,14 @@
--- 站点直连加载器磁盘缓存集成测试（animeko / 埋堆堆 / 巴哈姆特 / AcFun / ezdmw / girigirilove）：
+-- 站点直连加载器磁盘缓存集成测试（animeko / 埋堆堆 / 巴哈姆特 / AcFun / ezdmw / girigirilove /
+-- 爱壹帆）：
 -- TTL 内命中零网络、未命中走网络且写缓存（原始载荷 roundtrip）、
 -- 断网回退过期缓存、合法空结果不写缓存、巴哈主/降级端口取数均写同键缓存、
 -- AcFun 两级缓存（映射 acfmap + 弹幕 acf）与分页游标聚合、
 -- ezdmw 单级缓存（播放页取 nk+sign → getData XML）与双域降级、预取伴生函数同键写/命中跳过、
 -- girigirilove 单级缓存（播放页 player_aaaa 解裸 m3u8 → POST getScrolling）与
--- 备用域 URL 同键命中、接口错误（code≠1）与合法空（code=1 空表）两口径区分
+-- 备用域 URL 同键命中、接口错误（code≠1）与合法空（code=1 空表）两口径区分、
+-- 爱壹帆单级缓存（home/config 密钥引导 → 签名 GetBarrages）与签名头校验、
+-- 老链接缺 videoId 经 VideoDetails 补齐、接口错误（ret≠200）强刷密钥重试一次、
+-- 网络失败不重试直接过期兜底
 -- （自断言，输出 PASS/FAIL 行）
 -- 运行：mpv.com --idle=once --no-config --script=<本文件路径>
 -- 退出码非 0 或输出含 FAIL 即失败
@@ -16,6 +20,7 @@ package.path = root .. "/?.lua;" .. package.path
 
 local utils = require("mp.utils")
 local b64 = require("modules/base64")
+local md5 = require("modules/md5")
 
 local PLATFORM = mp.get_property_native("platform")
     or (os.getenv("windir") ~= nil and "windows" or "linux")
@@ -44,7 +49,8 @@ local stub = { net_calls = 0, fail = false, ako = nil, mdd = nil, loads = 0,
     baha = nil, baha_api = nil, baha_fail_main = false,
     acf_page = nil, acf_p0 = nil, acf_p1 = nil,
     ezd_page = nil, ezd_data = nil, ezd_fail_main = false,
-    ggl_page = nil, ggl_data = nil, ggl_body = nil }
+    ggl_page = nil, ggl_data = nil, ggl_body = nil,
+    ayf_config = nil, ayf_data = nil, ayf_details = nil, ayf_calls = {} }
 show_message = function() end
 load_danmaku = function(from_menu) stub.loads = stub.loads + 1 end
 DANMAKU = { sources = {}, count = 1 }
@@ -105,6 +111,18 @@ local GGL_JSON = '{"code":1,"msg":"success","info":['
     .. '"content":"底","style":{"color":"#ff33ff","border":"x"},"duration":4}}]}'
 local GGL_EMPTY = '{"code":1,"msg":"success","info":[]}'
 local GGL_ERR = '{"code":0,"msg":"error"}'
+-- 爱壹帆：home/config 密钥引导（pConfig 密钥对）→ 签名 GetBarrages JSON（position
+-- 0滚动/1顶/2底，文本 contxt 优先 content 备选）；VideoDetails 为老链接补 uniqueID
+local AYF_CONFIG = '{"ret":200,"data":{"list":{"pConfig":{"publicKey":"testpub123",'
+    .. '"privateKey":["testpriv456"]}}}}'
+local AYF_JSON = '{"ret":200,"data":{"list":['
+    .. '{"second":1.5,"position":0,"color":"#ffffff","contxt":"hi","good":0},'
+    .. '{"second":2.5,"position":1,"color":"#00FF00","contxt":"顶","good":1},'
+    .. '{"second":3.5,"position":2,"color":"#ff0000","content":"底（content备选）","good":0}]}}'
+local AYF_EMPTY = '{"ret":200,"data":{"list":[]},"msg":"ok"}'
+local AYF_ERR = '{"ret":401,"msg":"sign error"}'
+local AYF_DETAILS = '{"ret":200,"data":{"detailInfo":{"uniqueID":999888,'
+    .. '"episodeId":999999,"videoType":1}}}'
 
 require("modules/options")
 require("modules/utils")
@@ -118,6 +136,10 @@ call_cmd_async = function(args, cb)
         if type(v) == "string" and v:find("^https?://") then url = v break end
     end
     stub.net_calls = stub.net_calls + 1
+    -- 爱壹帆签名链请求全量捕获（URL + 完整 curl args，供签名头断言）
+    if url and url:find("api%.tripdata%.app") then
+        stub.ayf_calls[#stub.ayf_calls + 1] = { url = url, args = args }
+    end
     mp.add_timeout(0.01, function()
         if stub.fail then
             cb("curl: (7) Failed to connect", nil)
@@ -172,6 +194,12 @@ call_cmd_async = function(args, cb)
                 if v == "-d" then stub.ggl_body = args[i + 1] break end
             end
             cb(nil, stub.ggl_data)
+        elseif url:find("api%.tripdata%.app/api/home/config") then
+            cb(nil, stub.ayf_config)
+        elseif url:find("api%.tripdata%.app/api/Video/VideoDetails") then
+            cb(nil, stub.ayf_details)
+        elseif url:find("api%.tripdata%.app/api/Video/GetBarrages") then
+            cb(nil, stub.ayf_data)
         else
             cb("unexpected url: " .. tostring(url), nil)
         end
@@ -187,6 +215,7 @@ require("sites/bahamut")
 require("sites/acfun")
 require("sites/ezdmw")
 require("sites/ggl")
+require("sites/aiyifan")
 
 local dc = require("modules/danmaku_cache")
 local function dc_setup(now_fn)
@@ -866,6 +895,239 @@ end
 
 steps[66] = function()
     check("ggl 预取 TTL 命中零网络", steps._ggl_pf_hit == true and stub.net_calls == 0)
+end
+
+-- ---------- aiyifan：TTL 命中零网络（单级缓存 ayf:{mediaKey}:{videoId}，存原始 JSON；
+-- ---------- 签名密钥未引导亦零网络——缓存命中不触发 home/config） ----------
+local AYF_URL = "https://www.yfsp.tv/play/aIEHicrw641?id=OUOLuGAsKu5&videoId=912438&videoType=1"
+local AYF_KEY = "ayf:aIEHicrw641:912438"
+-- 站点原生链接形态（网页集数链接不带 videoId，经 VideoDetails 补齐 uniqueID）
+local AYF_NATIVE_URL = "https://www.yfsp.tv/play/bIEHicrw642?id=EPKEY2"
+local AYF_KEY2 = "ayf:bIEHicrw642:999888"
+
+-- 从捕获的 curl args 提取首个指定请求头值
+local function ayf_header(args, name)
+    for i = 1, #args - 1 do
+        if args[i] == "-H" and args[i + 1]:sub(1, #name + 2) == name .. ": " then
+            return args[i + 1]:sub(#name + 3)
+        end
+    end
+    return nil
+end
+
+local function ayf_find_call(pattern)
+    for _, c in ipairs(stub.ayf_calls) do
+        if c.url:find(pattern) then return c end
+    end
+    return nil
+end
+
+steps[67] = function()
+    stub.ayf_config = AYF_CONFIG
+    stub.ayf_data = AYF_JSON
+    stub.ayf_details = AYF_DETAILS
+    dc.put(AYF_KEY, AYF_JSON, { type = "json", count = 3 })
+    stub.net_calls = 0
+    stub.loads = 0
+    load_danmaku_for_aiyifan(AYF_URL, function(success)
+        steps._ayf_hit_cb = success
+    end)
+end
+
+steps[68] = function()
+    local src = DANMAKU.sources[AYF_URL]
+    check("ayf 命中零网络（签名密钥未引导）", stub.net_calls == 0)
+    check("ayf 命中回调成功", steps._ayf_hit_cb == true)
+    check("ayf 命中标记 cache", DANMAKU.cache_hit == "cache")
+    check("ayf 命中走 load_danmaku", stub.loads == 1)
+    check("ayf 命中数据入 sources", src ~= nil and src.data ~= nil and #src.data == 3)
+    check("ayf 数据字段正确（position 1→5顶/2→4底、content 备选）",
+        src and src.data[1].text == "hi" and src.data[1].time == 1.5
+            and src.data[1].color == 16777215 and src.data[1].type == 1
+            and src.data[2].type == 5 and src.data[2].color == 65280
+            and src.data[3].type == 4 and src.data[3].color == 16711680
+            and src.data[3].text == "底（content备选）")
+    DANMAKU.cache_hit = nil
+end
+
+-- ---------- aiyifan：断网·密钥引导失败即过期兜底（时钟前移 2h 使条目过期） ----------
+steps[69] = function()
+    dc_setup(function() return os.time() + 7200 end)
+    stub.net_calls = 0
+    stub.loads = 0
+    stub.ayf_calls = {}
+    stub.fail = true
+    load_danmaku_for_aiyifan(AYF_URL, function(success)
+        steps._ayf_cfgfail_cb = success
+    end)
+end
+
+steps[70] = function()
+    check("ayf 引导失败单请求（不重试不取弹幕）", stub.net_calls == 1
+        and stub.ayf_calls[1] ~= nil and stub.ayf_calls[1].url:find("api/home/config") ~= nil)
+    check("ayf 引导失败走过期缓存加载", stub.loads == 1)
+    check("ayf 引导失败标记 stale", DANMAKU.cache_hit == "stale")
+    check("ayf 引导失败回调成功", steps._ayf_cfgfail_cb == true)
+    DANMAKU.cache_hit = nil
+    stub.fail = false
+    dc_setup()
+end
+
+-- ---------- aiyifan：未命中走网络（home/config 引导 → 签名 GetBarrages）且写缓存 ----------
+steps[71] = function()
+    dc.remove(AYF_KEY)
+    stub.net_calls = 0
+    stub.ayf_calls = {}
+    load_danmaku_for_aiyifan(AYF_URL, function() end)
+end
+
+steps[72] = function()
+    local cached = dc.get(AYF_KEY)
+    local roundtrip = cached and utils.parse_json(cached.payload)
+    check("ayf 网络两跳请求（引导 + 弹幕）", stub.net_calls == 2
+        and #stub.ayf_calls == 2)
+    check("ayf 网络成功不标 cache", DANMAKU.cache_hit == nil)
+    check("ayf 引导默认私钥签名（x-pub 空串）", (function()
+        local c = ayf_find_call("api/home/config")
+        local ts = c and ayf_header(c.args, "x-timestamp")
+        local query = c and c.url:match("%?(.+)$")
+        return c ~= nil and ts ~= nil and query == "_t=" .. ts
+            and ayf_header(c.args, "x-pub") == ""
+            and ayf_header(c.args, "x-sign") == md5.sum(query .. ts .. "57688*1-331@")
+    end)())
+    check("ayf 弹幕签名头与 URL query 按序", (function()
+        local c = ayf_find_call("GetBarrages")
+        local ts = c and ayf_header(c.args, "x-timestamp")
+        local query = c and c.url:match("%?(.+)$")
+        return c ~= nil and query == "mediaKey=aIEHicrw641&videoId=912438&videoType=1"
+            and ayf_header(c.args, "x-pub") == "testpub123"
+            and ayf_header(c.args, "x-sign") == md5.sum(query .. ts .. "testpriv456")
+    end)())
+    check("ayf 原始 JSON 写缓存 roundtrip", cached ~= nil
+        and roundtrip ~= nil and type(roundtrip.data) == "table"
+        and type(roundtrip.data.list) == "table" and #roundtrip.data.list == 3)
+    check("ayf 缓存 meta 计数", cached ~= nil and cached.meta ~= nil and cached.meta.count == 3)
+end
+
+-- ---------- aiyifan：老链接缺 videoId（VideoDetails 补齐 → 同键写缓存；二次加载 TTL 命中，
+-- ---------- 仍付一次详情 GET——无映射缓存为既定取舍） ----------
+steps[73] = function()
+    stub.net_calls = 0
+    stub.ayf_calls = {}
+    load_danmaku_for_aiyifan(AYF_NATIVE_URL, function(success)
+        steps._ayf_native_cb = success
+    end)
+end
+
+steps[74] = function()
+    local src = DANMAKU.sources[AYF_NATIVE_URL]
+    check("ayf 老链接两跳请求（详情 + 弹幕；密钥内存命中）", stub.net_calls == 2)
+    check("ayf 详情 query 按序（mediaKey&videoType&episodeKey）", (function()
+        local c = ayf_find_call("VideoDetails")
+        local query = c and c.url:match("%?(.+)$")
+        return c ~= nil and query == "mediaKey=bIEHicrw642&videoType=1&episodeKey=EPKEY2"
+    end)())
+    check("ayf 老链接补齐 uniqueID 后写同键缓存", steps._ayf_native_cb == true
+        and dc.get(AYF_KEY2) ~= nil)
+    check("ayf 老链接数据入 sources", src ~= nil and src.data ~= nil and #src.data == 3)
+    stub.net_calls = 0
+    stub.ayf_calls = {}
+    load_danmaku_for_aiyifan(AYF_NATIVE_URL, function() end)
+end
+
+steps[75] = function()
+    check("ayf 老链接二次加载详情单跳（弹幕 TTL 命中零网络）",
+        stub.net_calls == 1 and stub.ayf_calls[1].url:find("VideoDetails") ~= nil
+            and DANMAKU.cache_hit == "cache")
+    DANMAKU.cache_hit = nil
+end
+
+-- ---------- aiyifan：合法空结果不缓存（ret=200 空表；密钥内存命中仅弹幕单跳） ----------
+steps[76] = function()
+    dc.remove(AYF_KEY2)
+    stub.net_calls = 0
+    stub.ayf_calls = {}
+    stub.ayf_data = AYF_EMPTY
+    load_danmaku_for_aiyifan(AYF_NATIVE_URL, function(success)
+        steps._ayf_empty_cb = success
+    end)
+end
+
+steps[77] = function()
+    check("ayf 空结果两跳请求（详情 + 弹幕；密钥内存命中）", stub.net_calls == 2
+        and stub.ayf_calls[2] ~= nil and stub.ayf_calls[2].url:find("GetBarrages") ~= nil)
+    check("ayf 空结果不缓存", dc.get(AYF_KEY2) == nil)
+    check("ayf 空结果回调失败", steps._ayf_empty_cb == false)
+    stub.ayf_data = AYF_JSON
+    -- 为接口错误的过期兜底场景准备条目（真实时钟写入，随后时钟前移使之过期）
+    dc.put(AYF_KEY, AYF_JSON, { type = "json", count = 3 })
+end
+
+-- ---------- aiyifan：接口错误 ret≠200 强刷密钥重试一次仍败 → 过期兜底 ----------
+steps[78] = function()
+    dc_setup(function() return os.time() + 7200 end)
+    stub.net_calls = 0
+    stub.loads = 0
+    stub.ayf_calls = {}
+    stub.ayf_data = AYF_ERR
+    load_danmaku_for_aiyifan(AYF_URL, function(success)
+        steps._ayf_err_cb = success
+    end)
+end
+
+steps[79] = function()
+    check("ayf 接口错误三跳请求（弹幕 → 强刷密钥 → 弹幕重试）", stub.net_calls == 3
+        and #stub.ayf_calls == 3
+        and stub.ayf_calls[1].url:find("GetBarrages") ~= nil
+        and stub.ayf_calls[2].url:find("api/home/config") ~= nil
+        and stub.ayf_calls[3].url:find("GetBarrages") ~= nil)
+    check("ayf 接口错误走过期缓存兜底", stub.loads == 1 and DANMAKU.cache_hit == "stale"
+        and steps._ayf_err_cb == true)
+    DANMAKU.cache_hit = nil
+    stub.ayf_data = AYF_JSON
+end
+
+-- ---------- aiyifan：断网·弹幕网络失败不重试不刷密钥 → 过期兜底 ----------
+steps[80] = function()
+    stub.net_calls = 0
+    stub.ayf_calls = {}
+    stub.loads = 0
+    stub.fail = true
+    load_danmaku_for_aiyifan(AYF_URL, function(success)
+        steps._ayf_netfail_cb = success
+    end)
+end
+
+steps[81] = function()
+    check("ayf 断网弹幕单请求（密钥内存命中不刷新）", stub.net_calls == 1
+        and stub.ayf_calls[1] ~= nil and stub.ayf_calls[1].url:find("GetBarrages") ~= nil)
+    check("ayf 断网走过期缓存加载", stub.loads == 1 and DANMAKU.cache_hit == "stale"
+        and steps._ayf_netfail_cb == true)
+    DANMAKU.cache_hit = nil
+    stub.fail = false
+    dc_setup()
+end
+
+-- ---------- aiyifan：预取伴生函数走网络写同键 / TTL 命中零网络 ----------
+steps[82] = function()
+    dc.remove(AYF_KEY)
+    stub.net_calls = 0
+    prefetch_aiyifan_danmaku("aIEHicrw641", "912438", "1", function(done)
+        steps._ayf_pf_net = done
+    end)
+end
+
+steps[83] = function()
+    check("ayf 预取走网络写同键缓存",
+        steps._ayf_pf_net == true and dc.get(AYF_KEY) ~= nil)
+    stub.net_calls = 0
+    prefetch_aiyifan_danmaku("aIEHicrw641", "912438", "1", function(done)
+        steps._ayf_pf_hit = done
+    end)
+end
+
+steps[84] = function()
+    check("ayf 预取 TTL 命中零网络", steps._ayf_pf_hit == true and stub.net_calls == 0)
 end
 
 local function finish()
