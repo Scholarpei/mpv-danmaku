@@ -6,7 +6,7 @@
 -- 载荷原样交回调用方既有的解析路径（parse_json / parse_xml_danmaku），下游零改动。
 -- 键名约定：弹弹play "ep:{episodeId}"、B站 "cid:{cid}"（纯数字，无碰撞）、
 --   extcomment "ext:{URL哈希}"、animeko "ako:{episodeId}"、埋堆堆 "mdd:{分集uuid}"、
---   巴哈姆特 "baha:{sn}"。
+--   巴哈姆特 "baha:{sn}"、AcFun "acfmap:{ac号}:{part}"（页面解析映射）与 "acf:{videoId}"。
 --
 -- 语义：
 --   get       —— TTL 内命中才返回；过期不删文件（留给 get_stale 断网兜底），返回 nil 走网络刷新

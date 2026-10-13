@@ -1,6 +1,6 @@
--- 站点 add-XX-event 多选改造回归测试（tencent + maccms 两种 value 形状）：
+-- 站点 add-XX-event 多选改造回归测试（tencent + maccms + acfun 三种 value 形状）：
 -- 添加集数后不再向 uosc 发 close-menu（菜单保持打开）、add_danmaku_source 被
--- 以预期参数调用（tencent）、同源换选驱逐旧集源（数据层单选收紧）+ 旧标记
+-- 以预期参数调用（tencent/acfun）、同源换选驱逐旧集源（数据层单选收紧）+ 旧标记
 -- 清除新标记高亮（标记层 exclusive）、update-menu 原地刷新
 -- 运行：mpv.com --idle=once --no-config --script=<本文件路径>
 -- 退出码非 0 或输出含 FAIL 即失败
@@ -33,6 +33,7 @@ require("modules/parse")
 require("modules/menu")
 require("apis/tencent_search")
 require("apis/maccms")
+require("apis/acfun_search")
 
 -- 模拟 uosc 环境（menu.lua 加载时检测为 false，需在其后覆盖）
 uosc_available = true
@@ -139,6 +140,44 @@ local steps = {
         check("2c 点击集打标（mark 不依赖 load 成败）",
             current_details_menu.items[3].active == true)
         check("2d 原地刷新走 update-menu", sent[#sent] ~= nil and sent[#sent].cmd == "update-menu")
+
+        -- ===== acfun：专辑分P换选（每P独立 ac号，规范 URL 带 part=1）=====
+        local a_items = {
+            { title = "↩️ 返回搜索结果",
+                value = { "script-message-to", "uosc", "open-menu", "{}" },
+                keep_open = false, selectable = true },
+            { title = "第1话",
+                value = { "script-message-to", name, "add-acf-event",
+                    "39477926", "1", "1", "孤独摇滚！", "op", "6115094" },
+                keep_open = true },
+            { title = "第2话", hint = "ED1",
+                value = { "script-message-to", name, "add-acf-event",
+                    "39477956", "1", "2", "孤独摇滚！", "ED1", "6115094" },
+                keep_open = true },
+        }
+        remember_details_menu("menu_details", "孤独摇滚！", a_items, "使用 / 打开筛选", true)
+        mp.commandv("script-message-to", name, "add-acf-event",
+            "39477926", "1", "1", "孤独摇滚！", "op", "6115094")
+    end,
+    function()
+        mp.commandv("script-message-to", name, "add-acf-event",
+            "39477956", "1", "2", "孤独摇滚！", "ED1", "6115094")
+    end,
+    function()
+        local st = current_details_menu
+        check("3 acfun 两次添加均不发 close-menu", close_menu_count() == 0)
+        check("3b add_danmaku_source 以预期 URL/provider 被调两次",
+            #stub.sources == 4
+                and stub.sources[3].query == "https://www.acfun.cn/v/ac39477926?part=1"
+                and stub.sources[4].query == "https://www.acfun.cn/v/ac39477956?part=1"
+                and stub.sources[4].from_menu == true and stub.sources[4].provider == "AcFun")
+        check("3c 数据层单选收紧：同源旧集源被驱逐、只留新选",
+            DANMAKU.sources["https://www.acfun.cn/v/ac39477926?part=1"] == nil
+                and DANMAKU.sources["https://www.acfun.cn/v/ac39477956?part=1"] ~= nil)
+        check("3d 标记层 exclusive：旧集标记清除、新集高亮",
+            st.items[2].active == nil and st.items[2].hint == nil
+                and st.items[3].active == true and st.items[3].hint == "ED1 | 已添加")
+        check("3e 原地刷新走 update-menu", sent[#sent] ~= nil and sent[#sent].cmd == "update-menu")
 
         print(failures == 0 and "ALL PASS" or (failures .. " FAILED"))
         -- os.exit 直杀：mpv 正常 quit 的关机路径在 Windows 控制台代理下偶发挂起（测试环境已知问题）

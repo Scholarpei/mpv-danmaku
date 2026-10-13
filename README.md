@@ -20,7 +20,7 @@
 
 原版 uosc_danmaku 解决了「**在 mpv 里加载弹幕**」；本分支在此基础上继续解决三个问题：
 
-- **弹幕去哪找** → 一个关键词聚合搜索弹弹play + 腾讯 / 优酷 / 爱奇艺 / 芒果 / B站 / 巴哈姆特 / animeko / 埋堆堆等全部来源，多源弹幕可叠加播放
+- **弹幕去哪找** → 一个关键词聚合搜索弹弹play + 腾讯 / 优酷 / 爱奇艺 / 芒果 / B站 / 巴哈姆特 / animeko / 埋堆堆 / AcFun 等全部来源，多源弹幕可叠加播放
 - **弹幕太多太重复怎么办** → 移植 [pakku.js](https://github.com/xmcp/pakku.js) 的相似度合并引擎与智能密度控制
 - **每集都要重新加载怎么办** → 文件夹级弹幕记忆：配过的源换集自动续载，B站多分P合集粘贴一次链接全季自动匹配
 
@@ -53,6 +53,7 @@
 | 巴哈姆特动画疯 | 直连 | `\|baha` | 台湾繁体番剧（关键词自动简→繁）；分集接口对大陆时段性开窗，稳定使用需配台湾 / 香港代理 |
 | animeko | 直连 | `\|ako` | [open-ani](https://github.com/open-ani/animeko) 社区弹幕（Bangumi 元数据），与弹弹play弹幕池互补，多节点自动降级 |
 | 埋堆堆 | 直连 | `\|mdd` | TVB 港剧粤语弹幕，粤语 / 国语版本分列 |
+| AcFun | 直连 | `\|acf` | A站 ACG 弹幕（搜索页 BigPipe 解析，合集分P + 多P视频），断网过期缓存兜底 |
 | 360kan | 聚合 | `\|ds` `\|dy` `\|dm` | 电视剧 / 电影 / 国漫三路，覆盖爱腾优芒B站源 |
 | MacCMS 采集站 | 需配置 [`maccms_servers`](#弹幕源搜索) | `\|mac` | 搜索采集站收录内容，适合自建影视站（选站要求见[多源聚合搜索](#多源聚合搜索)） |
 | dmku 系兜底 | `fallback_server` | — | B站 / 爱腾优条目 extcomment 与直连均失败后的最后兜底 |
@@ -89,9 +90,10 @@
 | `\|baha` | 巴哈姆特动画疯 |
 | `\|ako` | animeko |
 | `\|mdd` | 埋堆堆 |
+| `\|acf` | AcFun |
 | `\|mac` | MacCMS 采集站（需配置 [`maccms_servers`](#弹幕源搜索)） |
 
-- 聚合与非 dandanplay 源的条目选中后，弹幕获取自动走现有管线：先尝试各 `api_server` 的 extcomment，失败回退域名直连（腾讯条目即直连腾讯弹幕接口），最后由 `fallback_server`（dmku / danmu.icu 协议）兜底；animeko / 埋堆堆这类弹弹play 不支持的域名会跳过 extcomment 直接直连，不浪费等待
+- 聚合与非 dandanplay 源的条目选中后，弹幕获取自动走现有管线：先尝试各 `api_server` 的 extcomment，失败回退域名直连（腾讯条目即直连腾讯弹幕接口），最后由 `fallback_server`（dmku / danmu.icu 协议）兜底；animeko / 埋堆堆 / AcFun 这类弹弹play 不支持的域名会跳过 extcomment 直接直连，不浪费等待
 - **选集菜单多选**：点击集数后菜单保持打开，已添加集数高亮标注（hint 追加「已添加」、底部计数），可点「↩️ 返回搜索结果」换下一个源叠加——一次搜索配齐多源，无需重复搜索；**同源单选**：每个源同一时刻只保留最新选中的一集（换选即替换——旧集弹幕源被驱逐、标记清除，与弹弹play 的按集拉取语义一致），跨源叠加不受影响
 - **换集自动续载（多源并行）**：选过的剧记入文件夹历史，换集时全部源一起按集数差自动定位续载，详见[文件夹弹幕记忆](#文件夹弹幕记忆)
 - `|tx` 顺手修复了腾讯弹幕颜色恒为白色的问题：接口的 `content_style` 实为字符串化 JSON，渐变弹幕取首色呈现
@@ -113,7 +115,7 @@
 播放同文件夹任意一集 ──→ 全部源一起按集数差自动定位续载、弹幕叠加加载
 ```
 
-- 覆盖弹弹play 与全部直连源（腾讯 / 优酷 / 爱奇艺 / 芒果 / B站 / 巴哈 / animeko / 埋堆堆 / 360kan / 采集站），旧格式单源记录自动迁移
+- 覆盖弹弹play 与全部直连源（腾讯 / 优酷 / 爱奇艺 / 芒果 / B站 / 巴哈 / animeko / 埋堆堆 / AcFun / 360kan / 采集站），旧格式单源记录自动迁移
 - **逐源集数锚点**：各源记录在选择当时所在的文件名（`extras[].fname` / `episodeId_fname`），续载差值按各源自己的锚独立推算——多源异步续载时快源先落盘会把文件夹级锚（`fname`/`episodeNumber`）移到当前集，若共用全局差值，重载 / 换集后慢源会按旧集数加载（落后一集）；老记录无锚自动回退全局差值
 - 多源续载时同一 OSD 位置逐源汇总加载状态：提供方 + 《标题》截断 + 集数 + 条数，未到标等待、失败折 ✗（详见[其它增强](#其它增强)）
 
@@ -155,9 +157,9 @@ B站多分P合集（多季混排、剧场版夹杂的投稿）不用每集贴一
 提前拉弹幕写入磁盘缓存 ──→ 换集时缓存命中秒载（OSD 标注「缓存」）
 ```
 
-- 取数走各源正式加载的同款接口与缓存键（`ep:` / `ext:` / `cid:` / `ako:` / `mdd:`），换集时必然对得上键；预取失败或某源无缓存触点（360kan）时换集照常走网络，不影响加载
+- 取数走各源正式加载的同款接口与缓存键（`ep:` / `ext:` / `cid:` / `ako:` / `mdd:` / `acfmap:`+`acf:`），换集时必然对得上键；预取失败或某源无缓存触点（360kan）时换集照常走网络，不影响加载
 - 仅 `auto_load` 与弹幕磁盘缓存均开启时生效；仅本地文件夹场景（URL 播放不预取）；每文件只评估一次
-- 覆盖弹弹play、B站合集记忆、腾讯 / 优酷 / 爱奇艺 / 芒果 / B站番剧 / 巴哈 / 采集站（经 extcomment 缓存）、animeko、埋堆堆
+- 覆盖弹弹play、B站合集记忆、腾讯 / 优酷 / 爱奇艺 / 芒果 / B站番剧 / 巴哈 / 采集站（经 extcomment 缓存）、animeko、埋堆堆、AcFun
 
 ### pakku 式弹幕合并
 
@@ -281,7 +283,7 @@ api_server=http://192.168.1.5:9321
 | 能力 | 上游 uosc_danmaku | 本分支 |
 | --- | :---: | :---: |
 | 弹幕搜索 / 加载 / 记忆 / 哈希匹配 / URL 自动加载 | ✅ | ✅ 全部继承 |
-| 搜索来源 | 仅弹弹play | 🔍 多源并发聚合（腾讯/优酷/爱奇艺/芒果/B站/巴哈/animeko/埋堆堆/360kan/采集站），结果按源分组、加载后源管理标注真实提供方 |
+| 搜索来源 | 仅弹弹play | 🔍 多源并发聚合（腾讯/优酷/爱奇艺/芒果/B站/巴哈/animeko/埋堆堆/AcFun/360kan/采集站），结果按源分组、加载后源管理标注真实提供方 |
 | 重复弹幕 | 仅同文本精确合并 | 🔀 pakku 四通道相似度合并 ×N |
 | 弹幕过密 | 同屏上限 + 随机丢弃 | 📉 先缩字号再按权重丢弃，×N 双重保护 |
 | 换集弹幕记忆 | dandanplay + 单条 extra | 🔁 全源并行续载：各直连源独立记录、按集数差定位 |
@@ -525,10 +527,10 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 <details>
 <summary><b>选项详解：弹幕磁盘缓存</b></summary>
 
-网络拉取的弹幕按 **episodeId**（弹弹play 库）/ **cid**（B站）/ **extcomment URL 哈希**（直连源经弹弹play extcomment 取数）/ **episodeId**（animeko）/ **分集 uuid**（埋堆堆）/ **sn**（巴哈姆特，域名直连路径）落盘缓存（`~~/danmaku-cache/` 下 `ep_*.dcache` / `cid_*.dcache` / `ext_*.dcache` / `ako_*.dcache` / `mdd_*.dcache` / `baha_*.dcache`，单文件 = 首行 JSON 元信息 + 原始载荷）：
+网络拉取的弹幕按 **episodeId**（弹弹play 库）/ **cid**（B站）/ **extcomment URL 哈希**（直连源经弹弹play extcomment 取数）/ **episodeId**（animeko）/ **分集 uuid**（埋堆堆）/ **sn**（巴哈姆特，域名直连路径）/ **videoId + ac号→videoId 映射**（AcFun，两级缓存）落盘缓存（`~~/danmaku-cache/` 下 `ep_*.dcache` / `cid_*.dcache` / `ext_*.dcache` / `ako_*.dcache` / `mdd_*.dcache` / `baha_*.dcache` / `acf_*.dcache` / `acfmap_*.dcache`，单文件 = 首行 JSON 元信息 + 原始载荷）：
 
 - **二刷秒加载**：TTL 内再次播放同一集直接读盘，不发任何网络请求（OSD 标注「弹幕加载成功（缓存）」）
-- **断网可看**：网络请求失败时自动回退使用过期缓存（OSD 标注「（离线缓存）」）——弹弹play / B站 / animeko / 埋堆堆 / 巴哈姆特（域名直连路径）为网络层失败即回退；extcomment 路径仅当**所有服务器都未响应**（真断网）才回退，有响应但无数据仍照常走站直连/兜底路径
+- **断网可看**：网络请求失败时自动回退使用过期缓存（OSD 标注「（离线缓存）」）——弹弹play / B站 / animeko / 埋堆堆 / 巴哈姆特（域名直连路径）/ AcFun（映射与弹幕两级均兜底）为网络层失败即回退；extcomment 路径仅当**所有服务器都未响应**（真断网）才回退，有响应但无数据仍照常走站直连/兜底路径
 - 过期条目不删除，正常走网络刷新，成功后覆盖并重置时间戳；空弹幕（count==0）不缓存
 - **离线覆盖范围**：弹弹play 路径下，只要 `danmaku-history.json` 有该文件夹的 episodeId 记录（加载过一次即有），即可完全离线秒载；B站 URL 在线播放时 **cid 解析本身仍需一次网络**（pagelist/season API 无缓存），断网命中仅覆盖外挂弹幕轨（文件名 `数字-.xml`）、`--cid=传参` 与 URL 内嵌 cid 三种情形
 - episodeId 是 dandanplay 全局库 ID，多个兼容服务器共享同一缓存（缓存不区分来源服务器）
@@ -556,6 +558,7 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 | B站合集记忆 | `cid:{cid}` | 分P匹配下一集后直拉弹幕 XML |
 | animeko | `ako:{episodeId}` | 解析下一集 episodeId 后节点降级直拉 |
 | 埋堆堆 | `mdd:{分集uuid}` | 解析下一集分集 uuid 后直拉 |
+| AcFun | `acfmap:{ac号}:{part}` + `acf:{videoId}` | 解析合集分P / 多P 序后两级直拉 |
 
 - 预取**只写缓存**：不渲染、不写 `DANMAKU.sources`、不写 history，对当前播放零影响；单项失败静默放弃，换集时该项照常走网络
 - 360kan 的加载路径未接磁盘缓存，暂不预取（换集行为不变）
@@ -621,11 +624,12 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 | `tests/e2e_pipeline_test.lua` | 模式转换→合并→黑名单→密度→布局全管线（黑名单夹具 `tests/black_e2e.txt` 自足加载，script-opts 传 `blacklist_path` 可覆盖） | `mpv.com --idle=once --no-config --script=tests/e2e_pipeline_test.lua` |
 | `tests/menu_handler_test.lua` | 过滤菜单各项回调、内容菜单索引映射与屏蔽、延迟菜单合计口径 | `mpv.com --idle=once --no-config --script=tests/menu_handler_test.lua` |
 | `tests/menu_multiselect_test.lua` | 选集菜单多选 helper（remember/mark 打标、幂等、计数 footnote、注册表恢复、exclusive 单选互斥、未命中静默、dandanplay load-danmaku 全链路打标 + latest_menu_anime 重嵌、reset 换集清空、remove_same_provider_sources 同源驱逐） | `mpv.com --idle=once --no-config --script=tests/menu_multiselect_test.lua` |
-| `tests/menu_multiselect_site_test.lua` | 站点 add-event 多选改造回归（tencent + maccms：添加集数后不发 close-menu、add_danmaku_source 记参、同源换选驱逐旧集源 + exclusive 标记替换、update-menu 原地刷新） | `mpv.com --idle=once --no-config --script=tests/menu_multiselect_site_test.lua` |
+| `tests/menu_multiselect_site_test.lua` | 站点 add-event 多选改造回归（tencent + maccms + acfun：添加集数后不发 close-menu、add_danmaku_source 记参、同源换选驱逐旧集源 + exclusive 标记替换、update-menu 原地刷新） | `mpv.com --idle=once --no-config --script=tests/menu_multiselect_site_test.lua` |
 | `tests/danmaku_cache_test.lua` | 缓存读写/TTL/断网兜底/容量淘汰（B站路径的缓存读写由本测试覆盖） | `mpv.com --idle=once --no-config --script=tests/danmaku_cache_test.lua` |
 | `tests/danmaku_cache_fetch_test.lua` | 弹弹play 拉取链路缓存命中不发网络（B站下载函数为模块内局部，由单测+手动场景覆盖） | `mpv.com --idle=once --no-config --script=tests/danmaku_cache_fetch_test.lua` |
 | `tests/extcomment_cache_test.lua` | extcomment 直连源拉取链路缓存（命中零网络 / 未命中写缓存 / 损坏条目回网络重写 / 空结果走兜底不缓存 / 断网回退过期缓存 / 键稳定性） | `mpv.com --idle=once --no-config --script=tests/extcomment_cache_test.lua` |
-| `tests/sites_cache_test.lua` | animeko / 埋堆堆 / 巴哈姆特站点直连加载器缓存（命中零网络 / 未命中写缓存 / 断网回退过期缓存 / 合法空不缓存 / 巴哈主端口失败降级端口同写缓存 / 预取伴生函数同键） | `mpv.com --idle=once --no-config --script=tests/sites_cache_test.lua` |
+| `tests/sites_cache_test.lua` | animeko / 埋堆堆 / 巴哈姆特 / AcFun 站点直连加载器缓存（命中零网络 / 未命中写缓存 / 断网回退过期缓存 / 合法空不缓存 / 巴哈主端口失败降级端口同写缓存 / AcFun 两级缓存与分页游标聚合 / 预取伴生函数同键） | `mpv.com --idle=once --no-config --script=tests/sites_cache_test.lua` |
+| `tests/acfun_parse_test.lua` | AcFun 搜索页 BigPipe / 视频页 pageInfo / 合集页分P排序 / 弹幕分页解析与缓存载荷 roundtrip（实抓 fixtures） | `mpv.com --idle=once --no-config --script=tests/acfun_parse_test.lua` |
 | `tests/prefetch_plan_test.lua` | 下一集预取任务规划纯函数（锚点推算镜像 dandanplay_flow：慢源独立锚 / 锚==下一集 / 无锚回退 / 重播 / 集数剪裁 / 站点缓存源 ako/mdd 任务 / B站合集推算与回退 / 防御输入） | `mpv.com --idle=once --no-config --script=tests/prefetch_plan_test.lua` |
 | `tests/prefetch_flow_test.lua` | 下一集预取集成（触发门槛：auto_load/缓存/无下一项/异文件夹/无记忆；全链路五类任务入缓存且键与正式加载一致；TTL 命中零网络；armed 每文件一次；B站记忆 off 剪裁；断网静默） | `mpv.com --idle=once --no-config --script=tests/prefetch_flow_test.lua` |
 | `tests/tencent_parse_test.lua` | 腾讯搜索/剧集/弹幕条目解析（MainNeed 优先、预告过滤、content_style 字符串化 JSON 与渐变首色） | `mpv.com --idle=once --no-config --script=tests/tencent_parse_test.lua` |

@@ -1706,6 +1706,8 @@ mp.register_script_message("search-anime-event", function(query)
             query_animeko_search(name)
         elseif class == "mdd" then
             query_maiduidui_search(name)
+        elseif class == "acf" then
+            query_acfun_search(name)
         else
             query_extra(name, class)
         end

@@ -84,6 +84,8 @@ function M.plan(record, next_filename, parse_fn)
                     tasks[#tasks + 1] = { type = "ako", extra = ex, episodenum = num }
                 elseif kind == "maiduidui" then
                     tasks[#tasks + 1] = { type = "mdd", extra = ex, episodenum = num }
+                elseif kind == "acf" then
+                    tasks[#tasks + 1] = { type = "acf", extra = ex, episodenum = num }
                 end
             end
         end
@@ -184,6 +186,13 @@ local function execute(tasks, done)
                 one_done(false)
             else
                 prefetch_maiduidui_episode(task.extra, task.episodenum, one_done)
+            end
+        elseif task.type == "acf" then
+            -- 站点直连缓存源（AcFun）：入口由 apis/acfun_search.lua 定义，单测部分加载时缺省容错
+            if type(prefetch_acfun_episode) ~= "function" then
+                one_done(false)
+            else
+                prefetch_acfun_episode(task.extra, task.episodenum, one_done)
             end
         elseif task.type == "bili_series" then
             warm_bili_series(task, one_done)
