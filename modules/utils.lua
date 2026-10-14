@@ -361,6 +361,7 @@ function provider_label_from_url(url)
         ["ani.gamer.com.tw"] = "巴哈姆特",
         ["api.animeko.org"] = "animeko",
         ["mddcloud.com.cn"] = "埋堆堆",
+        ["lanerc.life"] = "OmoFun",
     }
     for host, label in pairs(host_map) do
         if url:find(host, 1, true) then return label end

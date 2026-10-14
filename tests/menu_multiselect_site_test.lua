@@ -1,5 +1,5 @@
 -- 站点 add-XX-event 多选改造回归测试（tencent + maccms + acfun + ezdmw + girigirilove +
--- aiyifan + cyc 七站 + ezdmw 多季复合集数键）：
+-- aiyifan + cyc + omofun 八站 + ezdmw 多季复合集数键）：
 -- 添加集数后不再向 uosc 发 close-menu（菜单保持打开）、add_danmaku_source 被
 -- 以预期参数调用（tencent/acfun）、同源换选驱逐旧集源（数据层单选收紧）+ 旧标记
 -- 清除新标记高亮（标记层 exclusive）、update-menu 原地刷新、
@@ -40,6 +40,7 @@ require("apis/ezdmw_search")
 require("apis/ggl_search")
 require("apis/aiyifan_search")
 require("apis/cyc_search")
+require("apis/omofun_search")
 
 -- 模拟 uosc 环境（menu.lua 加载时检测为 false，需在其后覆盖）
 uosc_available = true
@@ -376,6 +377,53 @@ local steps = {
                 and DANMAKU.extra.episodenum == 2)
         check("8g 记录标题带年份", DANMAKU.anime == "葬送的芙莉莲 (2023)",
             tostring(DANMAKU.anime))
+    end,
+
+    -- ===== omf：番剧集数换选（规范 URL /vod/{vod_id}/{集序号}）=====
+    function()
+        local o_items = {
+            { title = "↩️ 返回搜索结果",
+                value = { "script-message-to", "uosc", "open-menu", "{}" },
+                keep_open = false, selectable = true },
+            { title = "第1集",
+                value = { "script-message-to", name, "add-omf-event",
+                    "5001", "1", "葬送的芙莉莲", "2023", "第01集" },
+                keep_open = true },
+            { title = "第2集",
+                value = { "script-message-to", name, "add-omf-event",
+                    "5001", "2", "葬送的芙莉莲", "2023", "第02集" },
+                keep_open = true },
+        }
+        remember_details_menu("menu_details", "葬送的芙莉莲 (2023)", o_items, "使用 / 打开筛选", true)
+        mp.commandv("script-message-to", name, "add-omf-event",
+            "5001", "1", "葬送的芙莉莲", "2023", "第01集")
+    end,
+    function()
+        mp.commandv("script-message-to", name, "add-omf-event",
+            "5001", "2", "葬送的芙莉莲", "2023", "第02集")
+    end,
+    function()
+        local st = current_details_menu
+        check("9 omf 两次添加均不发 close-menu", close_menu_count() == 0)
+        check("9b add_danmaku_source 以预期 URL/provider 被调两次",
+            #stub.sources == 15
+                and stub.sources[14].query == "https://lanerc.life/vod/5001/1"
+                and stub.sources[15].query == "https://lanerc.life/vod/5001/2"
+                and stub.sources[15].from_menu == true and stub.sources[15].provider == "OmoFun")
+        check("9c 数据层单选收紧：同源旧集源被驱逐、只留新选",
+            DANMAKU.sources["https://lanerc.life/vod/5001/1"] == nil
+                and DANMAKU.sources["https://lanerc.life/vod/5001/2"] ~= nil)
+        check("9d 标记层 exclusive：无 hint 条目打标为纯「已添加」、旧集还原",
+            st.items[2].active == nil and st.items[2].hint == nil
+                and st.items[3].active == true and st.items[3].hint == "已添加")
+        check("9e 原地刷新走 update-menu", sent[#sent] ~= nil and sent[#sent].cmd == "update-menu")
+        check("9f extra 记 kind=omf 与集数（续载/预取按此定位）",
+            DANMAKU.extra ~= nil and DANMAKU.extra.kind == "omf"
+                and DANMAKU.extra.vod_id == "5001"
+                and DANMAKU.extra.episodenum == 2)
+        check("9g 记录标题带年份、集名原样（第01集 非纯数字不规整）",
+            DANMAKU.anime == "葬送的芙莉莲 (2023)" and DANMAKU.episode == "第02集",
+            tostring(DANMAKU.anime) .. "/" .. tostring(DANMAKU.episode))
 
         print(failures == 0 and "ALL PASS" or (failures .. " FAILED"))
         -- os.exit 直杀：mpv 正常 quit 的关机路径在 Windows 控制台代理下偶发挂起（测试环境已知问题）

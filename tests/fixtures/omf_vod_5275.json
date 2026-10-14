@@ -1,0 +1,135 @@
+{
+ "video_play_info": {
+  "vod_total": 10,
+  "vod_class": "奇幻,冒险,战斗",
+  "vod_isend": 1,
+  "vod_author": "北川朋哉",
+  "vod_name": "葬送的芙莉莲 第二季",
+  "vod_pic": "https://img2.doubanio.com/view/photo/m/public/p2925567021.webp",
+  "id": 5275,
+  "vod_remarks": "",
+  "vod_type": 20,
+  "vod_pic_screenshot": "为打造更好的社区环境，评论区和弹幕均已接入AI审查。请大家规范发言，以免被封禁。",
+  "comment_total": "1221",
+  "vod_year": "2026",
+  "vod_blurb": "在勇者欣梅尔一行人击败魔王后的世界中，与欣梅尔等人一同为世界带来和平、活了千年以上的精灵魔法使──芙莉莲。在面对寿命已尽的欣梅尔之死时，因落下的泪水与心中涌现的情感，踏上了「理解人类之心的旅程」。在旅途中，她与曾由过去伙伴海塔抚养长大的魔法使──费伦，以及同为伙伴艾冉的弟子、战士──修塔尔克结伴同行，一同朝向魂魄安眠之地《奥雷欧尔》前进。旅程中，与形形色色的人们相遇交流，并与狡诈的魔族与魔物展开战斗。有时平静温柔，有时无聊琐碎，有时激烈动荡，有时直击心扉……所有的一切、每一个瞬间，都一点一滴地堆叠成三人无",
+  "vod_score": 8.1,
+  "vod_sub": ""
+ },
+ "video_play_list": [
+  {
+   "player": "lcmain",
+   "name": "LC - Main[暂不支持缓存]",
+   "sort": "2000",
+   "video": [
+    {
+     "title": "第01集",
+     "resource_id": "zu930SQ3RauRJ2tYP2dBXnSJlsfjJy4oSeo7Ry4JEKd_UoDKZxsu5YZ0TR0okB0lZnhvtRJu_8k-zhH1nHLI8ksqHfDufkKjV_cGwJcU8b2nYMK2xLjW0yBNYd-1TIkbyz6jZ2zoCchP4C0iXF8fcNZl5MJSramr2VjySleqAUcmcw8KHCiR68diXrBLHzOCsv-2SST6IZRdGZvas2PMU4Ga7A",
+     "can_play_without_login": true
+    },
+    {
+     "title": "第02集",
+     "resource_id": "e4e3Dt7Mhi9NlAPz3oDC-UgVNC3x57qk7o619E3ijWjW57GBtsLrY9N-wczqW7KXrFgXFoNvMyQzQzlZ5-EEfKiQTrQE6No1iJq75eXmX7JgkX1a5Zu3zskNy2ngarVUI-XomFxRKa7n6bZzctPlHzetQka0c1_bNhaPvcanB04Dce_kOIM3UCTI9f3FWBH3FvISuiRBPbQzMF0xBkXvjC3YCQ",
+     "can_play_without_login": true
+    },
+    {
+     "title": "第03集",
+     "resource_id": "eQv3ZX-fE85WEkhbZeQplXiG6H-VULADDsmLjQ38MCyFfxm7eJyFiNetpNXWLaZNJaI8QkmkBUKPLbXeGQfbQcuSUuTktMLYtt4k6juguUYOD7fCVR2G4A6vFEZpDc47qSWSXTCR5zrdbt3M04q4GqpDaWFMUmd7ccUzi5lGEybJ0jutI5rJfb2347n3H83B4xLWsNmJe-EqgqnvhBd7mEfDkw",
+     "can_play_without_login": true
+    },
+    {
+     "title": "第04集",
+     "resource_id": "aVMDhzxnexFSyyhS_PjMpoThR--WdZN90GFoLrjc7uviF8gpv3Xj4zkrmh3WVrwJTEoXauvGiQsmQWOUmoloO87Z5bwIK3BS1RjX7tr5xUBvxHzzsXTiP-uFpsg0knvtaV8yn89ObFltuI8oq0BPmcR5QmHr4hIZgwBSUck5anTWeReYrHFkbXFgfNhAIUSh_OTg6rYagO0_iDsNRA1D68ea6w",
+     "can_play_without_login": true
+    },
+    {
+     "title": "第05集",
+     "resource_id": "mhAKF4oXEaMmv7jucVoW4Tv4dyQy7f-QNNdTi-NkRiYMKbCOA3eDh8qLeBPLhPA0xJC8dNJAOWEs09-ugoxlZ217bx36qVO2GnL1p2sqnQHKG84BeXLQGg7fKjrT0S5JZgNEoNxcRcGuNLjADDyub7q5acFSUTwX-OT3QCEAxLTyXLxl0Ucjj4stIeOw_AMzO_TLwfduledUt2er3frgwdJvYg",
+     "can_play_without_login": true
+    },
+    {
+     "title": "第06集",
+     "resource_id": "oVoHMyZc2mavV-zL0KiBbS80kwUPI7SlIfof71OyK0xnZtUVcp0vVgaNUR2UaGWMLBYAR5dHL0gDVErEkjthWt5Blq9929cTgQ3Ptxv-ZCoewyxNnRGBC0DcTGQMgM78bjucpdRFToXvdsL51BnIdLB5LO7iGPUOqlb_TTEKeOFFLirPkwGH8l7IDXHRKYCnHKsX3sMXKyRr3byebVj_8XZrOw",
+     "can_play_without_login": true
+    },
+    {
+     "title": "第07集",
+     "resource_id": "xawnPT2oYbx1am6FBSCgCosxvVvPd9grblatE6KnUO9Qlx6J47zp0blmHPXijLOyvdrp4W3OCcLVylZk83ziBSOguEPBNBmxoeXpsHELFIRvBSgj3iUQ6ZCR57l_WfevQg3VvJqg0L5rDafto4uYRCtCPjb1Z6q0XqVnok3rMBw6rCPozPm3QHq7r5dzKOmUMQqYZPQgCJ9JLixDm_MsM_xA9w",
+     "can_play_without_login": true
+    },
+    {
+     "title": "第08集",
+     "resource_id": "RyOjX7-7CyZiq4ImB06CLJqJPdf0Pdy0laxsXZ8EUehBk_RuKUplTo1K8sPSgZ_-Rew5w3zNoWxfHYk2bABLABgatywwhJYM4BNE9ZWvWPDwYwD4GGHnmpkM3CZ6gXN_oizRdqu5jPwns5Vk_1aXh9hp5TyrfVhtjOttu2SzsOCn2DUm4-fk-2SwCm4NGpcQZFZSI2S6uv7apPb5jTpoDRSp_A",
+     "can_play_without_login": true
+    },
+    {
+     "title": "第09集",
+     "resource_id": "qk3M08ejOe5_I7SJ-LwH-sXVbpKnf-TuSxiVXatTPThxSyz2wMaFHS2OrntoVu_kAFOnktLQyqvRTUIlvq5Po0449kymayOhOtGGatcYZ-bfGxcpALyyUOUtZJr8BWXUHwDHUF6uXQdzxIO41xRT53BnmwfjSKHoK-t9S_6a1X14JgZDEVMGc51U4F-Uj5JlFJWAVj9nduB_dck2nr2Ohr15NA",
+     "can_play_without_login": true
+    },
+    {
+     "title": "第10集",
+     "resource_id": "BzzbMXUpM3LrNKQsx-bknFws8328zIn2YJAlorTUFgN1F45_Njd2vDnMMFtf60APdwk-lCU7kQXsO2AFX6imioVvJKSMG55L97WY_5IVedM2D6wWzgBK_NH8085iYbCKnFzB8Z07ZM1TqSVI5zCZI7m2aFlzNSaEpgPicEWMGjWT3HPgeq6dBKUGKt75Q9NjvzwnTrJoS_14kvzizhs04X9gJBs",
+     "can_play_without_login": true
+    }
+   ]
+  },
+  {
+   "player": "of009",
+   "name": "of-09[高画｜首次加载缓慢，耐心等待]",
+   "sort": "1800",
+   "video": [
+    {
+     "title": "第01集",
+     "resource_id": "DjUhbeOND2f1XJOXYx7_5m2y6W4I-c28ZF50pEQz-Ws9ZMMJF0sCzy3Ptr124bJcpAUUqlUdJ9yg1ewTkCiFO3BOdNSWnUrX3N6-WAnOcFz2cCMCh-2kIw5U5tbTAuxrn6dLxsgXlKGJpi109g7iyA3OOH8dMlHyNtT4db9fXtidwfmbEEkW_lYpX7e7Kcnk0cTQcqrUkiC950sn8noIcwNyhG_mqFwSKrMLMn-C3fsfXVAHKeOjoqCKp6duy0aJtbBKBN-wYtBK-Azq81AiZxym1x-To3Xrp0wLEljVwyqFoJ2h5P9yOmc",
+     "can_play_without_login": true
+    },
+    {
+     "title": "第02集",
+     "resource_id": "ZphZE9TA3-_2Do4elD0OCLEg_YNhKwZq6HHqFRj7W64TGugI2A0hFrxa6uyhMjaorVZM2yj7kvb02SvQXdJT6mOyvT5fkNqHE7qUFVFi9Eem3tmD5WE1up5DPVM1-lSjzxz1UbDpEnBYaqJgbQCgTGFZ35bU-bGiUmT-Rf7f2S_6SwtAMf1DHDxLiMnc-0L3RrClO5VlKsSc0PFpuhG1gvUX4t0Hkx5HFVm5fXUPfhKxo7-HZO3BPf-CRnhwVeTH7wL1f12kIXX7tYqVeo1_D7STb5EovB-7sHpArR4prRbTzj9KXU5fdqPO8gOs",
+     "can_play_without_login": true
+    },
+    {
+     "title": "第03集",
+     "resource_id": "3Xh6zvJz9wV40ojohWQQ0pEgRLKgZ-utQ794Y-4ldOE5CCCjxx1rSONG3Cv_tEuNgoS8AAJwaAqSas-N5R9_os7VdgaSaQ5MHvonroGCkftbuHwhJswxJSM5p8mLkUfzrvjpir7zfCVoVjpD6i_9BT6kbZc8O_4kDrnr617BrGgIsZfrBvekJgCmViA67IYNuqALxTMb7dWFHbw0lVekB3dzf67xXyI89lwOgJZ7D6TjkB8EKRSwUUJJi-k7e7wpjkULrKe8aFA8JtJh4X2YMRpr7HcqMvoQ5m5PlHIbGZEZnlD3igndGk4",
+     "can_play_without_login": true
+    },
+    {
+     "title": "第04集",
+     "resource_id": "HdkXqmw5IyglQuUI-w3UxtyFDQzeXu6ch9x3ZGu1GATeGfuoGO_BSwQhiUeTdBOmrqC-El1qZg4j457tEH5UHaVbGibGpuRfLKF4Crd7je_dtziomEIqYK_PoqxAwZcChNSHNQTA2LMpocugQJuXQKBI_aEw3LT1-Kf4r2tNvFy-wIKVmajL7jtRieXV24v0leDC5yF9iLOT5eoKjio9HM3ClfpdZkOCvgDrrL3GuN8zmmiwemWtAlvfToHnnBBm35NYxutZWgbK-go40yh8caKMBoCvRqJbZSbsOyOpuJViMAHwNktyM_Rm8w",
+     "can_play_without_login": true
+    },
+    {
+     "title": "第05集",
+     "resource_id": "_tNxi6syWLWVTw8Hpka1gw9DTfhtxKNfY3RRUllUSxIGSeT2mJ-XpJ9mw2whXNW29TdioRndeRA2__WHAyecn77LlmQD3c3yCVd8aZp01eg4nrj7FzQQX0zKWGt-4hPXTBBCTcOZMRIl6qPRmo7Venoe6fYPIZMmoxilgKEfSr2MN2AfOcpyzu36945vnt_dQAYc3qPRjCZChEYGeJhU2q4XzTcfVKryCPawP2-uncPsB9IHmXiv3ImcgvihCTGvui9Zf-0x4l0U-OvByOqgzwZASotfoKbfb9JO3OTncy5Z9EmxhbAV0AXe3A",
+     "can_play_without_login": true
+    },
+    {
+     "title": "第06集",
+     "resource_id": "j0WScoty1p_RgBCM87Un5ICnjNstafW20GNUoFIXp-ypYk1Bv5y9q8Z7BdYUly3hCU75s0YdNKDcDJhvls-6Tp8rnnqgjsmDItiKyEwTofKUC7pzgZbrUTYLrGDGwwGqrhd2Q6WCLTy4YJuS77oSkFKbTo0ANJGqsIrZbMdhq9LaiNZ2ogfKMEiCas2JDfTjANBEdYTrNIW5B1JYMkr1nkW_FijufYvTy_yVFIUu3vOb2-WTA5ZQYgmYD-JryU4z6HNIaEW6js4N7GcYngfg81S6lkPp8VR_7VTlThWI8e0G-WPH7mBk",
+     "can_play_without_login": true
+    },
+    {
+     "title": "第07集",
+     "resource_id": "-cy6zSIMIJqgaFdv613_xmKqOSXi6jhuh4SodZmBmlhRIb-mCAjlOgkecJBJYqOVZ-fYPKNXlo4WtQitC4PIrnZRltniNfrsNrxcm6fT2kmrvS14BCZCcGlcazXZ05PWsSwFpszV_ZIUGz0Bh5sw23nE2JcXQ05dFtUlMPfgMTLEVSC6arlGkAKXkvRVOHk7F1-iT2rDOaq8dp6r9hWWmbVQsvHc_6hXD5YjW8RRnFyFZYbecS0I1C1-7ix46_1FQMvNFRxMuDz1Ca9K0QyjbUfOc0-AnXIptxTHFvkH7id35tdGrTL_7nbt8b-C",
+     "can_play_without_login": true
+    },
+    {
+     "title": "第08集",
+     "resource_id": "RpTCGvn_uuVl9GC0h81Sa1fOvti0iO8du61qqn0Nkt1EeTt2H_LsAnqDxP_56f1VVDZebd7YF-VGSKexuggu6C_xuXlKbXEFzAdKASLonz2IW5l-s-b97f2edC9YzjDfqB9IS39MxqQJ7aXnZZiBGfTvhk5vRT7hKvLUEKrPGVz6Wb0rXryMVvrKsb322MKhLM5yZScIS7zUYDzS-cTiNG3wqJNj3Zp47IbgiMiXOJx_m20gVc7YdE_Mnlriu20ZHRYt87a3CeKj48kW8UC79_YTaASmrpE2XQqX9l3kfY7YWlWC25Pk",
+     "can_play_without_login": true
+    },
+    {
+     "title": "第09集",
+     "resource_id": "JUmpcbxZBb76hROPG7Sq6pyd1k3H4GsE1QZ7V89XYB6FzCplLKKgwp0fxfm9_0oF2VPa3h5eByQlnf2SfGPWVd97pTHzXW3ZqlWjcHI0vo_8ZnQrvzFBkx67xwZPUy6ZWL3NwZdds0mVpKed0bAejRv-plldd3aAzAWskR9bRHlH_YsJ9hmJ4iD2y9lwlUJQ9IrlDaSPcGfPzDrVcShhQwKWl72-65Y5smOnYoIDLIYGBLoSKGe51SburjFrvCjiedvRYxcVD9Oz4_lkqRqozR0cQornYXWxFzqtMUzR60PIVOk-PmC7S3RQ9w",
+     "can_play_without_login": true
+    },
+    {
+     "title": "第10集",
+     "resource_id": "B741F-_NAIHqZ566qlnP_fqQ7LY83W-Jz4OH8uHNZSCtZJgMGN6M0Qn-1-1V8ekz2adX1VMOqZKZjEnCL-6Fu5Wrs1V-PHfDC9VQ16ymz97tG2Utwo8iwUf3x7rXrc2CQRm-z3kFMdJ8W0XW1ebmiMkg6vgl_u0ru2FLz680kOZHrhs8kzyIkU8Px__WVFi8tF47XwTkp6FfI0CbTuCSaVpFTXZ1RUpQqwtUpb0mFoblxOb9552DRcdPWMu2Z-_WcMl6pQFI99HSr2wk2AtHXhT1nWt5u-QvKfMAw3c0-0x7FPNBv_PLqw",
+     "can_play_without_login": true
+    }
+   ]
+  }
+ ]
+}

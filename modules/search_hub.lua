@@ -29,7 +29,7 @@ M.HUB_DEADLINE = 10        -- 聚合整体时限：到点渲染已到结果，�
 M.PER_SOURCE_TIMEOUT = 9   -- 单源内部请求超时（须小于 HUB_DEADLINE）
 
 M.GROUP_ORDER = { "dandanplay", "tencent", "kan360", "maccms", "youku", "iqiyi", "mgtv", "bilibili",
-    "bahamut", "animeko", "maiduidui", "acf", "ezd", "ggl", "ayf", "cyc" }
+    "bahamut", "animeko", "maiduidui", "acf", "ezd", "ggl", "ayf", "cyc", "omf" }
 local GROUP_LABEL = {
     dandanplay = "dandanplay",
     tencent = "腾讯",
@@ -47,6 +47,7 @@ local GROUP_LABEL = {
     ggl = "girigirilove",
     ayf = "爱壹帆",
     cyc = "次元城",
+    omf = "OmoFun",
 }
 
 -- ============ 纯函数（构建分组菜单条目；单测直打，不触碰 mp.*） ============
@@ -591,6 +592,11 @@ function M.multi_source_search(query, filter_note)
     end)
     add_task("cyc", function(sink)
         return fetch_cyc_search(zh_name, function(items, err)
+            sink.done(err ~= nil and { err = err } or { items = items or {} })
+        end, M.PER_SOURCE_TIMEOUT)
+    end)
+    add_task("omf", function(sink)
+        return fetch_omofun_search(zh_name, function(items, err)
             sink.done(err ~= nil and { err = err } or { items = items or {} })
         end, M.PER_SOURCE_TIMEOUT)
     end)

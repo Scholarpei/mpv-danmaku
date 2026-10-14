@@ -94,6 +94,8 @@ function M.plan(record, next_filename, parse_fn)
                     tasks[#tasks + 1] = { type = "ayf", extra = ex, episodenum = num }
                 elseif kind == "cyc" then
                     tasks[#tasks + 1] = { type = "cyc", extra = ex, episodenum = num }
+                elseif kind == "omf" then
+                    tasks[#tasks + 1] = { type = "omf", extra = ex, episodenum = num }
                 end
             end
         end
@@ -229,6 +231,13 @@ local function execute(tasks, done)
                 one_done(false)
             else
                 prefetch_cyc_episode(task.extra, task.episodenum, one_done)
+            end
+        elseif task.type == "omf" then
+            -- 站点直连缓存源（OmoFun）：入口由 apis/omofun_search.lua 定义，单测部分加载时缺省容错
+            if type(prefetch_omofun_episode) ~= "function" then
+                one_done(false)
+            else
+                prefetch_omofun_episode(task.extra, task.episodenum, one_done)
             end
         elseif task.type == "bili_series" then
             warm_bili_series(task, one_done)

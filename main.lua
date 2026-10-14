@@ -37,6 +37,7 @@ require("apis/ezdmw_search")
 require("apis/ggl_search")
 require("apis/aiyifan_search")
 require("apis/cyc_search")
+require("apis/omofun_search")
 
 -- 多源聚合搜索（须在 apis 之后：运行时调用各 fetch/build 全局）
 search_hub = require("modules/search_hub")
@@ -54,6 +55,7 @@ require("sites/ezdmw")
 require("sites/ggl")
 require("sites/aiyifan")
 require("sites/cyc")
+require("sites/omofun")
 
 -- 下一集弹幕预取（须在 apis 与 sites 之后：执行器引用 fetch_extcomment /
 -- resolve_*_episode_url / fetch_bilibili_pagelist 等运行时全局）
@@ -894,6 +896,8 @@ function auto_load_danmaku(path, dir, filename, number)
                         resume_aiyifan_episode(ex, episodenum)
                     elseif kind == "cyc" then
                         resume_cyc_episode(ex, episodenum)
+                    elseif kind == "omf" then
+                        resume_omofun_episode(ex, episodenum)
                     else
                         get_details(ex.class, ex.id, ex.site,
                             ex.title, ex.year, ex.number, episodenum)

@@ -44,6 +44,7 @@ local KIND_LABELS = {
     ggl = "girigirilove",
     ayf = "爱壹帆",
     cyc = "次元城",
+    omf = "OmoFun",
     maccms = "maccms",
     ["360kan"] = "360kan",
 }

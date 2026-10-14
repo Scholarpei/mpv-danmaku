@@ -8,7 +8,8 @@
 --   extcomment "ext:{URL哈希}"、animeko "ako:{episodeId}"、埋堆堆 "mdd:{分集uuid}"、
 --   巴哈姆特 "baha:{sn}"、AcFun "acfmap:{ac号}:{part}"（页面解析映射）与 "acf:{videoId}"、
 --   ezdmw "ezd:{videoId}"、girigirilove "ggl:{GVid}-{线路src}-{集ep}"、
---   爱壹帆 "ayf:{mediaKey}:{videoId}"、次元城 "cyc:{videoId}-{集序号}"。
+--   爱壹帆 "ayf:{mediaKey}:{videoId}"、次元城 "cyc:{videoId}-{集序号}"、
+--   OmoFun "omf:{vod_id}-{集序号}"。
 --
 -- 语义：
 --   get       —— TTL 内命中才返回；过期不删文件（留给 get_stale 断网兜底），返回 nil 走网络刷新

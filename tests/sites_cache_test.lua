@@ -1,5 +1,5 @@
 -- 站点直连加载器磁盘缓存集成测试（animeko / 埋堆堆 / 巴哈姆特 / AcFun / ezdmw / girigirilove /
--- 爱壹帆 / 次元城）：
+-- 爱壹帆 / 次元城 / OmoFun）：
 -- TTL 内命中零网络、未命中走网络且写缓存（原始载荷 roundtrip）、
 -- 断网回退过期缓存、合法空结果不写缓存、巴哈主/降级端口取数均写同键缓存、
 -- AcFun 两级缓存（映射 acfmap + 弹幕 acf）与分页游标聚合、
@@ -55,7 +55,8 @@ local stub = { net_calls = 0, fail = false, ako = nil, mdd = nil, loads = 0,
     ezd_page = nil, ezd_data = nil, ezd_fail_main = false,
     ggl_page = nil, ggl_data = nil, ggl_body = nil,
     ayf_config = nil, ayf_data = nil, ayf_details = nil, ayf_calls = {},
-    cyc_sections = nil, cyc_data = nil, cyc_calls = {} }
+    cyc_sections = nil, cyc_data = nil, cyc_calls = {},
+    omf_doh = nil, omf_detail = nil, omf_data = nil, omf_calls = {} }
 local msgs = {}
 show_message = function(text) msgs[#msgs + 1] = tostring(text) end
 load_danmaku = function(from_menu) stub.loads = stub.loads + 1 end
@@ -229,6 +230,21 @@ call_cmd_async = function(args, cb)
         elseif url:find("cycani%.org/api/sections/") then
             stub.cyc_calls[#stub.cyc_calls + 1] = { url = url, args = args }
             cb(nil, stub.cyc_data)
+        elseif url:find("doh%.pub/resolve") or url:find("223%.5%.5%.5/resolve")
+            or url:find("1%.12%.12%.12/resolve") then
+            -- OmoFun 域名发现 DoH：nil = 解析器不可达（串行下一家/全失败走内置兜底 base）
+            stub.omf_calls[#stub.omf_calls + 1] = { url = url, args = args }
+            if stub.omf_doh then
+                cb(nil, stub.omf_doh)
+            else
+                cb("curl: (7) Failed to connect", nil)
+            end
+        elseif url:find("/app/v2/vod/") then
+            stub.omf_calls[#stub.omf_calls + 1] = { url = url, args = args }
+            cb(nil, stub.omf_detail)
+        elseif url:find("app/chat/barragev2") then
+            stub.omf_calls[#stub.omf_calls + 1] = { url = url, args = args }
+            cb(nil, stub.omf_data)
         else
             cb("unexpected url: " .. tostring(url), nil)
         end
@@ -246,6 +262,7 @@ require("sites/ezdmw")
 require("sites/ggl")
 require("sites/aiyifan")
 require("sites/cyc")
+require("sites/omofun")
 
 local dc = require("modules/danmaku_cache")
 local function dc_setup(now_fn)
@@ -1500,6 +1517,308 @@ steps[111] = function()
     check("cyc 预取 TTL 命中零网络", steps._cyc_pf_hit == true and stub.net_calls == 0)
 end
 
+-- ========== OmoFun（lanerc.life，App API 逆向链路；域名发现→详情→弹幕）==========
+
+local OMF_URL = "https://lanerc.life/vod/5001/1"
+local OMF_URL_EP2 = "https://lanerc.life/vod/5001/2"
+local OMF_URL_EP3 = "https://lanerc.life/vod/5001/3"
+local OMF_URL_EP99 = "https://lanerc.life/vod/5001/99"
+local OMF_KEY = "omf:5001-1"
+
+-- DoH TXT 应答（dohx.lanerc.moe 实抓记录值 2026-10-15，解密即 https://v3.yyghk.com/）
+local OMF_DOH_JSON = utils.format_json({ Status = 0, Answer = {
+    { name = "dohx.lanerc.moe.", type = 16,
+        data = '"1n4aoOeW5/QPKutimGgc78mX2D6i2yUmM2KeDK5jnRY="' } } })
+
+-- 详情选集表（video_play_list 首选线路 12 集，resource_id 为不透明 token；
+-- stub 返回完整信封——omf_env 定义在后，此处先备表）
+local OMF_DETAIL_TABLE = (function()
+    local eps = {}
+    for i = 1, 12 do
+        eps[#eps + 1] = { resource_id = ("rid5001e%02d"):format(i),
+            title = ("第%02d集"):format(i) }
+    end
+    return {
+        video_play_info = { vod_name = "测试番", vod_year = "2026", vod_total = 12 },
+        video_play_list = {
+            { player = "lcmain", video = eps },
+            { player = "h265", video = { { resource_id = "ridB", title = "备份线路" } } },
+        },
+    }
+end)()
+local OMF_DETAIL_5002_TABLE = {
+    video_play_info = { vod_total = 1 },
+    video_play_list = { { video = { { resource_id = "rid5002e1", title = "第01集" } } } },
+}
+
+-- 响应体加密（自定义字母表 base64 + AES-256-ECB + PKCS7，与服务端同构——
+-- 供小信封精确断言；真实密文的一致性回归在 omofun_parse_test 覆盖）
+local AES_LIB = require("modules/aes")
+local OMF_B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0523496781/-"
+local OMF_RESP_KEY = (function()
+    local t, k = {}, "8f81c2519e3b661834219e7142000093"
+    for i = 1, #k do t[i - 1] = k:byte(i) end
+    return t
+end)()
+local function omf_custom_b64_encode(data)
+    local out = {}
+    for i = 1, #data, 3 do
+        local b1, b2, b3 = data:byte(i), data:byte(i + 1), data:byte(i + 2)
+        local has2, has3 = b2 ~= nil, b3 ~= nil
+        b2, b3 = b2 or 0, b3 or 0
+        local v = b1 * 65536 + b2 * 256 + b3
+        -- 逐字符按 6bit 索引取
+        local i1 = math.floor(v / 262144) % 64 + 1
+        local i2 = math.floor(v / 4096) % 64 + 1
+        local i3 = math.floor(v / 64) % 64 + 1
+        local i4 = v % 64 + 1
+        out[#out + 1] = OMF_B64:sub(i1, i1) .. OMF_B64:sub(i2, i2)
+            .. (has2 and OMF_B64:sub(i3, i3) or "=")
+            .. (has3 and OMF_B64:sub(i4, i4) or "=")
+    end
+    return table.concat(out)
+end
+local function omf_encrypt_payload(tbl)
+    local plain = utils.format_json(tbl)
+    local pad = 16 - #plain % 16
+    plain = plain .. string.rep(string.char(pad), pad)
+    return omf_custom_b64_encode(AES_LIB.ECB.encrypt(OMF_RESP_KEY, plain))
+end
+local function omf_env(tbl)
+    return '{"code":201,"data":"' .. omf_encrypt_payload(tbl) .. '","msg":"Success"}'
+end
+
+local OMF_BARRAGE_PLAIN_3 = {
+    new_barrages = {
+        { id = 1, bcolor = "#ffffffff", position = 0, second = 1.5, content = "hi" },
+        { id = 2, bcolor = "#ff00a0ea", position = 0, second = 2.5, content = "蓝" },
+        { id = 3, bcolor = "#ffff2e2e", position = 1, second = 0.5, content = "顶" },
+    },
+    old_barrages = {},
+}
+local OMF_DATA_ENV = omf_env(OMF_BARRAGE_PLAIN_3)
+local OMF_EMPTY_ENV = omf_env({ new_barrages = {}, old_barrages = {} })
+local OMF_DETAIL = omf_env(OMF_DETAIL_TABLE)
+local OMF_DETAIL_5002 = omf_env(OMF_DETAIL_5002_TABLE)
+local OMF_ERR_ENV = '{"code":400,"data":"","msg":"请求参数解析失败"}'
+
+-- ts 首段签名复算（真机 HAR 形态：md5("/{path}"@ts@nonce@盐)）
+local function omf_verify_sign(url, path_noslash)
+    local sign = url:match("[?&]sign=([^&]+)")
+    if not sign then return false end
+    local ts, nonce, hex = sign:match(
+        "^(%d+)%-([a-z][a-z][a-z][a-z][a-z][a-z])%-([0-9a-f]+)$")
+    if not ts or not hex or #hex ~= 32 then return false end
+    return md5.sum("/" .. path_noslash .. "@" .. ts .. "@" .. nonce
+        .. "@4x2g5efd84fb46a9") == hex
+end
+
+local function omf_call_url(i)
+    local c = stub.omf_calls[i]
+    return c and c.url or ""
+end
+
+local function omf_has_header(args, name, value_part)
+    for _, v in ipairs(args) do
+        if type(v) == "string" and v:find(name .. ": ", 1, true)
+            and v:find(value_part, 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
+-- ---------- omf：TTL 命中零网络（域名发现/详情定位全跳过） ----------
+steps[112] = function()
+    omf_debug_reset()
+    dc.put("omf:7001-1", utils.format_json(OMF_BARRAGE_PLAIN_3), { type = "json", count = 3 })
+    stub.net_calls = 0
+    stub.loads = 0
+    load_danmaku_for_omofun("https://lanerc.life/vod/7001/1", function(success)
+        steps._omf_hit_cb = success
+    end)
+end
+
+steps[113] = function()
+    check("omf 命中零网络（域名发现未触发）", stub.net_calls == 0)
+    check("omf 命中回调成功", steps._omf_hit_cb == true)
+    check("omf 命中标记 cache", DANMAKU.cache_hit == "cache")
+    check("omf 命中走 load_danmaku", stub.loads == 1)
+    local src = DANMAKU.sources["https://lanerc.life/vod/7001/1"]
+    check("omf 命中数据入 sources（3 条）", src ~= nil and #src.data == 3)
+    check("omf 数据字段正确（升序/bcolor 8 位丢 alpha/position 0滚 1顶）",
+        src.data[1].text == "顶" and src.data[1].time == 0.5
+            and src.data[1].color == 16723502 and src.data[1].type == 5
+            and src.data[2].text == "hi" and src.data[2].time == 1.5
+            and src.data[2].color == 16777215 and src.data[2].type == 1
+            and src.data[3].color == 41194 and src.data[3].type == 1)
+    DANMAKU.cache_hit = nil
+end
+
+-- ---------- omf：DoH 发现 → 详情 → 弹幕 全链（弹幕参数 vid=vod_id&vod=集序号） ----------
+steps[114] = function()
+    stub.omf_doh = OMF_DOH_JSON
+    stub.omf_detail = OMF_DETAIL
+    stub.omf_data = OMF_DATA_ENV
+    stub.omf_calls = {}
+    stub.net_calls = 0
+    load_danmaku_for_omofun(OMF_URL, function(success)
+        steps._omf_full_cb = success
+    end)
+end
+
+steps[115] = function()
+    -- DoH 1 + 详情 1 + 弹幕 1
+    check("omf 全链三跳（DoH→详情→弹幕）", stub.net_calls == 3)
+    check("omf DoH 查询 dohx TXT", omf_call_url(1):find("name=dohx%.lanerc%.moe") ~= nil
+        and omf_call_url(1):find("type=16") ~= nil)
+    check("omf TXT 发现的 base 生效", omf_call_url(2):find("https://v3%.yyghk%.com/app/v2/vod/5001%?") == 1)
+    check("omf 详情请求带签名", omf_verify_sign(omf_call_url(2), "app/v2/vod/5001"))
+    check("omf 弹幕参数 vid=番剧id&vod=集序号", omf_call_url(3):find("vid=5001&vod=1&sign=") ~= nil)
+    check("omf 弹幕请求签名（ts 首段 + / 前缀 payload）",
+        omf_verify_sign(omf_call_url(3), "app/chat/barragev2"))
+    check("omf 弹幕请求带 Dart UA 与三头口径",
+        omf_has_header(stub.omf_calls[3].args, "User-Agent", "Dart/3.9.2 (dart:io)")
+            and omf_has_header(stub.omf_calls[3].args, "Content-Type", "application/json"))
+    local cached = dc.get(OMF_KEY)
+    check("omf 成功写缓存（解密后明文 roundtrip）", cached ~= nil and (function()
+        local p = require("modules/omofun_parse").parse_danmaku(utils.parse_json(cached.payload))
+        return p.ok and #p.comments == 3
+    end)())
+    check("omf 全链回调成功", steps._omf_full_cb == true)
+end
+
+-- ---------- omf：换集单跳（详情会话缓存命中，弹幕按集序号直取） ----------
+steps[116] = function()
+    stub.omf_calls = {}
+    stub.net_calls = 0
+    load_danmaku_for_omofun(OMF_URL_EP2, function(success)
+        steps._omf_ep2_cb = success
+    end)
+end
+
+steps[117] = function()
+    check("omf 换集单跳（弹幕 vod=2）", stub.net_calls == 1
+        and omf_call_url(1):find("vid=5001&vod=2&sign=") ~= nil)
+    check("omf 换集回调成功", steps._omf_ep2_cb == true)
+end
+
+-- ---------- omf：集数越界确定性无弹幕（不消费过期缓存、零网络） ----------
+steps[118] = function()
+    stub.omf_calls = {}
+    stub.net_calls = 0
+    load_danmaku_for_omofun(OMF_URL_EP99, function(success, no_data, reason)
+        steps._omf_oob = { success, no_data, reason }
+    end)
+end
+
+steps[119] = function()
+    check("omf 集数越界 no_data 判定零网络（详情会话缓存）", stub.net_calls == 0
+        and steps._omf_oob[1] == false and steps._omf_oob[2] == true)
+    check("omf 越界原因带总集数", steps._omf_oob[3]:find("共 12 集", 1, true) ~= nil)
+end
+
+-- ---------- omf：合法空（越界集序号与无弹幕同口径空数组）不缓存 ----------
+steps[120] = function()
+    stub.omf_detail = OMF_DETAIL_5002
+    stub.omf_data = OMF_EMPTY_ENV
+    stub.omf_calls = {}
+    stub.net_calls = 0
+    load_danmaku_for_omofun("https://lanerc.life/vod/5002/1", function(success)
+        steps._omf_empty_cb = success
+    end)
+end
+
+steps[121] = function()
+    check("omf 合法空两跳（详情 + 弹幕）", stub.net_calls == 2)
+    check("omf 合法空不缓存", dc.get("omf:5002-1") == nil)
+    check("omf 合法空如实提示无弹幕", #msgs > 0 and msgs[#msgs]:find("没有弹幕", 1, true) ~= nil)
+    check("omf 合法空回调失败（非 no_data）", steps._omf_empty_cb == false)
+end
+
+-- ---------- omf：断网（弹幕环节失败）→ 过期缓存兜底 ----------
+steps[122] = function()
+    -- 真实时钟写入 ep3 缓存，随后时钟前移使之过期（TTL miss → 网络失败 → stale）
+    dc.put("omf:5001-3", utils.format_json(OMF_BARRAGE_PLAIN_3), { type = "json", count = 3 })
+    dc_setup(function() return os.time() + 7200 end)
+    stub.net_calls = 0
+    stub.loads = 0
+    stub.fail = true
+    load_danmaku_for_omofun(OMF_URL_EP3, function(success)
+        steps._omf_stale_cb = success
+    end)
+end
+
+steps[123] = function()
+    check("omf 断网弹幕单请求（详情会话缓存命中）", stub.net_calls == 1)
+    check("omf 断网走过期缓存兜底", stub.loads == 1 and DANMAKU.cache_hit == "stale"
+        and steps._omf_stale_cb == true)
+    DANMAKU.cache_hit = nil
+    stub.fail = false
+    dc_setup()
+end
+
+-- ---------- omf：弹幕接口错误（code=400 data 空串）→ 无过期缓存按失败上报 ----------
+steps[124] = function()
+    stub.omf_data = OMF_ERR_ENV
+    stub.omf_calls = {}
+    stub.net_calls = 0
+    load_danmaku_for_omofun("https://lanerc.life/vod/5001/4", function(success)
+        steps._omf_err_cb = success
+    end)
+end
+
+steps[125] = function()
+    check("omf 接口错误单请求", stub.net_calls == 1
+        and omf_call_url(1):find("barragev2") ~= nil)
+    check("omf 接口错误无过期缓存按失败上报", steps._omf_err_cb == false
+        and dc.get("omf:5001-4") == nil)
+    stub.omf_data = OMF_DATA_ENV  -- 还原（S4 曾换空信封）
+end
+
+-- ---------- omf：预取同键写缓存 / TTL 命中零网络 ----------
+steps[126] = function()
+    stub.omf_calls = {}
+    stub.net_calls = 0
+    prefetch_omofun_danmaku("5001", 5, function(done)
+        steps._omf_pf_net = done
+    end)
+end
+
+steps[127] = function()
+    check("omf 预取走网络写同键缓存（详情会话缓存命中单跳）",
+        steps._omf_pf_net == true and stub.net_calls == 1
+            and omf_call_url(1):find("vid=5001&vod=5&sign=") ~= nil and dc.get("omf:5001-5") ~= nil)
+    stub.net_calls = 0
+    prefetch_omofun_danmaku("5001", 5, function(done)
+        steps._omf_pf_hit = done
+    end)
+end
+
+steps[128] = function()
+    check("omf 预取 TTL 命中零网络", steps._omf_pf_hit == true and stub.net_calls == 0)
+end
+
+-- ---------- omf：DoH 全失败走内置兜底 base ----------
+steps[129] = function()
+    omf_debug_reset()
+    stub.omf_doh = nil  -- 两家公共 DoH 均不可达
+    stub.omf_detail = OMF_DETAIL  -- 还原（S4 曾换 5002 详情）
+    stub.omf_calls = {}
+    stub.net_calls = 0
+    load_danmaku_for_omofun("https://lanerc.life/vod/5001/6", function(success)
+        steps._omf_fallback_cb = success
+    end)
+end
+
+steps[130] = function()
+    -- DoH 2（全失败）+ 详情 + 弹幕各 1（走内置兜底 base https://v3.yyghk.com）
+    check("omf DoH 失败走内置兜底 base（四跳）", stub.net_calls == 4)
+    check("omf 兜底 base 业务请求可达",
+        omf_call_url(3):find("https://v3%.yyghk%.com/app/v2/vod/5001%?") == 1
+            and omf_call_url(4):find("https://v3%.yyghk%.com/app/chat/barragev2") == 1)
+    check("omf 兜底链回调成功", steps._omf_fallback_cb == true)
+end
 local function finish()
     dc.clear()
     mp.command_native({ name = "subprocess", playback_only = false,

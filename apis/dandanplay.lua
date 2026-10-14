@@ -188,6 +188,11 @@ function get_danmaku_fallback(query)
         return
     end
 
+    if query:find('lanerc.life') then
+        load_danmaku_for_omofun(query, dispatch_result)
+        return
+    end
+
     if query:find('mgtv.com') then
         load_danmaku_for_mgtv(query, dispatch_result)
         return
@@ -902,7 +907,7 @@ function add_danmaku_source_online(query, from_menu)
         or query:find("acfun%.cn") or query:find("ezdmw%.org") or query:find("ezdmw%.com")
         or query:find("girigirilove%.com") or query:find("girigirilove%.icu")
         or query:find("yfsp%.tv") or query:find("tripdata%.app")
-        or query:find("cycani%.org")) then
+        or query:find("cycani%.org") or query:find("lanerc%.life")) then
         get_danmaku_fallback(query)
         return
     end

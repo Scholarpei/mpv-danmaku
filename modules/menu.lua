@@ -2007,6 +2007,8 @@ mp.register_script_message("search-anime-event", function(query)
             query_aiyifan_search(name)
         elseif class == "cyc" then
             query_cyc_search(name)
+        elseif class == "omf" then
+            query_omofun_search(name)
         else
             query_extra(name, class)
         end
