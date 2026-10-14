@@ -183,6 +183,11 @@ function get_danmaku_fallback(query)
         return
     end
 
+    if query:find('cycani.org') then
+        load_danmaku_for_cyc(query, dispatch_result)
+        return
+    end
+
     if query:find('mgtv.com') then
         load_danmaku_for_mgtv(query, dispatch_result)
         return
@@ -896,7 +901,8 @@ function add_danmaku_source_online(query, from_menu)
     if type(query) == "string" and (query:find("animeko%.org") or query:find("mddcloud%.com%.cn")
         or query:find("acfun%.cn") or query:find("ezdmw%.org") or query:find("ezdmw%.com")
         or query:find("girigirilove%.com") or query:find("girigirilove%.icu")
-        or query:find("yfsp%.tv") or query:find("tripdata%.app")) then
+        or query:find("yfsp%.tv") or query:find("tripdata%.app")
+        or query:find("cycani%.org")) then
         get_danmaku_fallback(query)
         return
     end

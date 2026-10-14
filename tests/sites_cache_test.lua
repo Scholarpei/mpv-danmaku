@@ -1,5 +1,5 @@
 -- 站点直连加载器磁盘缓存集成测试（animeko / 埋堆堆 / 巴哈姆特 / AcFun / ezdmw / girigirilove /
--- 爱壹帆）：
+-- 爱壹帆 / 次元城）：
 -- TTL 内命中零网络、未命中走网络且写缓存（原始载荷 roundtrip）、
 -- 断网回退过期缓存、合法空结果不写缓存、巴哈主/降级端口取数均写同键缓存、
 -- AcFun 两级缓存（映射 acfmap + 弹幕 acf）与分页游标聚合、
@@ -9,7 +9,10 @@
 -- 备用域 URL 同键命中、接口错误（code≠1）与合法空（code=1 空表）两口径区分、
 -- 爱壹帆单级缓存（home/config 密钥引导 → 签名 GetBarrages）与签名头校验、
 -- 老链接缺 videoId 经 VideoDetails 补齐、接口错误（ret≠200）强刷密钥重试一次、
--- 网络失败不重试直接过期兜底
+-- 网络失败不重试直接过期兜底、
+-- 次元城单级缓存（分集表定位 section_id → GET danmaku）与 x-app-name 头校验、
+-- 分集表会话缓存（同番换集单跳）、长番串行翻页（page_size=100 取满 pager.total）、
+-- 集数越界确定性无弹幕（no_data 判定）、粘贴网页 URL（带 ?from=）同键命中
 -- （自断言，输出 PASS/FAIL 行）
 -- 运行：mpv.com --idle=once --no-config --script=<本文件路径>
 -- 退出码非 0 或输出含 FAIL 即失败
@@ -51,7 +54,8 @@ local stub = { net_calls = 0, fail = false, ako = nil, mdd = nil, loads = 0,
     acf_page = nil, acf_p0 = nil, acf_p1 = nil,
     ezd_page = nil, ezd_data = nil, ezd_fail_main = false,
     ggl_page = nil, ggl_data = nil, ggl_body = nil,
-    ayf_config = nil, ayf_data = nil, ayf_details = nil, ayf_calls = {} }
+    ayf_config = nil, ayf_data = nil, ayf_details = nil, ayf_calls = {},
+    cyc_sections = nil, cyc_data = nil, cyc_calls = {} }
 local msgs = {}
 show_message = function(text) msgs[#msgs + 1] = tostring(text) end
 load_danmaku = function(from_menu) stub.loads = stub.loads + 1 end
@@ -211,6 +215,20 @@ call_cmd_async = function(args, cb)
             cb(nil, stub.ayf_details)
         elseif url:find("api%.tripdata%.app/api/Video/GetBarrages") then
             cb(nil, stub.ayf_data)
+        elseif url:find("cycani%.org/api/videos/.-/sections") then
+            -- 次元城分集表：捕获完整 curl args（供 x-app-name 头断言）；按 (vid, page)
+            -- 分发预置页（长番翻页场景 vid=780 多页）
+            stub.cyc_calls[#stub.cyc_calls + 1] = { url = url, args = args }
+            local page = tonumber(url:match("page=(%d+)")) or 1
+            if stub.cyc_sections_pages then
+                local vid = url:match("/api/videos/(%d+)/sections")
+                cb(nil, stub.cyc_sections_pages[vid] and stub.cyc_sections_pages[vid][page])
+            else
+                cb(nil, stub.cyc_sections)
+            end
+        elseif url:find("cycani%.org/api/sections/") then
+            stub.cyc_calls[#stub.cyc_calls + 1] = { url = url, args = args }
+            cb(nil, stub.cyc_data)
         else
             cb("unexpected url: " .. tostring(url), nil)
         end
@@ -227,6 +245,7 @@ require("sites/acfun")
 require("sites/ezdmw")
 require("sites/ggl")
 require("sites/aiyifan")
+require("sites/cyc")
 
 local dc = require("modules/danmaku_cache")
 local function dc_setup(now_fn)
@@ -1242,6 +1261,243 @@ steps[92] = function()
         e and tostring(e.cache))
     source_status.reset()
     DANMAKU.cache_hit = nil
+end
+
+-- ---------- 次元城：TTL 命中零网络（单级缓存 cyc:{videoId}-{集序号}，存原始 JSON；
+-- ---------- 经粘贴网页 URL（带 ?from=cychub 查询参数）加载——路径匹配忽略 query 同键命中） ----------
+local CYC_URL = "https://www.cycani.org/anime/2964/play/1"
+local CYC_URL_WEB = "https://www.cycani.org/anime/2964/play/1?from=cychub"
+local CYC_URL_EP2 = "https://www.cycani.org/anime/2964/play/2"
+local CYC_KEY = "cyc:2964-1"
+-- 分集表单页（5 集，page1 即取满 pager.total=5）
+local CYC_SECTIONS_JSON = (function()
+    local eps = {}
+    for i = 1, 5 do
+        eps[#eps + 1] = ('{"id":%d,"title":"第%02d集"}'):format(40100 + i - 1, i)
+    end
+    return '{"code":0,"data":{"list":[' .. table.concat(eps, ",")
+        .. '],"pager":{"page":1,"page_size":100,"total":5}}}'
+end)()
+-- 弹幕：normal→1 滚动 / top→5 顶（防御性映射）、十进制色原样（65280=0x00FF00）
+local CYC_JSON = '{"code":0,"data":{"count":2,"items":['
+    .. '{"id":1,"content":"hi","time_point":1.5,"mode":"normal","color":16777215},'
+    .. '{"id":2,"content":"顶","time_point":2.5,"mode":"top","color":65280}]}}'
+local CYC_EMPTY = '{"code":0,"data":{"count":0,"items":[]}}'
+local CYC_ERR = '{"code":1000,"msg":"app_name is required"}'
+
+steps[93] = function()
+    dc.put(CYC_KEY, CYC_JSON, { type = "json", count = 2 })
+    stub.net_calls = 0
+    stub.loads = 0
+    load_danmaku_for_cyc(CYC_URL_WEB, function(success)
+        steps._cyc_hit_cb = success
+    end)
+end
+
+steps[94] = function()
+    local src = DANMAKU.sources[CYC_URL_WEB]
+    check("cyc 命中零网络（粘贴 ?from= URL 同键）", stub.net_calls == 0)
+    check("cyc 命中回调成功", steps._cyc_hit_cb == true)
+    check("cyc 命中标记 cache", DANMAKU.cache_hit == "cache")
+    check("cyc 命中走 load_danmaku", stub.loads == 1)
+    check("cyc 命中数据入 sources", src ~= nil and src.data ~= nil and #src.data == 2)
+    check("cyc 数据字段正确（mode top→5、十进制色原样）",
+        src and src.data[1].text == "hi" and src.data[1].time == 1.5
+        and src.data[1].color == 16777215 and src.data[1].type == 1
+        and src.data[2].type == 5 and src.data[2].color == 65280)
+    DANMAKU.cache_hit = nil
+end
+
+-- ---------- 次元城：未命中走网络（分集表定位 section_id → GET danmaku）且写缓存 ----------
+steps[95] = function()
+    dc.remove(CYC_KEY)
+    stub.cyc_sections = CYC_SECTIONS_JSON
+    stub.cyc_data = CYC_JSON
+    stub.cyc_calls = {}
+    stub.net_calls = 0
+    load_danmaku_for_cyc(CYC_URL, function() end)
+end
+
+steps[96] = function()
+    local cached = dc.get(CYC_KEY)
+    local src = DANMAKU.sources[CYC_URL]
+    check("cyc 网络两跳请求（分集表 + danmaku）", stub.net_calls == 2)
+    check("cyc 网络成功不标 cache", DANMAKU.cache_hit == nil)
+    -- 分集表与弹幕请求均携带唯一必需头 x-app-name: cyc_web（接口实测缺头即 1000）
+    local header_ok = #stub.cyc_calls == 2
+    for _, call in ipairs(stub.cyc_calls) do
+        local found = false
+        for i = 1, #call.args - 1 do
+            if call.args[i] == "-H" and call.args[i + 1] == "x-app-name: cyc_web" then
+                found = true break
+            end
+        end
+        if not found then header_ok = false end
+    end
+    check("cyc 两跳均带 x-app-name 头", header_ok)
+    -- 弹幕请求定位首集 section_id=40100（分集表 list[1]）
+    check("cyc 弹幕按 section_id 请求",
+        stub.cyc_calls[2] ~= nil and stub.cyc_calls[2].url:find("/api/sections/40100/danmaku") ~= nil,
+        stub.cyc_calls[2] and stub.cyc_calls[2].url)
+    check("cyc 原始 JSON 写缓存 roundtrip", cached ~= nil and cached.payload == CYC_JSON)
+    check("cyc 缓存 meta 计数", cached ~= nil and cached.meta ~= nil and cached.meta.count == 2)
+    check("cyc 网络数据入 sources", src ~= nil and src.data ~= nil and #src.data == 2)
+end
+
+-- ---------- 次元城：分集表会话缓存——同番换集仅弹幕单跳 ----------
+steps[97] = function()
+    stub.cyc_calls = {}
+    stub.net_calls = 0
+    load_danmaku_for_cyc(CYC_URL_EP2, function(success)
+        steps._cyc_ep2_cb = success
+    end)
+end
+
+steps[98] = function()
+    check("cyc 换集单跳（分集表会话缓存命中）", stub.net_calls == 1)
+    check("cyc 换集弹幕定位第2集 sid=40101",
+        stub.cyc_calls[1] ~= nil and stub.cyc_calls[1].url:find("/api/sections/40101/danmaku") ~= nil,
+        stub.cyc_calls[1] and stub.cyc_calls[1].url)
+    check("cyc 换集回调成功", steps._cyc_ep2_cb == true)
+    check("cyc 换集写独立键", dc.get("cyc:2964-2") ~= nil)
+end
+
+-- ---------- 次元城：长番串行翻页（page_size=100 取满 pager.total=250 → 3 页） ----------
+steps[99] = function()
+    local function page_json(page, n, total)
+        local eps = {}
+        for i = 1, n do
+            eps[#eps + 1] = ('{"id":%d,"title":"第%03d集"}')
+                :format((page - 1) * 100 + i, (page - 1) * 100 + i)
+        end
+        return '{"code":0,"data":{"list":[' .. table.concat(eps, ",")
+            .. ('],"pager":{"page":%d,"page_size":100,"total":%d}}}'):format(page, total)
+    end
+    stub.cyc_sections_pages = { ["780"] = { page_json(1, 100, 250), page_json(2, 100, 250), page_json(3, 50, 250) } }
+    stub.cyc_calls = {}
+    stub.net_calls = 0
+    load_danmaku_for_cyc("https://www.cycani.org/anime/780/play/150", function(success)
+        steps._cyc_long_cb = success
+    end)
+end
+
+steps[100] = function()
+    -- 3 页分集表 + 1 次弹幕；第 150 集 → sid=150（翻页跨页定位）
+    check("cyc 长番翻页 3+1 四跳请求", stub.net_calls == 4,
+        ("got %d"):format(stub.net_calls))
+    check("cyc 翻页页码顺序 1→2→3", stub.cyc_calls[1] ~= nil
+        and stub.cyc_calls[1].url:find("page=1") ~= nil
+        and stub.cyc_calls[2] ~= nil and stub.cyc_calls[2].url:find("page=2") ~= nil
+        and stub.cyc_calls[3] ~= nil and stub.cyc_calls[3].url:find("page=3") ~= nil)
+    check("cyc 跨页定位第150集 sid=150",
+        stub.cyc_calls[4] ~= nil and stub.cyc_calls[4].url:find("/api/sections/150/") ~= nil,
+        stub.cyc_calls[4] and stub.cyc_calls[4].url)
+    check("cyc 长番回调成功且写键", steps._cyc_long_cb == true
+        and dc.get("cyc:780-150") ~= nil)
+    stub.cyc_sections_pages = nil
+end
+
+-- ---------- 次元城：断网回退过期缓存（分集表请求失败即走过期兜底） ----------
+steps[101] = function()
+    dc.put("cyc:777-1", CYC_JSON, { type = "json", count = 2 })
+    dc_setup(function() return os.time() + 7200 end)
+    stub.net_calls = 0
+    stub.loads = 0
+    stub.fail = true
+    load_danmaku_for_cyc("https://www.cycani.org/anime/777/play/1", function(success)
+        steps._cyc_stale_cb = success
+    end)
+end
+
+steps[102] = function()
+    check("cyc 断网分集表请求失败（无会话缓存整链一跳即止）", stub.net_calls == 1)
+    check("cyc 断网走过期缓存加载", stub.loads == 1 and DANMAKU.cache_hit == "stale"
+        and steps._cyc_stale_cb == true)
+    DANMAKU.cache_hit = nil
+    stub.fail = false
+end
+
+-- ---------- 次元城：接口错误（code≠0）与网络失败同口径走过期兜底 ----------
+steps[103] = function()
+    stub.net_calls = 0
+    stub.loads = 0
+    stub.cyc_data = CYC_ERR
+    -- vid=2964 分集表会话缓存命中，仅弹幕一跳；cyc:2964-1 缓存已在过期窗口（get_stale 可取）
+    load_danmaku_for_cyc(CYC_URL, function(success)
+        steps._cyc_err_cb = success
+    end)
+end
+
+steps[104] = function()
+    check("cyc 接口错误单跳请求（分集表会话缓存）", stub.net_calls == 1)
+    check("cyc 接口错误走过期缓存兜底", stub.loads == 1 and DANMAKU.cache_hit == "stale"
+        and steps._cyc_err_cb == true)
+    DANMAKU.cache_hit = nil
+    stub.cyc_data = CYC_JSON
+    dc_setup()
+end
+
+-- ---------- 次元城：合法空结果不缓存（code=0 空 items 是有效响应） ----------
+steps[105] = function()
+    dc.remove(CYC_KEY)
+    stub.net_calls = 0
+    stub.cyc_data = CYC_EMPTY
+    load_danmaku_for_cyc(CYC_URL, function(success, no_data)
+        steps._cyc_empty_cb = success
+        steps._cyc_empty_nodata = no_data
+    end)
+end
+
+steps[106] = function()
+    check("cyc 空结果单跳请求", stub.net_calls == 1)
+    check("cyc 空结果不缓存", dc.get(CYC_KEY) == nil)
+    check("cyc 空结果回调失败且非 no_data（仍可走 dmku 兜底链）",
+        steps._cyc_empty_cb == false and steps._cyc_empty_nodata == nil)
+    stub.cyc_data = CYC_JSON
+end
+
+-- ---------- 次元城：集数越界确定性无弹幕（no_data 判定、不消费过期缓存） ----------
+steps[107] = function()
+    dc.put("cyc:2964-99", CYC_JSON, { type = "json", count = 2 })
+    dc_setup(function() return os.time() + 7200 end)
+    stub.net_calls = 0
+    stub.loads = 0
+    load_danmaku_for_cyc("https://www.cycani.org/anime/2964/play/99", function(success, no_data, reason)
+        steps._cyc_oob = { success, no_data, reason }
+    end)
+end
+
+steps[108] = function()
+    -- 分集表会话缓存命中零网络；第 99 集不存在（共 5 集）→ no_data 终态
+    check("cyc 越界零网络（会话缓存定位）", stub.net_calls == 0)
+    check("cyc 越界 no_data 判定", steps._cyc_oob ~= nil and steps._cyc_oob[1] == false
+        and steps._cyc_oob[2] == true)
+    check("cyc 越界 reason 带集数信息", steps._cyc_oob ~= nil
+        and tostring(steps._cyc_oob[3]):find("99") ~= nil, steps._cyc_oob and steps._cyc_oob[3])
+    check("cyc 越界不消费过期缓存", stub.loads == 0 and DANMAKU.cache_hit == nil)
+    dc.remove("cyc:2964-99")
+    dc_setup()
+end
+
+-- ---------- 次元城：预取伴生函数走网络写同键 / TTL 命中零网络 ----------
+steps[109] = function()
+    stub.net_calls = 0
+    prefetch_cyc_danmaku("2964", 3, function(done)
+        steps._cyc_pf_net = done
+    end)
+end
+
+steps[110] = function()
+    check("cyc 预取走网络写同键缓存（分集表会话缓存命中单跳）",
+        steps._cyc_pf_net == true and stub.net_calls == 1 and dc.get("cyc:2964-3") ~= nil)
+    stub.net_calls = 0
+    prefetch_cyc_danmaku("2964", 3, function(done)
+        steps._cyc_pf_hit = done
+    end)
+end
+
+steps[111] = function()
+    check("cyc 预取 TTL 命中零网络", steps._cyc_pf_hit == true and stub.net_calls == 0)
 end
 
 local function finish()

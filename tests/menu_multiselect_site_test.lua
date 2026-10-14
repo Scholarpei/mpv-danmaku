@@ -1,5 +1,5 @@
 -- 站点 add-XX-event 多选改造回归测试（tencent + maccms + acfun + ezdmw + girigirilove +
--- aiyifan 六站 + ezdmw 多季复合集数键）：
+-- aiyifan + cyc 七站 + ezdmw 多季复合集数键）：
 -- 添加集数后不再向 uosc 发 close-menu（菜单保持打开）、add_danmaku_source 被
 -- 以预期参数调用（tencent/acfun）、同源换选驱逐旧集源（数据层单选收紧）+ 旧标记
 -- 清除新标记高亮（标记层 exclusive）、update-menu 原地刷新、
@@ -39,6 +39,7 @@ require("apis/acfun_search")
 require("apis/ezdmw_search")
 require("apis/ggl_search")
 require("apis/aiyifan_search")
+require("apis/cyc_search")
 
 -- 模拟 uosc 环境（menu.lua 加载时检测为 false，需在其后覆盖）
 uosc_available = true
@@ -331,6 +332,50 @@ local steps = {
         check("7e 标记层高亮与原地刷新",
             st.items[3].active == true and sent[#sent] ~= nil
                 and sent[#sent].cmd == "update-menu")
+
+        -- ===== cyc：番剧集数换选（规范 URL /anime/{vid}/play/{集序号}）=====
+        local c_items = {
+            { title = "↩️ 返回搜索结果",
+                value = { "script-message-to", "uosc", "open-menu", "{}" },
+                keep_open = false, selectable = true },
+            { title = "第01集",
+                value = { "script-message-to", name, "add-cyc-event",
+                    "2964", "1", "葬送的芙莉莲", "2023" },
+                keep_open = true },
+            { title = "第02集",
+                value = { "script-message-to", name, "add-cyc-event",
+                    "2964", "2", "葬送的芙莉莲", "2023" },
+                keep_open = true },
+        }
+        remember_details_menu("menu_details", "葬送的芙莉莲 (2023)", c_items, "使用 / 打开筛选", true)
+        mp.commandv("script-message-to", name, "add-cyc-event",
+            "2964", "1", "葬送的芙莉莲", "2023")
+    end,
+    function()
+        mp.commandv("script-message-to", name, "add-cyc-event",
+            "2964", "2", "葬送的芙莉莲", "2023")
+    end,
+    function()
+        local st = current_details_menu
+        check("8 cyc 两次添加均不发 close-menu", close_menu_count() == 0)
+        check("8b add_danmaku_source 以预期 URL/provider 被调两次",
+            #stub.sources == 13
+                and stub.sources[12].query == "https://www.cycani.org/anime/2964/play/1"
+                and stub.sources[13].query == "https://www.cycani.org/anime/2964/play/2"
+                and stub.sources[13].from_menu == true and stub.sources[13].provider == "次元城")
+        check("8c 数据层单选收紧：同源旧集源被驱逐、只留新选",
+            DANMAKU.sources["https://www.cycani.org/anime/2964/play/1"] == nil
+                and DANMAKU.sources["https://www.cycani.org/anime/2964/play/2"] ~= nil)
+        check("8d 标记层 exclusive：无 hint 条目打标为纯「已添加」、旧集还原",
+            st.items[2].active == nil and st.items[2].hint == nil
+                and st.items[3].active == true and st.items[3].hint == "已添加")
+        check("8e 原地刷新走 update-menu", sent[#sent] ~= nil and sent[#sent].cmd == "update-menu")
+        check("8f extra 记 kind=cyc 与集数（续载/预取按此定位）",
+            DANMAKU.extra ~= nil and DANMAKU.extra.kind == "cyc"
+                and DANMAKU.extra.video_id == "2964"
+                and DANMAKU.extra.episodenum == 2)
+        check("8g 记录标题带年份", DANMAKU.anime == "葬送的芙莉莲 (2023)",
+            tostring(DANMAKU.anime))
 
         print(failures == 0 and "ALL PASS" or (failures .. " FAILED"))
         -- os.exit 直杀：mpv 正常 quit 的关机路径在 Windows 控制台代理下偶发挂起（测试环境已知问题）

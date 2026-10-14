@@ -7,10 +7,10 @@ options = {
     -- 支持每项使用 '|' 或 '#' 分隔备注，例如: "https://a.example.com|备用A" 或 "https://b.example.com#备用B"
     api_server = "https://danmaku-api.152468.xyz",
     -- 指定 b 站和爱腾优的弹幕获取的兜底服务器地址，主要用于获取非动画弹幕
-    -- 可指定多个用逗号分隔的有序列表，依次尝试直到任一成功；更多公共实例见 README：
-    -- https://dmku.hls.one / https://api.danmu.icu / https://fc.lyz05.cn / https://se.678.ooo /
-    -- https://danmu.56uxi.com / https://dm.lxlad.com
-    fallback_server = "https://dmku.hls.one,https://api.danmu.icu",
+    -- 可指定多个用逗号分隔的有序列表，依次尝试直到任一成功；更多公共实例见 README
+    -- 2026-10 实测公共实例仅 dmku.hls.one 存活（api.danmu.icu / se.678.ooo /
+    -- danmu.56uxi.com / dm.lxlad.com 域名解析已失效，fc.lyz05.cn 拒绝匿名访问）
+    fallback_server = "https://dmku.hls.one",
     -- 可选：MacCMS（苹果CMS）采集站根地址，供搜索后缀 |mac 搜索采集站收录内容，多个用逗号分隔
     -- 仅填站点根地址，脚本自动请求 {根地址}/api.php/provide/vod/ 标准采集接口；支持 '|' 或 '#' 追加备注
     -- 注意：弹幕取自剧集链接对应的平台播放页，须选 vod_play_url 含平台链接（v.qq.com 等）的站；
