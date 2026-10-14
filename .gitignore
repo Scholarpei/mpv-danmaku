@@ -3,3 +3,4 @@ danmaku/*
 .*
 !.gitattributes
 tools/pinyin.txt
+tmp/
