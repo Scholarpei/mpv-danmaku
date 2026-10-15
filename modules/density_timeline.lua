@@ -809,6 +809,20 @@ function M.close()
     state = nil
 end
 
+-- Recompute an open curve after the final display timestamps change.
+function M.refresh()
+    if not state then return end
+    local result = M.compute(COMMENTS or {}, {
+        bucket = tonumber(options.density_timeline_bucket) or 10,
+        peaks_n = tonumber(options.density_timeline_peaks) or 5,
+        duration = mp.get_property_number('duration', 0),
+        base_fontsize = tonumber(options.fontsize) or 50,
+    })
+    if result.n < 3 then M.close();return end
+    state.result, state.sig = result, nil
+    draw(state.geometry or current_geometry())
+end
+
 function M.cycle_metric()
     if not state then return end
     state.metric = state.metric == "count" and "density" or "count"

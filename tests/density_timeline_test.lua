@@ -480,6 +480,23 @@ do -- D4 点击任意位置 → 该处时间（非吸附区精确换算）
         tostring(cmd and cmd[2]) .. "/" .. string.format("%.3f", expect))
 end
 
+do -- D4b final offset refreshes the visible curve and its peak seek target.
+    local saved_mouse = captured.mouse
+    local offset = require('modules/global_delay')
+    for _,event in ipairs(COMMENTS) do event.end_time = event.start_time + 5 end
+    offset.publish(COMMENTS)
+    local updates = overlay.updates
+    offset.adjust(-100)
+    local click = captured.plain_bindings['density_timeline_click'].fn
+    captured.mouse = {x=math.floor(1 + 10.5 * 1918 / 142), y=1000, hover=true}
+    click({event='up'})
+    local seek = captured.commands[#captured.commands]
+    check('D4b final offset refreshes visible peaks and seek',
+        overlay.updates > updates and seek and seek[1]=='seek' and seek[2]=='100.000', tostring(seek and seek[2])..'/'..tostring(overlay.updates)..'/'..tostring(updates))
+    offset.set(0)
+    captured.mouse = saved_mouse
+end
+
 do -- D5 m 切指标：曲线口径切换且会话内粘滞（重开后保持）
     local before = overlay.data
     captured.forced["density_timeline_metric"].fn()

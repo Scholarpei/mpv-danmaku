@@ -479,6 +479,19 @@ auto_load=yes                  # 全自动弹幕填装（文件夹内加载一�
 | **`danmaku_cache_max_mb`** | `300` | 容量上限（MB），超出按最旧优先淘汰，`0` 不限制 |
 | **`prefetch_next_episode`** | `90` | 下一集弹幕预取触发进度（%），`0` 关闭；见[特色功能](#文件夹弹幕记忆) |
 
+### 弹幕整体偏移
+
+在“弹幕设置 → 弹幕整体偏移”中让全部弹幕提前／延后 1 秒，或将整体偏移归零。整体偏移在各源对齐、手动延迟、合并、过滤、密度控制与布局全部完成后统一作用，保留各源之间的时间差。XML 导出与高能时间轴同步偏移。
+
+每次操作显示当前累计偏移：负数提前、正数延后。同一视频内重新加载、增删或屏蔽弹幕源时保留偏移，后来加载的源同样生效；切换视频归零，不保存到历史或永久配置。提前后起点小于 0 的弹幕暂不显示／导出，归零后恢复。
+
+可在自己的 `input.conf`（mpv-lazy 使用 `input_uosc.conf`）添加以下快捷键；按键可自行修改，脚本不默认占用：
+
+```conf
+Ctrl+[ script-message-to uosc_danmaku danmaku-global-delay -1
+Ctrl+] script-message-to uosc_danmaku danmaku-global-delay 1
+```
+
 ### 跨源时间轴对齐
 
 | 选项 | 默认值 | 说明 |
@@ -640,6 +653,9 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 | `open_add_source_menu` | 从源添加弹幕（网络 URL / 本地 xml·ass 文件） |
 | `open_filter_danmaku_menu` | 🆕 弹幕过滤菜单 |
 | `open_danmaku_style_menu` | 弹幕样式菜单 |
+| `open_global_danmaku_delay_menu` | 全部弹幕最终整体偏移菜单（提前、延后、归零） |
+| `danmaku-global-delay <秒>` | 叠加整体偏移，负数提前、正数延后，换视频归零 |
+| `danmaku-global-delay-reset` | 将整体偏移恢复为 0，保留各源已有校准 |
 | `open_source_delay_menu` | 弹幕源延迟菜单 |
 | `open_add_total_menu` | 弹幕设置总菜单 |
 | `open_source_stats_menu` | 🆕 弹幕源统计（逐源状态/条数/失败原因/缓存来源 + 合并·黑名单·密度·渲染管线统计） |
@@ -653,7 +669,7 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 | `danmaku-delay <秒> [时间点]` | 叠加调整弹幕延迟，`0` 重置 |
 
 > [!TIP]
-> 可读写 `user-data/uosc_danmaku/` 下的属性与其他脚本联动：`danmaku-delay`（当前延迟）、`has-danmaku`（是否有弹幕显示）、`danmaku-switch-on`（开关状态）、`danmaku-count`（弹幕池总数）。
+> 可读写 `user-data/uosc_danmaku/` 下的属性与其他脚本联动：`danmaku-global-delay`（当前整体偏移）、`danmaku-delay`（原延迟接口累计值）、`has-danmaku`（是否有弹幕显示）、`danmaku-switch-on`（开关状态）、`danmaku-count`（弹幕池总数）。
 
 ---
 

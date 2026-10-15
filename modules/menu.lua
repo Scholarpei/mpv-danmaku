@@ -1810,6 +1810,7 @@ local total_menu_items_config = {
     { title = "弹幕搜索", action = "open_search_danmaku_menu" },
     { title = "从源添加弹幕", action = "open_add_source_menu" },
     { title = "弹幕源延迟设置", action = "open_source_delay_menu" },
+    { title = "弹幕整体偏移", action = "open_global_danmaku_delay_menu" },
     { title = "弹幕样式", action = "open_danmaku_style_menu" },
     { title = "弹幕过滤", action = "open_filter_danmaku_menu" },
     { title = "弹幕内容", action = "open_content_danmaku_menu" },

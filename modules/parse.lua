@@ -1,4 +1,5 @@
 local msg   = require 'mp.msg'
+local global_delay = require('modules/global_delay')
 local utils = require 'mp.utils'
 -- 简繁字典懒加载（仿 pakku_merge.lua 拼音字典范本）：chConvert=0 且黑名单无规则时两表全免，
 -- mode 恒 1（默认转简体）时 s2t 全免；缺失/损坏回退空表 → convert 恒等，仅收窄功能不报错
@@ -707,14 +708,15 @@ function convert_danmaku_to_xml(danmaku_out)
     if #danmakus == 0 then
         show_message("弹幕内容为空，无法保存", 3)
         msg.verbose("弹幕内容为空，无法保存")
-        COMMENTS = {}
+        global_delay.publish({})
         return false
     end
 
     -- 拼接为 XML 内容
     local xml = { '<?xml version="1.0" encoding="UTF-8"?><i>\n' }
     for _, d in ipairs(danmakus) do
-       local time = d.time
+       local time = d.time + global_delay.get()
+       if time >= 0 then
        local type = d.type or 1
        local size = d.size or 25
        local color = d.color or 0xFFFFFF
@@ -727,6 +729,7 @@ function convert_danmaku_to_xml(danmaku_out)
                   :gsub("'", "&apos;")
 
        table.insert(xml, string.format('<d p="%s,%s,%s,%s">%s</d>\n', time, type, size, color, text))
+       end
     end
     table.insert(xml, '</i>')
 
@@ -916,7 +919,7 @@ function convert_danmaku_to_ass_events(force)
             show_message("该集弹幕内容为空，结束加载", 3)
             msg.verbose("该集弹幕内容为空，结束加载")
         end
-        COMMENTS = {}
+        global_delay.publish({})
         return
     end
 
@@ -1095,5 +1098,5 @@ function convert_danmaku_to_ass_events(force)
             table.insert(ass_events, event)
         end
     end
-    COMMENTS = ass_events
+    global_delay.publish(ass_events)
 end
