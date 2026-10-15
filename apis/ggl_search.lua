@@ -83,6 +83,16 @@ local function find_episode(lines, prefer_src, ep)
     return fallback
 end
 
+-- 菜单与历史续载共用；须先于 resume_ggl_episode 声明，避免 Lua 将其解析为全局。
+-- 纯数字（01/02…）格式化为「第NN集」，其余（先行01/1080P）原样展示。
+local function episode_title(label, ep)
+    if type(label) == "string" and label ~= "" then
+        if label:match("^%d+$") then return "第" .. label .. "集" end
+        return label
+    end
+    return "第" .. tostring(ep) .. "集"
+end
+
 -- ============ 选集后加载（菜单选集与历史续载共用） ============
 
 local function load_ggl_danmaku(gv_id, src, ep, title, ep_display)
@@ -233,16 +243,6 @@ function query_ggl_search(name)
 end
 
 -- ============ 菜单消息 ============
-
--- 集数标签 → 菜单条目标题：纯数字（01/02…）格式化为「第NN集」，
--- 其余（先行01/1080P）原样展示
-local function episode_title(label, ep)
-    if type(label) == "string" and label ~= "" then
-        if label:match("^%d+$") then return "第" .. label .. "集" end
-        return label
-    end
-    return "第" .. tostring(ep) .. "集"
-end
 
 mp.register_script_message("get-ggl-event", function(gv_id, title)
     if uosc_available then
