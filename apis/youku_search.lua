@@ -1,3 +1,4 @@
+local duration_info = require("modules/source_duration")
 -- 优酷关键词搜索流程（搜索后缀 |yk）
 -- 接口为公开接口（无鉴权）：
 --   search.youku.com/api/search 搜索（关键词 → showId，仅保留优酷版权条目）→
@@ -63,6 +64,9 @@ local function fetch_yk_episodes(show_id, stop_after, callback)
     local function parse_page(out)
         local parsed = yparse.parse_episodes(utils.parse_json(out))
         if not parsed.ok then return nil end
+        for _, ep in ipairs(parsed.episodes) do
+            duration_info.remember(("https://v.youku.com/v_show/id_%s.html"):format(ep.vid), ep.duration_seconds)
+        end
         return parsed
     end
 

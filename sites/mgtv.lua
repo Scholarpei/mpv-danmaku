@@ -1,3 +1,4 @@
+local duration_info = require("modules/source_duration")
 local msg = require('mp.msg')
 local utils = require('mp.utils')
 
@@ -100,6 +101,7 @@ function load_danmaku_for_mgtv(path, callback)
     local info_api = 'https://pcweb.api.mgtv.com/video/info?cid=' .. cid .. '&vid=' .. vid
     local api_danmaku_base = 'https://galaxy.bz.mgtv.com/rdbarrage?vid=' .. vid .. '&cid=' .. cid .. '&time='
 
+    local note_duration = duration_info.capture(url)
     local args = build_mgtv_curl_args(info_api)
 
     call_cmd_async(args, function(err, out)
@@ -116,6 +118,7 @@ function load_danmaku_for_mgtv(path, callback)
         end
         local time_str = data.data.info.time
         local total_seconds = parse_mgtv_time(time_str)
+        note_duration(total_seconds)
 
         local step = 60 * 1000
         local segments = generate_mgtv_segments(api_danmaku_base, total_seconds, step)
@@ -147,3 +150,14 @@ function load_danmaku_for_mgtv(path, callback)
         parallel_requests(segments, build_mgtv_curl_args, per_response_cb, final_cb, { concurrency = 6, per_request_timeout = 10 })
     end)
 end
+
+duration_info.register("mgtv%.com/", function(url, callback)
+    local cid, vid = extract_mgtv_ids(url)
+    if not cid or not vid then callback(nil);return end
+    local api = 'https://pcweb.api.mgtv.com/video/info?cid=' .. cid .. '&vid=' .. vid
+    call_cmd_async(build_mgtv_curl_args(api), function(err, out)
+        local data = not err and utils.parse_json(out)
+        local info = data and data.code == 200 and data.data and data.data.info
+        callback(info and parse_mgtv_time(info.time))
+    end)
+end)

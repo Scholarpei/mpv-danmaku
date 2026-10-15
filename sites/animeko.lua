@@ -172,3 +172,22 @@ function prefetch_animeko_danmaku(episode_id, callback)
         callback(true)
     end)
 end
+
+-- animeko pools use Bangumi episode IDs; catalog length is reference only.
+require("modules/source_duration").register("animeko%.org/episode/",function(url,callback)
+    local id=extract_episode_id(url)
+    if not id then callback(nil);return end
+    call_cmd_async_with_timeout(build_curl_args("https://api.bgm.tv/v0/episodes/"..id),8,function(err,out)
+        local obj=not err and type(out)=="string" and utils.parse_json(out)
+        if type(obj)~="table" or tostring(obj.id)~=id then
+            callback(nil,{reason="Bangumi 目录参考时长获取失败"});return
+        end
+        local d=require("modules/source_duration")
+        local n=d.valid(obj.duration_seconds)
+        if not n and type(obj.duration)=="string" then
+            local h,m,s=obj.duration:match("^(%d+):(%d%d):(%d%d)$")
+            if h and tonumber(m)<60 and tonumber(s)<60 then n=d.valid(h*3600+m*60+s) end
+        end
+        callback(nil,{reference_seconds=n,reason=n and "Bangumi 目录参考时长，并非源视频实测" or "聚合弹幕源，目录未提供时长"})
+    end)
+end)

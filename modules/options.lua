@@ -45,6 +45,10 @@ options = {
     proxy = "",
     -- 可选：向 HTTP 请求传递 cookie.txt 文件路径
     cookie_file = "",
+    -- 可选：次元城播放时长查询的请求头文件，仅含 Authorization: Bearer <令牌>。
+    -- 支持 ~~ 路径；留空按 agefans Enhance 的公开账号自动登录，无需配置。
+    -- 令牌不写入历史/缓存，也不传给媒体地址。
+    cyc_auth_header_file = "",
     -- 使用 fps 视频滤镜，大幅提升弹幕平滑度。默认禁用
     vf_fps = false,
     -- 设置要使用的 fps 滤镜参数

@@ -1,3 +1,4 @@
+local duration_info = require("modules/source_duration")
 local msg = require('mp.msg')
 local utils = require("mp.utils")
 local dcache = require("modules/danmaku_cache")
@@ -771,6 +772,9 @@ function handle_fetched_danmaku(data, url, from_menu, meta)
             return
         end
         save_danmaku_data(data["comments"], url, "api_server")
+        if duration_info.valid(meta.duration_seconds) then
+            duration_info.capture(url)(meta.duration_seconds)
+        end
         -- 标题随数据落源条目（只补不擦）
         if DANMAKU.sources[url] ~= nil then
             if meta.anime ~= nil and DANMAKU.sources[url].anime_title == nil then
@@ -889,6 +893,8 @@ function add_danmaku_source(query, from_menu, provider, meta)
     if meta.episode ~= nil and DANMAKU.sources[query].episode_title == nil then
         DANMAKU.sources[query].episode_title = meta.episode
     end
+    local known_duration = duration_info.valid(meta.duration_seconds)
+    if known_duration then DANMAKU.sources[query].duration_seconds = known_duration end
     source_status.ensure(query, provider, meta)
 
     from_menu = from_menu or false

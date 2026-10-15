@@ -526,6 +526,22 @@ function remove_source_from_history(rm_source)
     end
 end
 
+-- Update metadata only for an existing per-file source; never create a new association.
+function update_source_duration_history(key, value)
+    value = require("modules/source_duration").valid(value)
+    if not value or not HISTORY_PATH then return end
+    local raw = read_file(HISTORY_PATH)
+    local history = raw and (utils.parse_json(raw) or {}) or {}
+    local path = mp.get_property("path")
+    if not path then return end
+    if is_protocol(path) then path = remove_query(path) end
+    local record = history[path] and history[path].sources and history[path].sources[key]
+    if type(record) == "table" and record.duration_seconds ~= value then
+        record.duration_seconds = value
+        write_json_file(HISTORY_PATH, history)
+    end
+end
+
 function add_source_to_history(add_url, add_source)
     local history_json = read_file(HISTORY_PATH)
     local path = mp.get_property("path")
@@ -555,6 +571,9 @@ function add_source_to_history(add_url, add_source)
     end
     if add_source.episode_title ~= nil then
         record.episode_title = add_source.episode_title
+    end
+    if add_source.duration_seconds ~= nil then
+        record.duration_seconds = tonumber(add_source.duration_seconds)
     end
 
    local delay_segments = shallow_copy(add_source.delay_segments or {})
@@ -614,6 +633,7 @@ function read_danmaku_source_record(path)
                 provider = data.provider,
                 anime_title = data.anime_title,
                 episode_title = data.episode_title,
+                duration_seconds = tonumber(data.duration_seconds),
             }
         end
     else

@@ -308,6 +308,9 @@ api_server=http://192.168.1.5:9321
 - **弹幕磁盘缓存**：网络弹幕按 episodeId/cid/extcomment URL/animeko episodeId/埋堆堆分集 uuid/巴哈 sn 落盘（[`danmaku_cache_*`](#danmaku_cache)），TTL 内二刷不发网络包秒加载、断网自动用过期缓存兜底；容量超限按最旧淘汰，总菜单可一键清空；配合[下一集预取](#文件夹弹幕记忆)实现追番换集零等待
 - **多源加载状态汇总**：多源并行加载 / 续载时，同一 OSD 位置动态汇总各源状态——提供方 + 《标题》截断 + 集数 + 条数，未到标等待、失败折 ✗ 不再各自弹错；手动搜索 / 自动匹配 / URL 播放 / 本地 xml / 重放 / 兜底所有加载路径统一口径
 - **弹幕源统计**：弹幕设置总菜单新增「弹幕源统计」——当前视频全部弹幕源逐源呈现（✓ 成功条数 / ○ 合法无数据 / ✗ 失败含具体原因 / … 等待中），点开展开详情子菜单（完整 URL、来源、缓存来源（磁盘/过期兜底/网络）、屏蔽、手动延迟、时间轴校正、错误全文）；顶部汇总源计数与管线统计（合并 / 黑名单 / 智能密度 / 最终渲染条数）。统计台账覆盖全部加载路径（含手动搜索 / 粘贴 URL 的静默会话留痕），站点直连失败的具体原因（如「没有找到弹幕分段」）入库不再 OSD 一闪而过，菜单开着时加载到货原地刷新
+- **弹幕源时长对比**：统计列表逐源显示 `时长 24:05（+5秒）`，顶部显示当前 mpv 视频总时长；点开源可查看两端时长和差值。差值 = **源视频总时长 − 当前视频总时长**，`+5秒` 表示源视频更长 5 秒，`-5秒` 表示更短，相同显示 `0秒`。按秒四舍五入，超过一小时显示 `H:MM:SS`。B站（所选分P/番剧/课程）、爱奇艺、优酷、芒果TV、埋堆堆和 AcFun 优先复用元数据，打开统计时为缺失项异步补查；缓存和历史记录可恢复已知时长。爱壹帆使用网页公开签名播放接口的正片总时长（校验分集，排除广告/预览）；次元城默认按 agefans Enhance 的公开共享账号流程自动取得会话，通过网页 v2 分集播放接口读取实际媒体时长，无需手动配置；也可用 `cyc_auth_header_file` 覆盖为自己的会话。girigirilove 额外读取播放清单或最多两段各 1 MiB 的 MP4 文件头尾，取得实际媒体时长；animeko 按对应 Bangumi 分集显示 `参考 24:30（+17秒）`，目录参考与源视频实测分开呈现，不写入实际视频时长。未提供可靠视频时长的源显示“时长未知”，详情中的“时长说明”会注明已知原因（如次元城公开播放地址解析失败、OmoFun 加密播放信息尚未接入、弹弹play 聚合池无唯一视频），mpv 总时长不可用时显示“无法比较”。该信息只辅助核对版本，不会自动改变选源、弹幕延迟或时间轴校正。
+
+次元城默认无需额外配置：按 [agefans Enhance（MIT）](https://greasyfork.org/zh-CN/scripts/424023) 的实现，从固定发布地址读取公开账号配置（只解析数据，不执行脚本），自动登录并在内存中复用会话；遇到 401 自动重登一次。首次查询需要访问脚本发布地址；公开账号或接口不可用时会保留“时长未知”并说明原因。令牌不写入项目、历史或磁盘缓存，也不传给媒体 CDN。可选地，在 mpv 配置目录创建 `cyc-auth.headers`，仅写一行 `Authorization: Bearer <你自己的有效令牌>`，在 `script-opts/uosc_danmaku.conf` 中设置 `cyc_auth_header_file=~~/cyc-auth.headers` 以覆盖自动会话；留空即可使用默认自动流程。
 - **跨源时间轴对齐**：多源叠加时按「同文本弹幕出现时间差」投票统计全局偏移，把各源整体平移到弹幕数最多的基准源（[`timeline_align`](#timeline_align)）——不同平台的片头 / 剪辑差异（如巴哈源整体晚 90 秒）自动校正；投票基于含手动延迟的生效时间，已手动补偿过的源不会被二次平移；对齐量在源状态行以「时间轴±Ns」标注，弹幕源延迟菜单按「合计（对齐 + 手动）」口径显示
 - **源历史与菜单升级**：弹幕源历史记录补标题持久化（只补不擦，老记录回退显示 URL）——「从源添加弹幕」菜单以标题为主、URL 缩略为 hint；弹幕设置总菜单顶部逐源列出已关联弹幕（各源一行含条数，超过 4 个折叠显示）；各显示面的集标题取源端真实分集标题并完整保留副标题（如「第26話 橘美也編」不再截成「第26話」）——副标题正是核对匹配正误的信息
 
@@ -702,6 +705,12 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 | `tests/history_merge_test.lua` | 文件夹记忆多源合并（旧 extra 迁移、同 kind 替换、dandanplay/直连源互不挤占、残留防护） | `mpv.com --idle=once --no-config --script=tests/history_merge_test.lua` |
 | `tests/source_status_test.lua` | 多源加载状态聚合器（会话生命周期、逐源汇总格式化；静默会话自动建会话/单行 OSD 口径保留且入库、合并分支（台账∪未入会话源去重排序）、empty 终态与 settle 翻转、note_error 软记录、note_cache、remove、snapshot 隔离、set_on_change 容错） | `mpv.com --idle=once --no-config --script=tests/source_status_test.lua` |
 | `tests/source_stats_menu_test.lua` | 弹幕源统计菜单（build 纯函数：台账∪源表合并、计数、排序稳定性（状态迁移不重排）、字形/hint、详情子行（URL/延迟/校正/错误全文）、管线两态、空态；打开/原地刷新链路与未开零消息、无 uosc 回退） | `mpv.com --idle=once --no-config --script=tests/source_stats_menu_test.lua` |
+| `tests/cyc_duration_test.lua` | 次元城脚本账号静态解析、零配置自动登录、并发去重、401 重登与失败退避 | `mpv.com --idle=once --no-config --script=tests/cyc_duration_test.lua` |
+| `tests/aiyifan_duration_test.lua` | 网页签名、正片总时长、广告排除、错集/预览/登录响应保护 | `mpv.com --idle=once --no-config --script=tests/aiyifan_duration_test.lua` |
+| `tests/media_duration_test.lua` | 有限 MP4 头尾（mvhd v0/v1、次元城大型 moov 的完整 mvhd）与完整 HLS 时长、直播拒绝、请求大小限制 | `mpv.com --idle=once --no-config --script=tests/media_duration_test.lua` |
+| `tests/source_duration_test.lua` | 时长字段、缓存有效期、查询去重/超时/失败降级、会话与源身份隔离 | `mpv.com --idle=once --no-config --script=tests/source_duration_test.lua` |
+| `tests/source_duration_sites_test.lua` | 六站元数据补查、分集选择、秒/毫秒单位转换与未知源零请求 | `mpv.com --idle=once --no-config --script=tests/source_duration_sites_test.lua` |
+| `tests/source_duration_history_test.lua` | 时长历史保存/恢复、旧记录兼容、补查不新增关联 | `mpv.com --idle=once --no-config --script=tests/source_duration_history_test.lua` |
 | `tests/timeline_align_test.lua` | 跨源时间轴对齐（投票/四重门槛含支持跨度/归一化/基准选择/双重校正防护/skip 固定/片尾附加内容防护 + 管线集成、手动微调 pin 流程与 XML 导出） | `mpv.com --idle=once --no-config --script=tests/timeline_align_test.lua` |
 | `tests/timeline_align_real_test.lua` | 真实多源场景（弹弹play+巴哈+animeko 同集实抓 fixtures：门槛实抓校准、模拟片头差异校正、双源共享文本收敛；bilibili 官方番剧片头差异 E09 实抓：-5s 漂移检出与 +5s 收敛） | `mpv.com --idle=once --no-config --script=tests/timeline_align_real_test.lua` |
 | `tests/density_timeline_test.lua` | 高能时间轴（分桶/双指标/自适应放宽/峰值检测与回贴、ASS 渲染确定性与淡出、uosc 时间轴同步复刻纯函数、回退/在场两种 UI 冒烟、实抓 fixture 行为固定） | `mpv.com --idle=once --no-config --script=tests/density_timeline_test.lua` |

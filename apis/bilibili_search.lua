@@ -1,3 +1,4 @@
+local duration_info = require("modules/source_duration")
 -- B站番剧关键词搜索流程（搜索后缀 |bili）
 -- 接口：
 --   api.bilibili.com/x/web-interface/wbi/search/type 搜索（WBI 签名，番剧 media_bangumi +
@@ -86,6 +87,9 @@ local function fetch_bili_episodes(season_id, callback)
                     .. " code=" .. tostring(parsed.code))
                 callback(nil)
                 return
+            end
+            for _, ep in ipairs(parsed.episodes) do
+                duration_info.remember(("https://www.bilibili.com/bangumi/play/ep%s"):format(ep.ep_id), ep.duration_seconds)
             end
             callback(#parsed.episodes > 0 and parsed.episodes or nil)
         end)

@@ -28,6 +28,12 @@ source_status = require("modules/source_status")
 require("modules/options")
 require("modules/utils")
 require("modules/parse")
+local observed = {}
+local real_observe = mp.observe_property
+mp.observe_property = function(name, kind, fn)
+    observed[name] = fn
+    return real_observe(name, kind, fn)
+end
 require("modules/menu")
 
 -- 模拟 uosc 环境（menu.lua 加载时检测为 false，需在其后覆盖）
@@ -99,10 +105,10 @@ do -- 合并 + 计数 + 排序（provider..url：AcFun < bilibili < ezdmw < giri
     check("pending行", items[8].title == "… girigirilove《番D》", items[8].title)
     check("done行", items[9].title == "✓ 腾讯视频《番A》第1集", items[9].title)
     -- hint：条数 · 来源标签（记忆/未落源/缓存后缀） · 状态词
-    check("done行hint", items[9].hint == "120条 · 用户添加 · 成功", items[9].hint)
-    check("合成行hint（记忆+屏蔽）", items[6].hint == "3条 · 用户添加（记忆） · 成功", items[6].hint)
-    check("empty行hint（未落源）", items[7].hint == "— · 未落源 · 无数据", items[7].hint)
-    check("pending行hint", items[8].hint == "— · 未落源 · 等待中", items[8].hint)
+    check("done行hint", items[9].hint == "120条 · 用户添加 · 成功 · 时长未知", items[9].hint)
+    check("合成行hint（记忆+屏蔽）", items[6].hint == "3条 · 用户添加（记忆） · 成功 · 时长未知", items[6].hint)
+    check("empty行hint（未落源）", items[7].hint == "— · 未落源 · 无数据 · 时长未知", items[7].hint)
+    check("pending行hint", items[8].hint == "— · 未落源 · 等待中 · 时长未知", items[8].hint)
     -- 逐源行可选中展开详情（嵌套 items），汇总/管线行不可选
     check("逐源行可选中", items[5].selectable == true and items[6].selectable == true)
     check("汇总行不可选", items[1].selectable == false and items[2].selectable == false)
@@ -146,8 +152,8 @@ do -- 缓存标注后缀 + 缓存来源词
     entries2[4].cache = "stale"    -- pending + 离线缓存（理论上 stale 必伴随数据，防御性验证）
     local items = build_source_stats_items(entries2, SOURCES, nil)
     -- 无管线行：[1]汇总 [2]计数，行序 acfun[3] bilibili[4] ezdmw[5] ggl[6] qq[7]
-    check("缓存后缀hint", items[7].hint == "120条 · 用户添加 ·缓存 · 成功", items[7].hint)
-    check("离线缓存后缀hint", items[6].hint == "— · 未落源 ·离线缓存 · 等待中", items[6].hint)
+    check("缓存后缀hint", items[7].hint == "120条 · 用户添加 ·缓存 · 成功 · 时长未知", items[7].hint)
+    check("离线缓存后缀hint", items[6].hint == "— · 未落源 ·离线缓存 · 等待中 · 时长未知", items[6].hint)
     check("缓存来源词", find_detail(items[7].items, "缓存来源：") == "缓存来源：磁盘缓存（TTL 内命中）")
 end
 
@@ -254,6 +260,70 @@ do -- 无 uosc 回退：OSD dump
     uosc_available = true
 end
 
+
+-- Duration comparisons must use the matched video, with source minus mpv direction.
+do
+    local cases = {
+        { 1445, 1440, "24:05（+5秒）" },
+        { 1435, 1440, "23:55（-5秒）" },
+        { 1440, 1440, "24:00（0秒）" },
+        { 1440.1, 1440.4, "24:00（0秒）" },
+        { 3661, 3600, "1:01:01（+61秒）" },
+    }
+    for i, c in ipairs(cases) do
+        local items = build_source_stats_items({{key="duration-test", status="done",
+            duration_seconds=c[1]}}, {}, nil, c[2])
+        local row = items[#items]
+        check("时长差方向/格式 " .. i, row.hint:find(c[3], 1, true) ~= nil, row.hint)
+        check("详情源视频时长 " .. i, find_detail(row.items, "源视频时长：") ~= nil)
+        check("详情当前视频时长 " .. i, find_detail(row.items, "当前视频时长：") ~= nil)
+        check("详情差值方向 " .. i, (find_detail(row.items, "时长差：") or ""):find("源视频 − 当前视频", 1, true) ~= nil)
+    end
+    local items = build_source_stats_items({}, {x={data={1},duration_seconds=1445}}, nil, 1440)
+    check("未入台账源时长", items[#items].hint:find("+5秒",1,true) ~= nil)
+    for _, bad in ipairs({0,-1,math.huge,0/0}) do
+        items = build_source_stats_items({{key="x",duration_seconds=bad}}, {}, nil, 1440)
+        check("非法源时长未知", items[#items].hint:find("时长未知",1,true) ~= nil)
+    end
+    items = build_source_stats_items({{key="x",duration_seconds=1445}}, {}, nil, nil)
+    check("mpv未知仍显示源时长", items[#items].hint:find("24:05",1,true) ~= nil)
+    check("mpv未知不计算差值", find_detail(items[#items].items,"时长差：") == "时长差：无法比较")
+end
+
+
+do -- A late mpv duration must update the comparison without moving source rows.
+    source_status.reset()
+    DANMAKU.sources={x={data={1},duration_seconds=1445}}
+    source_status.ensure("x","test")
+    mp.set_property_native("user-data/uosc/menu/type","menu_stats")
+    local real_number=mp.get_property_number
+    local current=nil
+    mp.get_property_number=function(name, fallback)
+        if name=="duration" then return current end
+        return real_number(name,fallback)
+    end
+    refresh_source_stats_menu()
+    local before=utils.parse_json(sent[#sent].json)
+    current=1440
+    observed.duration("duration",current)
+    local after=utils.parse_json(sent[#sent].json)
+    check("mpv时长迟到刷新差值",after.items[#after.items].hint:find("+5秒",1,true)~=nil)
+    check("mpv时长迟到不插入行",#before.items==#after.items)
+    check("顶部显示当前时长",after.items[1].hint=="当前视频时长：24:00")
+    mp.get_property_number=real_number
+    mp.set_property_native("user-data/uosc/menu/type",nil)
+end
+
+do
+    local info={reference_seconds=1470,reason="Bangumi 目录参考时长，并非源视频实测"}
+    local items=build_source_stats_items({{key="catalog",status="done"}}, {}, nil,1452.65,nil,{catalog=info})
+    local row=items[#items]
+    check("目录参考在源行明确标注",row.hint:find("参考 24:30（+17秒）",1,true)~=nil,row.hint)
+    check("目录参考不冒充实测",find_detail(row.items,"源视频时长：")=="源视频时长：时长未知")
+    check("目录参考单独详情",find_detail(row.items,"目录参考时长：")=="目录参考时长：24:30")
+    check("参考差值另行标注",find_detail(row.items,"参考时长差：")=="参考时长差：+17秒（目录参考 − 当前视频）")
+    check("来源或未知原因详情",find_detail(row.items,"时长说明：")=="时长说明："..info.reason)
+end
 if failures > 0 then
     print(("FAILED %d checks"):format(failures))
     os.exit(1)

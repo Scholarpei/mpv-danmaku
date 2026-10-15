@@ -107,6 +107,7 @@ function M.parse_episodes(d)
             if seq ~= nil and stage ~= nil and seq == stage then
                 table.insert(result.episodes, {
                     vid = tostring(v.id),
+                    duration_seconds = tonumber(v.duration),
                     title = clean_title(v.title),
                     published = type(v.published) == "string" and v.published or "",
                 })

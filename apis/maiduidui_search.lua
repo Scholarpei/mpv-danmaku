@@ -1,3 +1,4 @@
+local duration_info = require("modules/source_duration")
 -- 埋堆堆（TVB 港剧）关键词搜索流程（搜索后缀 |mdd）
 -- 接口（全部 POST mob.mddcloud.com.cn，md5 固定私钥签名，见 modules/maiduidui_parse.lua）：
 --   /searchApi/search/getAllSearchResult.action 搜索（分组结果，粤语/国语版本分列）→
@@ -61,6 +62,9 @@ local function fetch_mdd_episodes(vod_uuid, callback)
             msg.warn("埋堆堆分集为空 vod_uuid=" .. tostring(vod_uuid))
             callback(nil)
             return
+        end
+        for _, ep in ipairs(parsed.episodes) do
+            duration_info.remember(("https://www.mddcloud.com.cn/video/%s.html?uuid=%s"):format(vod_uuid, ep.uuid), ep.duration_seconds)
         end
         callback(parsed.episodes)
     end)
@@ -269,4 +273,16 @@ mp.register_script_message("add-mdd-event",
     load_maiduidui_danmaku(vod_uuid, ep_uuid, episodenum, title, material_name, ep_name)
     mark_details_episode_added({ "script-message-to", mp.get_script_name(),
         "add-mdd-event", vod_uuid, ep_uuid, episodenum, title, material_name, ep_name })
+end)
+
+duration_info.register("mddcloud%.com%.cn/", function(url, callback)
+    local vod = url:match("/video/([^/?]+)%.html")
+    local uuid = url:match("[?&]uuid=([^&#]+)")
+    if not vod or not uuid then callback(nil);return end
+    fetch_mdd_episodes(vod, function(episodes)
+        for _, ep in ipairs(episodes or {}) do
+            if ep.uuid == uuid then callback(ep.duration_seconds);return end
+        end
+        callback(nil)
+    end)
 end)

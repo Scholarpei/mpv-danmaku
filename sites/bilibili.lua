@@ -1,5 +1,6 @@
 local msg = require('mp.msg')
 local utils = require("mp.utils")
+local duration_info = require("modules/source_duration")
 
 local bmatch = require("modules/bilibili_match")
 local dcache = require("modules/danmaku_cache")
@@ -89,10 +90,11 @@ local function resolve_bilibili_cid(path, callback)
                 callback(nil)
                 return
             end
-            local page_info = pages[p] or pages[1]
+            local page_info = pages[p]
             local cid = page_info and page_info["cid"]
             local part = page_info and page_info["part"]
-            callback(cid and tostring(cid) or nil, part and tostring(part) or nil)
+            callback(cid and tostring(cid) or nil, part and tostring(part) or nil, nil,
+                page_info and tonumber(page_info.duration))
         end)
         return
     end
@@ -125,7 +127,8 @@ local function resolve_bilibili_cid(path, callback)
             local episodes = data.result.episodes or {}
             for _, ep in ipairs(episodes) do
                 if tostring(ep.id) == tostring(epid) then
-                    callback(tostring(ep.cid), tostring(ep.share_copy or ep.title or ""), season_title)
+                    callback(tostring(ep.cid), tostring(ep.share_copy or ep.title or ""), season_title,
+                        (tonumber(ep.duration) or 0) / 1000)
                     return
                 end
             end
@@ -135,7 +138,8 @@ local function resolve_bilibili_cid(path, callback)
                     if sec.episodes then
                         for _, ep in ipairs(sec.episodes) do
                             if tostring(ep.id) == tostring(epid) then
-                                callback(tostring(ep.cid), tostring(ep.share_copy or ep.title or ""), season_title)
+                                callback(tostring(ep.cid), tostring(ep.share_copy or ep.title or ""), season_title,
+                                    (tonumber(ep.duration) or 0) / 1000)
                                 return
                             end
                         end
@@ -173,7 +177,7 @@ local function resolve_bilibili_cid(path, callback)
                 and tostring(data.data.title) or nil
             for _, ep in ipairs(episodes) do
                 if tostring(ep.id) == tostring(epid) then
-                    callback(tostring(ep.cid), tostring(ep.title or ""), season_title)
+                    callback(tostring(ep.cid), tostring(ep.title or ""), season_title, tonumber(ep.duration))
                     return
                 end
             end
@@ -300,6 +304,7 @@ end
 -- 为 bilibli 网站的视频播放加载弹幕
 function load_danmaku_for_bilibili(path, callback)
     callback = callback or function() end
+    local note_duration = duration_info.capture(path)
     local cid, danmaku_id = get_cid()
     if danmaku_id ~= nil then
         mp.commandv('sub-remove', danmaku_id)
@@ -328,8 +333,9 @@ function load_danmaku_for_bilibili(path, callback)
         end
     end
     if cid == nil then
-        resolve_bilibili_cid(path, function(resolved_cid, resolved_title, season_title)
+        resolve_bilibili_cid(path, function(resolved_cid, resolved_title, season_title, seconds)
             if resolved_cid then
+                note_duration(seconds)
                 -- 源端真实标题（番剧=季标题+分集 share_copy；此前第二返回值被丢弃，
                 -- 源条目只能显示 URL 截断）
                 local meta = {}
@@ -432,12 +438,14 @@ end
 -- 按 vid+page 直连下载弹幕（走缓存取 cid，源 key 缺省为规范化 URL；已存在同分P的
 -- 历史源记录时传入该记录 key，装载与 addon_danmaku 重放路径收敛到同一条目）
 local function load_bilibili_danmaku_by_page(vid, page, callback, key)
+    local note_duration = duration_info.capture(key or canonical_bilibili_url(vid, page))
     fetch_bilibili_pagelist(vid, function(pages)
         local info = pages and pages[page]
         if info == nil or info["cid"] == nil then
             callback(false)
             return
         end
+        note_duration(info.duration)
         download_bilibili_danmaku(key or canonical_bilibili_url(vid, page),
             tostring(info["cid"]), true, callback)
     end)
@@ -685,11 +693,12 @@ function autoload_bilibili_series(path, dir, records, fallback)
             -- （不持久化到 sources 记录：合集源按分P逐集重匹配，落盘会被 addon_danmaku
             --  以旧集 URL 重放导致错集弹幕）
             source_status.ensure("bilibili#" .. vid, "bilibili",
-                {anime = source_anime, episode = m.part})
+                {anime = source_anime, episode = m.part, duration_seconds = pages[m.page] and pages[m.page].duration})
             local url = canonical_bilibili_url(vid, m.page)
             local existing = find_bilibili_source(url)
             if existing ~= nil then
                 local s = DANMAKU.sources[existing]
+                duration_info.capture(existing)(pages[m.page] and pages[m.page].duration)
                 -- 已到货（本会话手动添加/已加载）或被屏蔽：登记完成即可，补传真实
                 -- key 使条数能从 DANMAKU.sources 解析
                 if (type(s) == "table" and type(s.data) == "table" and #s.data > 0)
@@ -730,3 +739,8 @@ function autoload_bilibili_series(path, dir, records, fallback)
         end)
     end
 end
+
+-- Metadata-only lookup: resolving a CID does not download or reload comments.
+duration_info.register("bilibili%.com/", function(url, callback)
+    resolve_bilibili_cid(url, function(_, _, _, seconds) callback(seconds) end)
+end)

@@ -1,5 +1,6 @@
 local msg = require('mp.msg')
 local utils = require("mp.utils")
+local source_duration = require("modules/source_duration")
 local unpack = unpack or table.unpack
 
 input_loaded, input = pcall(require, "mp.input")
@@ -1517,13 +1518,27 @@ local function stats_cache_word(cache)
 end
 
 -- 单源详情子菜单（uosc 原生嵌套 items 展开为子页，无需回环 handler）
-local function stats_source_details(r)
+local function stats_source_details(r, current_duration)
     local rows = {}
     local s = r.source
     stats_detail_row(rows, "URL", r.key)
     stats_detail_row(rows, "提供方", r.provider)
     stats_detail_row(rows, "动画", r.anime or "—")
     stats_detail_row(rows, "集", r.episode or "—")
+    stats_detail_row(rows, "源视频时长", source_duration.valid(r.duration_seconds)
+        and source_duration.format(r.duration_seconds) or (r.duration_pending and "时长查询中" or "时长未知"))
+    stats_detail_row(rows, "当前视频时长", source_duration.format(current_duration))
+    local diff = source_duration.diff_text(r.duration_seconds, current_duration)
+    stats_detail_row(rows, "时长差", diff == "无法比较" and diff or (diff .. "（源视频 − 当前视频）"))
+    local info=r.duration_info
+    if info and source_duration.valid(info.reference_seconds) then
+        stats_detail_row(rows,"目录参考时长",source_duration.format(info.reference_seconds))
+        local ref_diff=source_duration.diff_text(info.reference_seconds,current_duration)
+        stats_detail_row(rows,"参考时长差",ref_diff=="无法比较" and ref_diff or (ref_diff.."（目录参考 − 当前视频）"))
+    end
+    if not source_duration.valid(r.duration_seconds) and not r.duration_pending and info and info.reason then
+        stats_detail_row(rows,"时长说明",info.reason)
+    end
     stats_detail_row(rows, "弹幕条数", r.count ~= nil and r.count or "—")
     stats_detail_row(rows, "来源", stats_from_label(r))
     stats_detail_row(rows, "缓存来源", stats_cache_word(r.cache))
@@ -1559,9 +1574,10 @@ end
 -- 供打开/原地刷新/单测三方共用）。
 -- entries: source_status.snapshot().entries；sources: DANMAKU.sources（只读引用）；
 -- pipeline: { total=渲染条数|nil, merge=MERGE_STATS|nil, blacklist=…, density=… }
+-- current_duration: mpv 总时长（秒）；pending_durations: URL -> 查询中（可选）。
 -- 排序键 = provider..url（与总菜单「已关联弹幕」区同款、不含 status）——状态迁移
 -- 永不重排，满足 update-menu 按索引保留选中/滚动位置的不变式（本文件 252 行注释）
-function build_source_stats_items(entries, sources, pipeline)
+function build_source_stats_items(entries, sources, pipeline, current_duration, pending_durations, duration_details)
     sources = (type(sources) == "table") and sources or {}
     -- 台账为基；源表中有数据但未入台账的 key（B站合集/历史重放壳等）合成 done 行
     local rows = {}
@@ -1578,6 +1594,10 @@ function build_source_stats_items(entries, sources, pipeline)
             count = e.count,
             error = e.error,
             cache = e.cache,
+            duration_seconds = source_duration.valid(type(s)=="table" and s.duration_seconds)
+                or source_duration.valid(e.duration_seconds),
+            duration_pending = pending_durations and pending_durations[e.key],
+            duration_info = duration_details and duration_details[e.key],
             source = (type(s) == "table") and s or nil,
         }
         seen[e.key] = true
@@ -1591,6 +1611,9 @@ function build_source_stats_items(entries, sources, pipeline)
                 episode = s.episode_title,
                 status = "done",
                 count = #s.data,
+                duration_seconds = source_duration.valid(s.duration_seconds),
+                duration_pending = pending_durations and pending_durations[url],
+                duration_info = duration_details and duration_details[url],
                 source = s,
             }
         end
@@ -1615,6 +1638,7 @@ function build_source_stats_items(entries, sources, pipeline)
     for _, r in ipairs(rows) do n[r.status] = (n[r.status] or 0) + 1 end
     items[#items + 1] = {
         title = string.format("源统计（共 %d 个）", #rows),
+        hint = "当前视频时长：" .. source_duration.format(current_duration),
         bold = true,
         keep_open = true,
         selectable = false,
@@ -1673,10 +1697,11 @@ function build_source_stats_items(entries, sources, pipeline)
                 r.provider, source_display_title(title_src, r.key, 60)),
             hint = ((r.count ~= nil) and (r.count .. "条") or "—")
                 .. " · " .. stats_from_label(r)
-                .. " · " .. (STATS_STATUS_WORD[r.status] or "等待中"),
+                .. " · " .. (STATS_STATUS_WORD[r.status] or "等待中")
+                .. " · " .. source_duration.summary(r.duration_seconds, current_duration, r.duration_pending, r.duration_info),
             keep_open = true,
             selectable = true,
-            items = stats_source_details(r),
+            items = stats_source_details(r, current_duration),
         }
     end
     return items
@@ -1695,12 +1720,16 @@ end
 -- 组装 menu_props（打开与原地刷新共用；search_style=disabled 须自组装——
 -- update_menu_uosc 的 search_style 硬编码 palette/on_demand）
 local function source_stats_menu_props()
+    local entries = source_status.snapshot().entries
+    local pending,details = {},{}
+    for _, e in ipairs(entries) do pending[e.key]=source_duration.pending(e.key);details[e.key]=source_duration.info(e.key) end
+    for key in pairs(DANMAKU.sources) do pending[key]=source_duration.pending(key);details[key]=source_duration.info(key) end
     local props = {
         type = "menu_stats",
         title = "弹幕源统计",
         search_style = "disabled",
-        items = build_source_stats_items(source_status.snapshot().entries,
-            DANMAKU.sources, source_stats_pipeline()),
+        items = build_source_stats_items(entries, DANMAKU.sources, source_stats_pipeline(),
+            mp.get_property_number("duration"), pending, details),
     }
     local fn = mp.get_property("filename")
     if fn then props.footnote = fn end
@@ -1708,13 +1737,28 @@ local function source_stats_menu_props()
 end
 
 function open_source_stats_menu_uosc()
+    source_duration.query(source_status.snapshot().entries, DANMAKU.sources)
     mp.commandv("script-message-to", "uosc", "open-menu",
         utils.format_json(source_stats_menu_props()))
 end
 
 -- 无 uosc 回退：OSD 汇总 dump + 逐源详情镜像控制台（不做交互式逐源详情）
 function show_source_stats_osd()
-    local lines = source_status.format_lines()
+    source_duration.query(source_status.snapshot().entries, DANMAKU.sources)
+    local current = mp.get_property_number("duration")
+    local entries=source_status.snapshot().entries
+    local details,pending={},{}
+    for _,e in ipairs(entries) do details[e.key]=source_duration.info(e.key);pending[e.key]=source_duration.pending(e.key) end
+    for key in pairs(DANMAKU.sources) do details[key]=source_duration.info(key);pending[key]=source_duration.pending(key) end
+    local items = build_source_stats_items(entries, DANMAKU.sources, nil, current, pending, details)
+    local lines = {}
+    for _, row in ipairs(items) do
+        if row.items then
+            lines[#lines + 1] = "弹幕源 " .. row.title .. " · " .. row.hint
+            for _, detail in ipairs(row.items) do msg.info(detail.title) end
+        end
+    end
+    if #lines > 0 then table.insert(lines, 1, "当前视频时长：" .. source_duration.format(current)) end
     local p = source_stats_pipeline()
     local stats = {}
     if type(p.merge) == "table" and p.merge.before and p.merge.after and p.merge.before > p.merge.after then
@@ -1756,6 +1800,7 @@ function refresh_source_stats_menu()
     if not uosc_available then return end
     local current = mp.get_property_native('user-data/uosc/menu/type')
     if not current or tostring(current) ~= "menu_stats" then return end
+    source_duration.query(source_status.snapshot().entries, DANMAKU.sources)
     mp.commandv("script-message-to", "uosc", "update-menu",
         utils.format_json(source_stats_menu_props()))
 end
@@ -2270,3 +2315,5 @@ if type(source_status) == "table" and type(source_status.set_on_change) == "func
         refresh_source_stats_menu()
     end)
 end
+
+mp.observe_property("duration", "number", function() refresh_source_stats_menu() end)

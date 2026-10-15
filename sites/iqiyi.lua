@@ -1,6 +1,7 @@
 local msg = require('mp.msg')
 local utils = require('mp.utils')
 local inflate = require('modules/inflate')
+local duration_info = require('modules/source_duration')
 
 local user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
@@ -32,6 +33,7 @@ local function get_tvid_from_url(url, callback)
     call_cmd_async(build_curl_args(api), function(err, out)
         if err or not out or out == '' then
             msg.warn('Iqiyi decode request failed: ' .. tostring(err))
+            callback(nil)
             return
         end
         local data = utils.parse_json(out)
@@ -55,6 +57,7 @@ local function get_video_info(tvid, callback)
     call_cmd_async(build_curl_args(api), function(err, out)
         if err or not out or out == '' then
             msg.warn('Iqiyi baseinfo request failed: ' .. tostring(err))
+            callback(nil)
             return
         end
         local data = utils.parse_json(out)
@@ -216,6 +219,7 @@ end
 
 -- 辅助函数：处理已知 tvid 的主流程
 local function process_iqiyi_with_tvid(tvid, url, callback)
+    local note_duration = duration_info.capture(url)
     get_video_info(tvid, function(videoInfo)
         if not videoInfo then
             show_message('获取爱奇艺视频信息失败', 3)
@@ -225,6 +229,7 @@ local function process_iqiyi_with_tvid(tvid, url, callback)
 
         local title = videoInfo['name'] or videoInfo['tvName'] or ''
         local duration = tonumber(videoInfo['durationSec']) or 0
+        note_duration(duration)
         local albumid = videoInfo['albumId']
         local categoryid = videoInfo['channelId'] or videoInfo['categoryId']
         if title and title ~= '' then
@@ -289,3 +294,10 @@ function load_danmaku_for_iqiyi(path, callback)
         process_iqiyi_with_tvid(tvid, url, callback)
     end)
 end
+
+duration_info.register("iqiyi%.com/", function(url, callback)
+    get_tvid_from_url(url, function(tvid)
+        if not tvid then callback(nil);return end
+        get_video_info(tvid, function(info) callback(info and info.durationSec) end)
+    end)
+end)

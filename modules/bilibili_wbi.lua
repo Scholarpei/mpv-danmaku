@@ -160,6 +160,7 @@ function M.parse_season(d)
             if type(e) == "table" and e.id and tonumber(e.section_type or 0) == 0 then
                 table.insert(result.episodes, {
                     ep_id = tostring(e.id),
+                    duration_seconds = (tonumber(e.duration) or 0) / 1000,
                     cid = tostring(e.cid or ""),
                     title = type(e.title) == "string" and e.title or "",
                     long_title = strip_em(e.long_title),

@@ -1,3 +1,4 @@
+local duration_info = require("modules/source_duration")
 -- AcFun（A站）直连弹幕加载器
 -- 规范源 URL 形如 https://www.acfun.cn/v/ac{ac号}?part={n}（apis/acfun_search.lua 产出；
 -- 合集分P每P独立 ac号 part=1，多P视频同 ac号按 part 序）
@@ -93,7 +94,7 @@ local function resolve_video_id(ac_id, part, callback)
     if hit then
         local obj = utils.parse_json(hit.payload)
         if obj and obj.video_id and obj.video_id ~= "" then
-            callback(obj.video_id, true)
+            callback(obj.video_id, true, obj.duration_seconds)
             return
         end
         dcache.remove(mkey)
@@ -106,7 +107,7 @@ local function resolve_video_id(ac_id, part, callback)
             local sobj = stale and utils.parse_json(stale.payload)
             if sobj and sobj.video_id and sobj.video_id ~= "" then
                 msg.verbose("AcFun 映射缓存过期兜底：" .. mkey)
-                callback(sobj.video_id, false)
+                callback(sobj.video_id, false, sobj.duration_seconds)
                 return
             end
             callback(nil, false)
@@ -119,8 +120,8 @@ local function resolve_video_id(ac_id, part, callback)
             callback(nil, false)
             return
         end
-        dcache.put(mkey, utils.format_json({ video_id = v.video_id, title = v.title }), { type = "json" })
-        callback(v.video_id, false)
+        dcache.put(mkey, utils.format_json({ video_id = v.video_id, title = v.title, duration_seconds = v.duration_seconds }), { type = "json" })
+        callback(v.video_id, false, v.duration_seconds)
     end)
 end
 
@@ -204,7 +205,9 @@ function load_danmaku_for_acfun(path, callback)
         return
     end
 
-    resolve_video_id(ac_id, part, function(video_id)
+    local note_duration = duration_info.capture(url)
+    resolve_video_id(ac_id, part, function(video_id, _, seconds)
+        note_duration(seconds)
         if not video_id then
             callback(false, nil, 'videoId 解析失败（映射与视频页解析均未命中）')
             return
@@ -274,3 +277,13 @@ function prefetch_acfun_danmaku(ac_id, part, callback)
         end)
     end)
 end
+
+duration_info.register("acfun%.cn/", function(url, callback)
+    local ac, part = extract_ids(url)
+    if not ac then callback(nil);return end
+    fetch_video_page(ac, function(html)
+        local parsed = html and aparse.parse_video_page(html)
+        local video = parsed and parsed.videos and parsed.videos[part]
+        callback(video and video.duration_seconds)
+    end)
+end)

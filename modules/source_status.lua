@@ -25,6 +25,7 @@
 -- show_message 与 DANMAKU 为全局（单测时 stub），模块自身无 mp.* 依赖。
 
 local M = {}
+local duration = require("modules/source_duration")
 
 local session = nil  -- { live = bool, epoch = n, entries = { {key, provider, anime, episode, status, count, error, cache} } }
 local epoch_counter = 0
@@ -64,6 +65,20 @@ local function find_entry(key)
     return nil
 end
 
+-- Identity is used only to reject stale asynchronous metadata callbacks.
+function M.entry_token(key)
+    return session and find_entry(key) or nil
+end
+
+function M.note_duration(key, value)
+    value = duration.valid(value)
+    local e = session and find_entry(key)
+    if e and value and e.duration_seconds ~= value then
+        e.duration_seconds = value
+        if on_change_fn then pcall(on_change_fn) end
+    end
+end
+
 -- 无会话时自动创建静默会话（不驱动 OSD；手动路径留痕 + 统计菜单读取）
 local function ensure_session()
     if session == nil then
@@ -89,6 +104,7 @@ function M.begin(entries)
             provider = item.provider,
             anime = item.anime,
             episode = item.episode,
+            duration_seconds = duration.valid(item.duration_seconds),
             status = "pending",
         }
     end
@@ -112,6 +128,7 @@ function M.ensure(key, provider, meta)
         session.entries[#session.entries + 1] = e
         notify()
     end
+    if duration.valid(meta.duration_seconds) then M.note_duration(key, meta.duration_seconds) end
     if e.status == "pending" then
         if provider ~= nil then e.provider = provider end
         if meta.anime ~= nil then e.anime = meta.anime end
@@ -124,8 +141,11 @@ end
 function M.mark_done(key, meta)
     if not session then return end
     local e = find_entry(key)
-    if e == nil or e.status == "done" then return end
+    if e == nil then return end
     meta = meta or {}
+    local src = meta.url and type(DANMAKU)=="table" and DANMAKU.sources[meta.url]
+    M.note_duration(key, meta.duration_seconds or (src and src.duration_seconds))
+    if e.status == "done" then return end
     if meta.anime ~= nil then e.anime = meta.anime end
     if meta.episode ~= nil then e.episode = meta.episode end
     e.status = "done"
@@ -279,6 +299,7 @@ local function settle()
                 e.count = #s.data
                 e.anime = e.anime or s.anime_title
                 e.episode = e.episode or s.episode_title
+                e.duration_seconds = duration.valid(s.duration_seconds) or e.duration_seconds
             end
         end
     end
@@ -398,6 +419,7 @@ function M.snapshot()
             count = e.count,
             error = e.error,
             cache = e.cache,
+            duration_seconds = e.duration_seconds,
         }
     end
     return { live = session.live, entries = entries }

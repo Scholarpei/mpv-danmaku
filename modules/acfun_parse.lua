@@ -174,11 +174,13 @@ function M.parse_video_page(html)
         for _, v in ipairs(obj.videoList) do
             if type(v) == "table" and v.id then
                 result.videos[#result.videos + 1] =
-                    { video_id = tostring(v.id), title = tostring(v.title or "") }
+                    { video_id = tostring(v.id), title = tostring(v.title or ""),
+                      duration_seconds = (tonumber(v.durationMillis) or 0) / 1000 }
             end
         end
     elseif type(obj.currentVideoInfo) == "table" and obj.currentVideoInfo.id then
-        result.videos[1] = { video_id = tostring(obj.currentVideoInfo.id), title = result.title }
+        result.videos[1] = { video_id = tostring(obj.currentVideoInfo.id), title = result.title,
+            duration_seconds = (tonumber(obj.currentVideoInfo.durationMillis) or 0) / 1000 }
     end
     result.ok = #result.videos > 0
     return result

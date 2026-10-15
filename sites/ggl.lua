@@ -232,3 +232,14 @@ function prefetch_ggl_danmaku(gv, src, ep, callback)
         end)
     end)
 end
+
+local function query_video_duration(url,callback)
+    local gv,src,ep=extract_ids(url)
+    if not gv then callback(nil);return end
+    resolve_m3u8(gv,src,ep,function(media)
+        if not media then callback(nil,{reason="播放页未提供可读取的媒体地址"});return end
+        require("modules/media_duration").query(media,function(n,reason) callback(n,{reason=reason}) end)
+    end)
+end
+require("modules/source_duration").register("girigirilove%.com/playGV",query_video_duration)
+require("modules/source_duration").register("girigirilove%.icu/playGV",query_video_duration)

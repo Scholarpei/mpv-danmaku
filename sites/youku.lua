@@ -1,3 +1,4 @@
+local duration_info = require("modules/source_duration")
 local msg = require('mp.msg')
 local utils = require('mp.utils')
 
@@ -88,7 +89,7 @@ local function yk_t_sign(token, t, appkey, data)
     return MD5.sum(text)
 end
 
-local function get_vinfos_by_video_id(url, callback)
+local function get_vinfos_by_video_id(url, callback, metadata_only)
     local vid = url:match('/v_show/id_([%w=]+)') or url:match('id_([%w=]+)') or url:match("[?&]vid=([^&]+)")
     if not vid then
         callback(nil)
@@ -110,7 +111,7 @@ local function get_vinfos_by_video_id(url, callback)
         end
         local duration = tonumber(data.duration) or 0
         local title = data.title or ''
-        if title and title ~= '' then DANMAKU.title = title end
+        if not metadata_only and title and title ~= '' then DANMAKU.title = title end
         callback(vid, duration)
     end)
 end
@@ -310,7 +311,9 @@ function load_danmaku_for_youku(path, callback)
         return
     end
 
+    local note_duration = duration_info.capture(url)
     get_vinfos_by_video_id(url, function(vid, duration)
+        note_duration(duration)
         if not vid then
             show_message('获取优酷 video_id 失败', 3)
             callback(false, nil, '获取优酷 video_id 失败')
@@ -334,3 +337,7 @@ function load_danmaku_for_youku(path, callback)
         end)
     end)
 end
+
+duration_info.register("youku%.com/", function(url, callback)
+    get_vinfos_by_video_id(url, function(_, seconds) callback(seconds) end, true)
+end)

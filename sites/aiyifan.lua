@@ -340,3 +340,21 @@ function prefetch_aiyifan_danmaku(media_key, video_id, video_type, callback)
         callback(true)
     end)
 end
+
+require("modules/source_duration").register("yfsp%.tv/play/",function(url,callback)
+    local ids=extract_ids(url)
+    if not ids then callback(nil);return end
+    local function query() require("modules/aiyifan_web").query(ids,callback) end
+    if ids.episode_key then query();return end
+    ayf_signed_post("/api/Video/VideoChooseGather",{mediaKey=ids.media_key},function(data)
+        local parsed=aparse.parse_episodes(data)
+        for _,ep in ipairs(parsed.episodes) do
+            if (ids.video_id and ep.video_id==ids.video_id)
+                or (not ids.video_id and (tonumber(ep.title)==1 or #parsed.episodes==1)) then
+                ids.episode_key,ids.video_id=ep.episode_key,ep.video_id
+                query();return
+            end
+        end
+        callback(nil,{reason="未能按已匹配视频 ID 定位分集"})
+    end)
+end)

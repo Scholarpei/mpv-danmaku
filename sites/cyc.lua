@@ -286,3 +286,52 @@ function prefetch_cyc_danmaku(vid, ep, callback)
         end)
     end)
 end
+
+-- Use the same automatic shared-account session as agefans Enhance by default.
+-- A user-supplied header file overrides the automatic session.
+-- No redirect following for authenticated requests, and no auth headers on media probes.
+require("modules/source_duration").register("cycani%.org/anime/",function(url,callback)
+    local vid,ep=extract_ids(url)
+    if not vid then callback(nil);return end
+    fetch_cyc_sections(vid,function(entry)
+        local target=entry and locate_episode(entry,ep)
+        if not target then callback(nil,{reason="未能定位对应分集"});return end
+        local auth_file=options.cyc_auth_header_file
+        local authenticated=type(auth_file)=="string" and auth_file~=""
+        if not authenticated then
+            require("modules/cyc_web").play_url(target.id,function(media,reason)
+                if not media then callback(nil,{reason=reason});return end
+                require("modules/media_duration").query(media,function(n,why) callback(n,{reason=why}) end)
+            end)
+            return
+        end
+        local args={'curl','-s','--ssl-no-revoke','--compressed',
+            '--proto','=https','--user-agent',UA,
+            '-H',APP_HEADER[1]..': '..APP_HEADER[2],'-H','x-app-version: cycweb'}
+        args[#args+1]='-H'
+        args[#args+1]='@'..mp.command_native({'expand-path',auth_file})
+        append_common(args)
+        args[#args+1]=BASE.."/api/v2/sections/"..target.id.."/play-url"
+        call_cmd_async_with_timeout(args,8,function(err,out)
+            local obj=not err and type(out)=="string" and utils.parse_json(out)
+            if type(obj)~="table" then
+                callback(nil,{reason=authenticated and "播放地址请求失败，请检查会话头文件" or "公开播放地址请求失败"});return
+            end
+            local data=type(obj.data)=="table" and obj.data
+            if obj.code~=0 or not data or type(data.url)~="string" then
+                local reason=authenticated and "播放接口未返回媒体地址" or "公开播放接口未返回媒体地址"
+                if authenticated and tonumber(obj.code)==401 then
+                    reason="次元城会话无效或已过期，请更新会话头文件"
+                elseif authenticated and tonumber(obj.code)==403 then
+                    reason="次元城播放接口拒绝访问当前会话"
+                elseif tonumber(obj.code)==401 then
+                    reason="公开播放接口需要会话，可配置 cyc_auth_header_file"
+                elseif tonumber(obj.code)==500 then
+                    reason=authenticated and "播放地址解析失败" or "公开播放地址解析失败；可配置 cyc_auth_header_file 使用网页 v2 接口"
+                end
+                callback(nil,{reason=reason});return
+            end
+            require("modules/media_duration").query(data.url,function(n,reason) callback(n,{reason=reason}) end)
+        end)
+    end)
+end)

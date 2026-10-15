@@ -1,3 +1,4 @@
+local duration_info = require("modules/source_duration")
 -- AcFun（A站）关键词搜索流程（搜索后缀 |acf）
 -- 接口（全部 GET www.acfun.cn，大陆直连，见 modules/acfun_parse.lua）：
 --   /search?keyword=<kw> 服务端 BigPipe 渲染 → pagelet_video（单视频 /v/ac{ac号}）+
@@ -63,6 +64,7 @@ local function fetch_video_parts(ac_id, callback)
         end
         local parts = {}
         for i, v in ipairs(parsed.videos) do
+            duration_info.remember(("https://www.acfun.cn/v/ac%s?part=%d"):format(ac_id, i), v.duration_seconds)
             parts[#parts + 1] = { ac_id = tostring(ac_id), part = i, title = v.title }
         end
         callback(parts)

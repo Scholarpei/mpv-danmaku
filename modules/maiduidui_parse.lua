@@ -109,6 +109,7 @@ function M.parse_sactions(d)
         if type(it) == "table" and it.uuid then
             table.insert(result.episodes, {
                 uuid = tostring(it.uuid),
+                duration_seconds = tonumber(it.duration),
                 name = type(it.name) == "string" and it.name or "",
             })
         end
