@@ -31,18 +31,19 @@ local function last_osd()
     return osd[#osd] or {}
 end
 
-do -- utils：short_episode_title（简体/繁体/无前缀/尾随空格）
-    check("话标题截取", short_episode_title("第12话 某某标题") == "第12话")
-    check("繁体話标题截取", short_episode_title("第3話 繁體標題") == "第3話")
-    check("集标题截取", short_episode_title("第5集") == "第5集")
+do -- utils：short_episode_title（保留副标题——副标题正是核对匹配正误的信息；去首尾空白）
+    check("话标题副标题保留", short_episode_title("第12话 某某标题") == "第12话 某某标题")
+    check("繁体話副标题保留", short_episode_title("第3話 繁體標題") == "第3話 繁體標題")
+    check("集标题原样", short_episode_title("第5集") == "第5集")
     check("无前缀原样", short_episode_title("电影") == "电影")
     check("EP格式原样", short_episode_title("EP12") == "EP12")
     check("B站分P名原样保留", short_episode_title("P2 某分P标题") == "P2 某分P标题")
+    check("首尾空白去除", short_episode_title("  第12话 某某  ") == "第12话 某某")
 end
 
 do -- utils：source_display_title（截断/回退/自定义URL长度）
     check("标题+集数",
-        source_display_title({anime_title = "转生史莱姆", episode_title = "第12话 某某"}, "u") == "《转生史莱姆》第12话")
+        source_display_title({anime_title = "转生史莱姆", episode_title = "第12话 某某"}, "u") == "《转生史莱姆》第12话 某某")
     local long = string.rep("字", 25)
     local inside = source_display_title({anime_title = long, episode_title = "第1话"}, "u"):match("《(.+)》")
     check("动画名截断到18", utf8_len(inside) == 21 and inside:sub(-3) == "...", inside)

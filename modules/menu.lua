@@ -440,10 +440,10 @@ function open_input_menu_uosc()
     local items = {}
 
     if DANMAKU.anime and DANMAKU.episode then
-        local episode = DANMAKU.episode:gsub("%s.-$","")
-        episode = episode:match("^(第.*[话回集]+)%s*") or episode
+        -- 完整集标题（截断上限 30）：副标题是核对匹配正误的信息，不再削成「第N话」前缀
         items[#items + 1] = {
-            title = string.format("已关联弹幕：%s-%s", DANMAKU.anime, episode),
+            title = string.format("已关联弹幕：%s-%s", DANMAKU.anime,
+                abbr_str(DANMAKU.episode, 30)),
             bold = true,
             italic = true,
             keep_open = true,
@@ -1818,7 +1818,8 @@ function open_add_total_menu_uosc()
         end
     elseif DANMAKU.anime and DANMAKU.episode then
         items[#items + 1] = {
-            title = string.format("已关联弹幕：%s-%s", DANMAKU.anime, short_episode_title(DANMAKU.episode)),
+            title = string.format("已关联弹幕：%s-%s", DANMAKU.anime,
+                abbr_str(DANMAKU.episode, 30)),
             bold = true,
             italic = true,
             keep_open = true,
@@ -2039,7 +2040,9 @@ mp.register_script_message("load-danmaku", function(animeTitle, episodeTitle, ep
     ENABLED = true
     DANMAKU.anime = animeTitle
     DANMAKU.episode = episodeTitle
-    set_episode_id(episodeId, true, api_server)
+    -- meta 补传：源条目/统计台账此前拿不到标题只能显示 URL 截断
+    set_episode_id(episodeId, true, api_server,
+        { anime = animeTitle, episode = episodeTitle })
     -- 多选：打标 + 原地刷新 menu_episodes；重嵌 latest_menu_anime 同步嵌套子菜单高亮
     if mark_details_episode_added({ "script-message-to", mp.get_script_name(),
         "load-danmaku", animeTitle, episodeTitle, episodeId, api_server }) then

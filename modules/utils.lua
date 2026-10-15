@@ -369,17 +369,31 @@ function provider_label_from_url(url)
     return nil
 end
 
--- 截取集数标题的「第N话/回/集」前缀（OSD 汇总与总菜单共用；兼容繁体「話」）
--- 仅当标题以「第…话/回/集」开头时截掉尾随副标题；其余格式（B站分P名「P2 xxx」等）原样保留
+-- 集数标题展示规整（OSD 汇总与总菜单共用）：原样保留真实标题（含副标题）。
+-- 副标题正是核对匹配是否正确的信息（「第26話 橘美也編」截成「第26話」会让错误匹配
+-- 无从发现），故不再削前缀，仅去首尾空白；长度上限由调用方 abbr_str 控制
 function short_episode_title(ep)
     if type(ep) ~= "string" or ep == "" then return ep end
-    return ep:match("^%s*(第.-[话話回集]+)%s*") or ep
+    return ep:match("^%s*(.-)%s*$")
 end
 
--- 源条目的可读标题：《动画名（截断）》第N话；无标题回退 URL 截断（老记录）
+-- 分集标题显示规整（各站共用）：源端真实标题优先（纯数字规整为「第N集」，非数字如
+-- 剧场版「正片」原样），缺失/空才回退序号「第N集」——显示层只认源端真实值
+function episode_label(ep_title, n)
+    if type(ep_title) == "string" and ep_title ~= "" then
+        if ep_title:match("^%s*%d+%s*$") then
+            return "第" .. tostring(tonumber(ep_title)) .. "集"
+        end
+        return ep_title
+    end
+    return "第" .. tostring(n) .. "集"
+end
+
+-- 源条目的可读标题：《动画名（截断）》集标题（截断）；无标题回退 URL 截断（老记录）
 -- source: DANMAKU.sources[url] 条目（anime_title/episode_title 可缺省）
 -- url_len: 无标题回退时的 URL 截断长度（菜单 100 / OSD 汇总 50）
-function source_display_title(source, url, url_len)
+-- ep_len: 集标题截断长度（默认 20，超长以 … 截断）
+function source_display_title(source, url, url_len, ep_len)
     source = source or {}
     local anime = source.anime_title
     if not anime or anime == "" then
@@ -388,7 +402,7 @@ function source_display_title(source, url, url_len)
     local line = "《" .. abbr_str(anime, 18) .. "》"
     local ep = short_episode_title(source.episode_title or "")
     if type(ep) == "string" and ep ~= "" then
-        line = line .. ep
+        line = line .. abbr_str(ep, ep_len or 20)
     end
     return line
 end

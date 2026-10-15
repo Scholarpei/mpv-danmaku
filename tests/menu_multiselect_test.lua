@@ -19,8 +19,9 @@ show_message = function() end
 load_danmaku = function() end
 add_source_to_history = function() end
 set_danmaku_button = function() end
-set_episode_id = function(input, from_menu, api_server)
-    _G.stub_set_episode_id = { input = input, from_menu = from_menu, api_server = api_server }
+set_episode_id = function(input, from_menu, api_server, meta)
+    _G.stub_set_episode_id = { input = input, from_menu = from_menu, api_server = api_server,
+        meta = meta }
 end
 PLATFORM = "windows"
 DANMAKU = { sources = {}, count = 1 }
@@ -170,6 +171,11 @@ steps = {
     function()
         check("7 set_episode_id 被调（真实加载路径走通）",
             _G.stub_set_episode_id ~= nil and _G.stub_set_episode_id.input == "1001")
+        -- 手动菜单补传 meta：源条目/台账拿到真实标题（此前只能显示 URL 截断）
+        check("7a set_episode_id 收到标题 meta",
+            _G.stub_set_episode_id ~= nil and _G.stub_set_episode_id.meta ~= nil
+            and _G.stub_set_episode_id.meta.anime == "番剧X"
+            and _G.stub_set_episode_id.meta.episode == "第1话")
         mp.commandv("script-message-to", name, "load-danmaku", "番剧X", "第2话", "1002", "https://api")
     end,
     function()

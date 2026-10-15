@@ -65,10 +65,12 @@ function M.plan(record, next_filename, parse_fn)
     if playing == nil or history_number == nil then return tasks end
     local x = playing - history_number
 
-    -- 弹弹play：episodeId 按自己的锚独立推算（快源先写 history 已移动全局锚也不受影响）
+    -- 弹弹play：episodeId 按自己的锚独立推算（快源先写 history 已移动全局锚也不受影响）。
+    -- episode_id 字段携带锚 id + delta（不再预相加）：executor 经服务器分集表校验定位真实
+    -- id，越界（如源 25 集的番预取本地第 26 集）不盲预取错误条目
     if record.episodeId ~= nil then
         local x_ddp = hmerge.anchor_delta(parse_fn, next_filename, record.episodeId_fname, x)
-        tasks[#tasks + 1] = { type = "ddp", episode_id = record.episodeId + x_ddp,
+        tasks[#tasks + 1] = { type = "ddp", episode_id = record.episodeId, delta = x_ddp,
             api_server = record.api_server }
     end
 
@@ -172,7 +174,20 @@ local function execute(tasks, done)
     end
     for _, task in ipairs(tasks) do
         if task.type == "ddp" then
-            prefetch_dandanplay_episode(task.episode_id, task.api_server, one_done)
+            -- 分集表校验定位真实 episodeId（与续载同口径，会话缓存命中零额外请求）；
+            -- 越界/校验失败不盲预取。单测部分加载（apis/dandanplay.lua 未载入）回退旧算术
+            if type(resolve_ddp_episode_id) == "function" then
+                resolve_ddp_episode_id(task.episode_id, task.delta, task.api_server,
+                    function(real_id)
+                        if real_id then
+                            prefetch_dandanplay_episode(real_id, task.api_server, one_done)
+                        else
+                            one_done(false)
+                        end
+                    end)
+            else
+                prefetch_dandanplay_episode(task.episode_id + task.delta, task.api_server, one_done)
+            end
         elseif task.type == "ext" then
             local resolver = RESOLVERS[task.kind]
             if type(resolver) ~= "function" then

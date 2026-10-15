@@ -84,7 +84,8 @@ do
     local tasks = prefetch.plan(RECORD, "Show - 09", fake_parse)
     local ddp = find_by_type(tasks, "ddp")
     check("ddp 任务存在", ddp ~= nil)
-    check("ddp episodeId 按锚 +1", ddp and ddp.episode_id == 100109)
+    -- 任务携带锚 id + delta（不再预相加）：executor 经分集表校验定位真实 id
+    check("ddp 任务携带锚 id 与 delta", ddp and ddp.episode_id == 100108 and ddp.delta == 1)
     check("ddp api_server 透传", ddp and ddp.api_server == "https://s1.example.com")
     local qq = find_ext(tasks, "qq")
     check("qq 任务存在", qq ~= nil)
