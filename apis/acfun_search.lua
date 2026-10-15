@@ -102,7 +102,8 @@ end
 local function load_acfun_danmaku(ac_id, part, episodenum, title, part_title, aa_id)
     ENABLED = true
     DANMAKU.anime = title
-    DANMAKU.episode = (part_title and part_title ~= "") and part_title or ("第" .. episodenum .. "集")
+    -- 源端真实分P标题优先（全局 episode_label 规整），缺失回退序号
+    DANMAKU.episode = episode_label(part_title, episodenum)
     DANMAKU.source = "acf"
     DANMAKU.extra = {
         kind = "acf",

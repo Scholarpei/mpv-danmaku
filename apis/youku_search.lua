@@ -112,10 +112,12 @@ local function fetch_yk_episodes(show_id, stop_after, callback)
 end
 
 -- 选集后加载（菜单选集与历史续载共用）
-local function load_youku_danmaku(show_id, vid, episodenum, title, year, type_name)
+local function load_youku_danmaku(show_id, vid, episodenum, title, year, type_name, ep_display)
     ENABLED = true
     DANMAKU.anime = title .. " (" .. year .. ")"
-    DANMAKU.episode = "第" .. episodenum .. "集"
+    -- 源端真实分集标题（与选集菜单同款格式），缺失才回退序号
+    DANMAKU.episode = (ep_display ~= nil and ep_display ~= "")
+        and ep_display or ("第" .. episodenum .. "集")
     DANMAKU.source = "youku"
     DANMAKU.extra = {
         kind = "youku",
@@ -147,7 +149,10 @@ function resume_youku_episode(extra, episodenum)
                 ("第 %d 集不存在（共 %d 集）"):format(episodenum, #episodes), "优酷弹幕续载失败")
             return
         end
-        load_youku_danmaku(extra.show_id, ep.vid, episodenum, extra.title, extra.year, extra.type_name)
+        -- 与选集菜单同款显示标题（format_episode_title 同参复用）
+        load_youku_danmaku(extra.show_id, ep.vid, episodenum, extra.title, extra.year,
+            extra.type_name,
+            yparse.format_episode_title(ep.title, episodenum, extra.type_name, ep.published))
     end)
 end
 
@@ -261,7 +266,8 @@ mp.register_script_message("get-yk-event", function(show_id, title, year, type_n
                 show_message("无结果", 3)
                 return
             end
-            load_youku_danmaku(show_id, episodes[1].vid, 1, title, year, type_name)
+            load_youku_danmaku(show_id, episodes[1].vid, 1, title, year, type_name,
+                yparse.format_episode_title(episodes[1].title, 1, type_name, episodes[1].published))
         end)
         return
     end
@@ -295,10 +301,11 @@ mp.register_script_message("get-yk-event", function(show_id, title, year, type_n
             },
         }
         for i, ep in ipairs(episodes) do
+            local ep_display = yparse.format_episode_title(ep.title, i, type_name, ep.published)
             items[#items + 1] = {
-                title = yparse.format_episode_title(ep.title, i, type_name, ep.published),
+                title = ep_display,
                 value = { "script-message-to", mp.get_script_name(), "add-yk-event",
-                    show_id, ep.vid, tostring(i), title, year, type_name },
+                    show_id, ep.vid, tostring(i), title, year, type_name, ep_display },
                 keep_open = true,
             }
         end
@@ -314,8 +321,9 @@ mp.register_script_message("get-yk-event", function(show_id, title, year, type_n
     end)
 end)
 
-mp.register_script_message("add-yk-event", function(show_id, vid, episodenum, title, year, type_name)
-    load_youku_danmaku(show_id, vid, episodenum, title, year, type_name)
+mp.register_script_message("add-yk-event",
+    function(show_id, vid, episodenum, title, year, type_name, ep_display)
+    load_youku_danmaku(show_id, vid, episodenum, title, year, type_name, ep_display)
     mark_details_episode_added({ "script-message-to", mp.get_script_name(),
-        "add-yk-event", show_id, vid, episodenum, title, year, type_name })
+        "add-yk-event", show_id, vid, episodenum, title, year, type_name, ep_display })
 end)

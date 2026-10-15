@@ -83,11 +83,12 @@ local function fetch_baha_episodes(video_sn, callback)
     attempt_once()
 end
 
--- 选集后加载（菜单选集与历史续载共用）
-local function load_bahamut_danmaku(video_sn, ep_sn, episodenum, title, year)
+-- 选集后加载（菜单选集与历史续载共用；ep_display = 巴哈原始话数编号（跨季连续，
+-- 如第二季从 29 起）——与选集菜单同源，保证菜单看到的与加载后显示的一致）
+local function load_bahamut_danmaku(video_sn, ep_sn, episodenum, title, year, ep_display)
     ENABLED = true
     DANMAKU.anime = title .. " (" .. year .. ")"
-    DANMAKU.episode = "第" .. episodenum .. "话"
+    DANMAKU.episode = "第" .. (ep_display or episodenum) .. "话"
     DANMAKU.source = "bahamut"
     DANMAKU.extra = {
         kind = "bahamut",
@@ -123,7 +124,8 @@ function resume_bahamut_episode(extra, episodenum)
                 ("第 %d 话不存在（共 %d 话）"):format(episodenum, #episodes), "巴哈弹幕续载失败")
             return
         end
-        load_bahamut_danmaku(extra.video_sn, ep.video_sn, episodenum, extra.title, extra.year)
+        load_bahamut_danmaku(extra.video_sn, ep.video_sn, episodenum, extra.title,
+            extra.year, ep.episode)
     end)
 end
 
@@ -274,12 +276,13 @@ mp.register_script_message("get-baha-event", function(video_sn, title, year)
             },
         }
         for i, ep in ipairs(episodes) do
-            -- 显示巴哈原始话数编号（跨季连续，如第二季从 29 起）；value 仍传列表序保证续载对齐
+            -- 显示巴哈原始话数编号（跨季连续，如第二季从 29 起）；episodenum 仍传列表序
+            -- 保证续载对齐，display_no 供加载后显示同一编号（原加载后显示列表序，与菜单不一致）
             local display_no = tonumber(ep.episode) or i
             items[#items + 1] = {
                 title = "第" .. display_no .. "话",
                 value = { "script-message-to", mp.get_script_name(), "add-baha-event",
-                    video_sn, ep.video_sn, tostring(i), title, year },
+                    video_sn, ep.video_sn, tostring(i), title, year, tostring(display_no) },
                 keep_open = true,
             }
         end
@@ -295,8 +298,9 @@ mp.register_script_message("get-baha-event", function(video_sn, title, year)
     end)
 end)
 
-mp.register_script_message("add-baha-event", function(video_sn, ep_sn, episodenum, title, year)
-    load_bahamut_danmaku(video_sn, ep_sn, episodenum, title, year)
+mp.register_script_message("add-baha-event",
+    function(video_sn, ep_sn, episodenum, title, year, ep_display)
+    load_bahamut_danmaku(video_sn, ep_sn, episodenum, title, year, ep_display)
     mark_details_episode_added({ "script-message-to", mp.get_script_name(),
-        "add-baha-event", video_sn, ep_sn, episodenum, title, year })
+        "add-baha-event", video_sn, ep_sn, episodenum, title, year, ep_display })
 end)

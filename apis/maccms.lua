@@ -99,7 +99,9 @@ local function load_maccms_danmaku(server, vod_id, group_idx, ep_idx, title, yea
     local display_year = year or entry.vod_year
     ENABLED = true
     DANMAKU.anime = display_title .. " (" .. (tonumber(display_year) or 0) .. ")"
-    DANMAKU.episode = "第" .. ep_idx .. "集"
+    -- 源端真实分集标题（vod_play_url 的 标题$链接；纯数字标题规整为「第N集」与序号
+    -- 同义，缺失回退序号——编号即采集站真实数据，同 ezdmw 口径）
+    DANMAKU.episode = episode_label(ep.title, ep_idx)
     DANMAKU.source = "maccms"
     DANMAKU.extra = {
         kind = "maccms",

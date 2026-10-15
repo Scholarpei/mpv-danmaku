@@ -91,11 +91,13 @@ local function fetch_bili_episodes(season_id, callback)
         end)
 end
 
--- 选集后加载（菜单选集与历史续载共用）
-local function load_bilibili_danmaku(season_id, ep_id, episodenum, title, year, type_name)
+-- 选集后加载（菜单选集与历史续载共用；ep_display = 菜单同款完整集标题「第N话 副标题」，
+-- 加载后显示与选集菜单所见一致，副标题是核对匹配正误的信息）
+local function load_bilibili_danmaku(season_id, ep_id, episodenum, title, year, type_name, ep_display)
     ENABLED = true
     DANMAKU.anime = title .. " (" .. year .. ")"
-    DANMAKU.episode = "第" .. episodenum .. "话"
+    DANMAKU.episode = (ep_display ~= nil and ep_display ~= "")
+        and ep_display or ("第" .. episodenum .. "话")
     DANMAKU.source = "bilibili"
     DANMAKU.extra = {
         kind = "bilibili",
@@ -127,7 +129,11 @@ function resume_bilibili_episode(extra, episodenum)
                 ("第 %d 话不存在（共 %d 话）"):format(episodenum, #episodes), "B站弹幕续载失败")
             return
         end
-        load_bilibili_danmaku(extra.season_id, ep.ep_id, episodenum, extra.title, extra.year, extra.type_name)
+        -- 与选集菜单同款显示标题（菜单拼「第i话 副标题」，此处按定位到的真实条目同式拼）
+        local ep_display = (ep.long_title ~= nil and ep.long_title ~= "")
+            and ("第" .. episodenum .. "话 " .. ep.long_title) or nil
+        load_bilibili_danmaku(extra.season_id, ep.ep_id, episodenum, extra.title,
+            extra.year, extra.type_name, ep_display)
     end)
 end
 
@@ -309,7 +315,8 @@ mp.register_script_message("get-bili-event", function(season_id, title, year, ty
             items[#items + 1] = {
                 title = ep_title,
                 value = { "script-message-to", mp.get_script_name(), "add-bili-event",
-                    season_id, ep.ep_id, tostring(i), title, year, type_name },
+                    season_id, ep.ep_id, tostring(i), title, year, type_name,
+                    tostring(ep_title) },
                 keep_open = true,
             }
         end
@@ -325,8 +332,9 @@ mp.register_script_message("get-bili-event", function(season_id, title, year, ty
     end)
 end)
 
-mp.register_script_message("add-bili-event", function(season_id, ep_id, episodenum, title, year, type_name)
-    load_bilibili_danmaku(season_id, ep_id, episodenum, title, year, type_name)
+mp.register_script_message("add-bili-event",
+    function(season_id, ep_id, episodenum, title, year, type_name, ep_display)
+    load_bilibili_danmaku(season_id, ep_id, episodenum, title, year, type_name, ep_display)
     mark_details_episode_added({ "script-message-to", mp.get_script_name(),
-        "add-bili-event", season_id, ep_id, episodenum, title, year, type_name })
+        "add-bili-event", season_id, ep_id, episodenum, title, year, type_name, ep_display })
 end)

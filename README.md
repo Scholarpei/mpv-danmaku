@@ -128,6 +128,8 @@
 
 - 覆盖弹弹play 与全部直连源（腾讯 / 优酷 / 爱奇艺 / 芒果 / B站 / 巴哈 / animeko / 埋堆堆 / AcFun / ezdmw / girigirilove / 爱壹帆 / 次元城 / OmoFun / 360kan / 采集站），旧格式单源记录自动迁移
 - **逐源集数锚点**：各源记录在选择当时所在的文件名（`extras[].fname` / `episodeId_fname`），续载差值按各源自己的锚独立推算——多源异步续载时快源先落盘会把文件夹级锚（`fname`/`episodeNumber`）移到当前集，若共用全局差值，重载 / 换集后慢源会按旧集数加载（落后一集）；老记录无锚自动回退全局差值
+- **续载显示 = 源端真实标题**：各源加载成功后，「已关联弹幕」/「弹幕源统计」/ OSD 汇总显示该源实际匹配到的分集标题（弹弹play 分集表 `episodeTitle`、各站剧集列表自己的标题，含副标题），不再显示本地文件名推算的「第N话」冒充——匹配错集一眼可见
+- **弹弹play 续载校验**：换集续载不再按 `episodeId + 集数差` 盲算（目标落到源分集表之外时会加载到别的条目却显示成功），而是经服务器分集表（`/api/v2/bangumi`，会话缓存换集零重复请求）按锚点定位真实 episodeId 与标题；目标集不存在（如本地第 26 集而源条目只有 25 集）时如实报错「第N话不存在（该源共M话）」并自动兜底搜索，不写错误记忆；仅分集表拿不到（网络失败）时回退旧算术并标注「（未校验）」
 - 多源续载时同一 OSD 位置逐源汇总加载状态：提供方 + 《标题》截断 + 集数 + 条数，未到标等待、失败折 ✗（详见[其它增强](#其它增强)）
 
 **② B站多分P合集智能匹配 —— [`bilibili_series_memory`](#bilibili_series_memory)**
@@ -168,7 +170,7 @@ B站多分P合集（多季混排、剧场版夹杂的投稿）不用每集贴一
 提前拉弹幕写入磁盘缓存 ──→ 换集时缓存命中秒载（OSD 标注「缓存」）
 ```
 
-- 取数走各源正式加载的同款接口与缓存键（`ep:` / `ext:` / `cid:` / `ako:` / `mdd:` / `acfmap:`+`acf:` / `ezd:` / `ggl:` / `ayf:` / `cyc:` / `omf:`），换集时必然对得上键；预取失败或某源无缓存触点（360kan）时换集照常走网络，不影响加载
+- 取数走各源正式加载的同款接口与缓存键（`ep:` / `ext:` / `cid:` / `ako:` / `mdd:` / `acfmap:`+`acf:` / `ezd:` / `ggl:` / `ayf:` / `cyc:` / `omf:`），换集时必然对得上键；弹弹play 预取与续载同口径经分集表校验定位下一集真实 episodeId，目标越界（源没有该集）不盲预取；预取失败或某源无缓存触点（360kan）时换集照常走网络，不影响加载
 - 仅 `auto_load` 与弹幕磁盘缓存均开启时生效；仅本地文件夹场景（URL 播放不预取）；每文件只评估一次
 - 覆盖弹弹play、B站合集记忆、腾讯 / 优酷 / 爱奇艺 / 芒果 / B站番剧 / 巴哈 / 采集站（经 extcomment 缓存）、animeko、埋堆堆、AcFun、ezdmw、girigirilove、爱壹帆、次元城、OmoFun
 
@@ -307,7 +309,7 @@ api_server=http://192.168.1.5:9321
 - **多源加载状态汇总**：多源并行加载 / 续载时，同一 OSD 位置动态汇总各源状态——提供方 + 《标题》截断 + 集数 + 条数，未到标等待、失败折 ✗ 不再各自弹错；手动搜索 / 自动匹配 / URL 播放 / 本地 xml / 重放 / 兜底所有加载路径统一口径
 - **弹幕源统计**：弹幕设置总菜单新增「弹幕源统计」——当前视频全部弹幕源逐源呈现（✓ 成功条数 / ○ 合法无数据 / ✗ 失败含具体原因 / … 等待中），点开展开详情子菜单（完整 URL、来源、缓存来源（磁盘/过期兜底/网络）、屏蔽、手动延迟、时间轴校正、错误全文）；顶部汇总源计数与管线统计（合并 / 黑名单 / 智能密度 / 最终渲染条数）。统计台账覆盖全部加载路径（含手动搜索 / 粘贴 URL 的静默会话留痕），站点直连失败的具体原因（如「没有找到弹幕分段」）入库不再 OSD 一闪而过，菜单开着时加载到货原地刷新
 - **跨源时间轴对齐**：多源叠加时按「同文本弹幕出现时间差」投票统计全局偏移，把各源整体平移到弹幕数最多的基准源（[`timeline_align`](#timeline_align)）——不同平台的片头 / 剪辑差异（如巴哈源整体晚 90 秒）自动校正；投票基于含手动延迟的生效时间，已手动补偿过的源不会被二次平移；对齐量在源状态行以「时间轴±Ns」标注，弹幕源延迟菜单按「合计（对齐 + 手动）」口径显示
-- **源历史与菜单升级**：弹幕源历史记录补标题持久化（只补不擦，老记录回退显示 URL）——「从源添加弹幕」菜单以标题为主、URL 缩略为 hint；弹幕设置总菜单顶部逐源列出已关联弹幕（各源一行含条数，超过 4 个折叠显示）
+- **源历史与菜单升级**：弹幕源历史记录补标题持久化（只补不擦，老记录回退显示 URL）——「从源添加弹幕」菜单以标题为主、URL 缩略为 hint；弹幕设置总菜单顶部逐源列出已关联弹幕（各源一行含条数，超过 4 个折叠显示）；各显示面的集标题取源端真实分集标题并完整保留副标题（如「第26話 橘美也編」不再截成「第26話」）——副标题正是核对匹配正误的信息
 
 ---
 
@@ -588,7 +590,7 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 
 | 源 | 缓存键 | 说明 |
 | --- | --- | --- |
-| 弹弹play | `ep:{episodeId}` | 按 `episodeId_fname` 锚推算下一集 ID |
+| 弹弹play | `ep:{episodeId}` | 按 `episodeId_fname` 锚推算并经服务器分集表校验定位下一集真实 ID（越界跳过） |
 | 腾讯/优酷/爱奇艺/芒果/B站番剧/巴哈/采集站 | `ext:{URL哈希}` | 各源解析下一集播放页 URL 后经 extcomment 取数 |
 | B站合集记忆 | `cid:{cid}` | 分P匹配下一集后直拉弹幕 XML |
 | animeko | `ako:{episodeId}` | 解析下一集 episodeId 后节点降级直拉 |
@@ -694,6 +696,8 @@ merge_forcelist=^2333+=>23333|^666+=>66666
 | `tests/search_hub_test.lua` | 聚合搜索纯函数（分组构建含 hasMore 截断提示行 / 进度行 / provider 标签映射 / 弹弹play v2+旧端点搜索响应解析归一——animeId→bangumiId 字符串归一、Unsupported API 判不支持、畸形条目跳过；fixtures：代理实抓 ×2 + danmu-api 形状合成 ×2） | `mpv.com --idle=once --no-config --script=tests/search_hub_test.lua` |
 | `tests/search_hub_flow_test.lua` | 聚合搜索编排流（stub 各源 fetch，验证聚合 / 超时 / 取消 / @备注过滤） | `mpv.com --idle=once --no-config --script=tests/search_hub_flow_test.lua` |
 | `tests/ddp_search_fallback_test.lua` | 弹弹play 搜索 v2 端点探测/回退流（stub parallel_requests：探测轮→不支持即时回退轮/会话级能力记忆不支持只探一次·支持恒走 v2/网络失败不回退不下结论/混合能力两轮并行分拣/跨服务器跨端点 bangumiId 去重/has_more 透传与截断行/取消传导迟到丢弃/进度分母随回退扩大/全错口径/零服务器守卫） | `mpv.com --idle=once --no-config --script=tests/ddp_search_fallback_test.lua` |
+| `tests/ddp_resume_select_test.lua` | 弹弹play 续载校验纯函数（episodeId=bangumiId×10000 拆分实测约定 / 缓存键含 server / 主策略=锚在数组位置±delta：负 delta、delta=0 自洽、超 1000 集回绕救回、集号缺失、越界话数文案不编造 / 次策略=锚不在数组按集号等值：小数集号不误中、重复取首 / 双失败 reason 文案 / 防御性输入） | `mpv.com --idle=once --no-config --script=tests/ddp_resume_select_test.lua` |
+| `tests/ddp_resume_flow_test.lua` | 弹弹play 续载校验流程（stub 网络直打 resume_dandanplay_episode：命中→真实 episodeId/episodeTitle 进 write_history·meta·台账全链、占位 extra:ddp 换键为 comment URL / 越界→不写 history·台账留痕·兜底搜索消息·缓存命中零网络 / bangumi 网络失败→回退旧算术标注（未校验） / 迟到回调换集放弃 / 坏锚如实失败） | `mpv.com --idle=once --no-config --script=tests/ddp_resume_flow_test.lua` |
 | `tests/history_merge_test.lua` | 文件夹记忆多源合并（旧 extra 迁移、同 kind 替换、dandanplay/直连源互不挤占、残留防护） | `mpv.com --idle=once --no-config --script=tests/history_merge_test.lua` |
 | `tests/source_status_test.lua` | 多源加载状态聚合器（会话生命周期、逐源汇总格式化；静默会话自动建会话/单行 OSD 口径保留且入库、合并分支（台账∪未入会话源去重排序）、empty 终态与 settle 翻转、note_error 软记录、note_cache、remove、snapshot 隔离、set_on_change 容错） | `mpv.com --idle=once --no-config --script=tests/source_status_test.lua` |
 | `tests/source_stats_menu_test.lua` | 弹幕源统计菜单（build 纯函数：台账∪源表合并、计数、排序稳定性（状态迁移不重排）、字形/hint、详情子行（URL/延迟/校正/错误全文）、管线两态、空态；打开/原地刷新链路与未开零消息、无 uosc 回退） | `mpv.com --idle=once --no-config --script=tests/source_stats_menu_test.lua` |

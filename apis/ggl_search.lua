@@ -85,10 +85,13 @@ end
 
 -- ============ 选集后加载（菜单选集与历史续载共用） ============
 
-local function load_ggl_danmaku(gv_id, src, ep, title)
+local function load_ggl_danmaku(gv_id, src, ep, title, ep_display)
     ENABLED = true
     DANMAKU.anime = title
-    DANMAKU.episode = "第" .. ep .. "集"
+    -- 源端真实分集标签（如「先行01」/「1080P」，与选集菜单同款 episode_title 格式），
+    -- 缺失才回退站点集数号
+    DANMAKU.episode = (ep_display ~= nil and ep_display ~= "")
+        and ep_display or ("第" .. ep .. "集")
     DANMAKU.source = "ggl"
     DANMAKU.extra = {
         kind = "ggl",
@@ -123,7 +126,8 @@ function resume_ggl_episode(extra, episodenum)
                 ("第 %d 集｜共 %d 集"):format(episodenum, total), "girigirilove弹幕续载失败")
             return
         end
-        load_ggl_danmaku(extra.gv_id, target.src, target.ep, extra.title)
+        load_ggl_danmaku(extra.gv_id, target.src, target.ep, extra.title,
+            episode_title(target.label, target.ep))
     end)
 end
 
@@ -292,10 +296,11 @@ mp.register_script_message("get-ggl-event", function(gv_id, title)
             },
         }
         for _, e in ipairs(line.episodes) do
+            local ep_display = episode_title(e.label, e.ep)
             items[#items + 1] = {
-                title = episode_title(e.label, e.ep),
+                title = ep_display,
                 value = { "script-message-to", mp.get_script_name(), "add-ggl-event",
-                    gv_id, tostring(e.src), tostring(e.ep), title },
+                    gv_id, tostring(e.src), tostring(e.ep), title, ep_display },
                 keep_open = true,
             }
         end
@@ -311,8 +316,8 @@ mp.register_script_message("get-ggl-event", function(gv_id, title)
     end)
 end)
 
-mp.register_script_message("add-ggl-event", function(gv_id, src, ep, title)
-    load_ggl_danmaku(gv_id, src, ep, title)
+mp.register_script_message("add-ggl-event", function(gv_id, src, ep, title, ep_display)
+    load_ggl_danmaku(gv_id, src, ep, title, ep_display)
     mark_details_episode_added({ "script-message-to", mp.get_script_name(),
-        "add-ggl-event", gv_id, src, ep, title })
+        "add-ggl-event", gv_id, src, ep, title, ep_display })
 end)

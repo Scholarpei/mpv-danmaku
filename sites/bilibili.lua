@@ -118,11 +118,14 @@ local function resolve_bilibili_cid(path, callback)
                 callback(nil)
                 return
             end
+            -- 季标题（season.title）随分集标题一并回传，供源条目显示真实标题
+            local season_title = (data.result.title ~= nil and data.result.title ~= "")
+                and tostring(data.result.title) or nil
             -- 查找正片
             local episodes = data.result.episodes or {}
             for _, ep in ipairs(episodes) do
                 if tostring(ep.id) == tostring(epid) then
-                    callback(tostring(ep.cid), tostring(ep.share_copy or ep.title or ""))
+                    callback(tostring(ep.cid), tostring(ep.share_copy or ep.title or ""), season_title)
                     return
                 end
             end
@@ -132,7 +135,7 @@ local function resolve_bilibili_cid(path, callback)
                     if sec.episodes then
                         for _, ep in ipairs(sec.episodes) do
                             if tostring(ep.id) == tostring(epid) then
-                                callback(tostring(ep.cid), tostring(ep.share_copy or ep.title or ""))
+                                callback(tostring(ep.cid), tostring(ep.share_copy or ep.title or ""), season_title)
                                 return
                             end
                         end
@@ -166,9 +169,11 @@ local function resolve_bilibili_cid(path, callback)
                 return
             end
             local episodes = data.data.episodes or {}
+            local season_title = (data.data.title ~= nil and data.data.title ~= "")
+                and tostring(data.data.title) or nil
             for _, ep in ipairs(episodes) do
                 if tostring(ep.id) == tostring(epid) then
-                    callback(tostring(ep.cid), tostring(ep.title or ""))
+                    callback(tostring(ep.cid), tostring(ep.title or ""), season_title)
                     return
                 end
             end
@@ -183,9 +188,24 @@ end
 
 -- 下载B站弹幕 XML。优先读磁盘缓存（TTL 内不发网络包）；网络失败/空响应回退过期缓存
 -- （断网可看）；成功且解析非空写缓存（防缓存 HTML 错误页/空 <i></i>）
-local function download_bilibili_danmaku(path, cid, from_menu, callback)
+-- meta: {anime=季标题, episode=分集标题}——resolve 阶段取到的源端真实标题，随数据落源
+local function download_bilibili_danmaku(path, cid, from_menu, callback, meta)
     local url = "https://comment.bilibili.com/" .. cid .. ".xml"
     local key = "cid:" .. cid
+
+    -- 源端真实标题落源条目与台账（只补不擦；meta 缺省 no-op，老调用方不受影响）
+    local function note_meta()
+        if type(meta) ~= "table" then return end
+        if DANMAKU.sources[path] ~= nil then
+            if meta.anime ~= nil and DANMAKU.sources[path].anime_title == nil then
+                DANMAKU.sources[path].anime_title = meta.anime
+            end
+            if meta.episode ~= nil and DANMAKU.sources[path].episode_title == nil then
+                DANMAKU.sources[path].episode_title = meta.episode
+            end
+        end
+        source_status.ensure(path, "bilibili", meta)
+    end
 
     -- 单次解析辅助：find 前置让无 <d 的错误页/空 <i></i> 零成本跳过（省整次 gmatch），
     -- 命中时只 parse 一次，结果判空与落源共用（此前判空与 save_danmaku_xml 各 parse 一遍）
@@ -203,6 +223,7 @@ local function download_bilibili_danmaku(path, cid, from_menu, callback)
         source_status.note_cache(path, "cache")
         msg.verbose("弹幕缓存命中：" .. key)
         save_danmaku_list(path, hit_list)
+        note_meta()
         load_danmaku(from_menu == nil and true or from_menu, nil, true)
         callback(true)
         return
@@ -216,6 +237,7 @@ local function download_bilibili_danmaku(path, cid, from_menu, callback)
             source_status.note_cache(path, "stale")
             show_message("网络失败，已使用过期弹幕缓存", 3)
             save_danmaku_list(path, stale_list)
+            note_meta()
             load_danmaku(from_menu == nil and true or from_menu, nil, true)
             callback(true)
             return true
@@ -244,6 +266,7 @@ local function download_bilibili_danmaku(path, cid, from_menu, callback)
         -- 下载内容无条件落源（保持旧语义：解析 0 条也落空表源），缓存只存非空
         local dl_list = parse_payload(out) or {}
         save_danmaku_list(path, dl_list)
+        note_meta()
         if #dl_list > 0 then
             dcache.put(key, out, { type = "xml" })
         end
@@ -305,9 +328,17 @@ function load_danmaku_for_bilibili(path, callback)
         end
     end
     if cid == nil then
-        resolve_bilibili_cid(path, function(resolved_cid)
+        resolve_bilibili_cid(path, function(resolved_cid, resolved_title, season_title)
             if resolved_cid then
-                download_bilibili_danmaku(path, resolved_cid, true, callback)
+                -- 源端真实标题（番剧=季标题+分集 share_copy；此前第二返回值被丢弃，
+                -- 源条目只能显示 URL 截断）
+                local meta = {}
+                if season_title ~= nil and season_title ~= "" then meta.anime = season_title end
+                if resolved_title ~= nil and resolved_title ~= "" then meta.episode = resolved_title end
+                if meta.anime ~= nil then DANMAKU.anime = meta.anime end
+                if meta.episode ~= nil then DANMAKU.episode = meta.episode end
+                download_bilibili_danmaku(path, resolved_cid, true, callback,
+                    next(meta) ~= nil and meta or nil)
             else
                 show_message("获取哔哩哔哩视频cid失败", 3)
                 msg.error("获取哔哩哔哩视频cid失败")

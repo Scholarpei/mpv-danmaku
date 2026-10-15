@@ -139,11 +139,11 @@ local function fetch_tx_episodes(cid, stop_after, callback)
     fetch_page()
 end
 
--- 选集后加载（菜单选集与历史续载共用）
-local function load_tencent_danmaku(cid, vid, episodenum, title, year, type_name)
+-- 选集后加载（菜单选集与历史续载共用；ep_title = 源端真实分集标题，显示优先）
+local function load_tencent_danmaku(cid, vid, episodenum, title, year, type_name, ep_title)
     ENABLED = true
     DANMAKU.anime = title .. " (" .. year .. ")"
-    DANMAKU.episode = "第" .. episodenum .. "集"
+    DANMAKU.episode = episode_label(ep_title, episodenum)
     DANMAKU.source = "qq"
     DANMAKU.extra = {
         kind = "qq",
@@ -175,7 +175,8 @@ function resume_tencent_episode(extra, episodenum)
                 ("第 %d 集不存在（共 %d 集）"):format(episodenum, #episodes), "腾讯弹幕续载失败")
             return
         end
-        load_tencent_danmaku(extra.cid, ep.vid, episodenum, extra.title, extra.year, extra.type_name)
+        load_tencent_danmaku(extra.cid, ep.vid, episodenum, extra.title, extra.year,
+            extra.type_name, ep.title)
     end)
 end
 
@@ -291,7 +292,8 @@ mp.register_script_message("get-tx-event", function(cid, title, year, type_name,
                 show_message("无结果", 3)
                 return
             end
-            load_tencent_danmaku(cid, episodes[1].vid, 1, title, year, type_name)
+            load_tencent_danmaku(cid, episodes[1].vid, 1, title, year, type_name,
+                episodes[1].title)
         end)
         return
     end
@@ -329,7 +331,8 @@ mp.register_script_message("get-tx-event", function(cid, title, year, type_name,
                 title = "第" .. i .. "集",
                 hint = ep.title ~= "" and ep.title or nil,
                 value = { "script-message-to", mp.get_script_name(), "add-tx-event",
-                    cid, ep.vid, tostring(i), title, year, type_name },
+                    cid, ep.vid, tostring(i), title, year, type_name,
+                    tostring(ep.title or "") },
                 keep_open = true,
             }
         end
@@ -345,8 +348,9 @@ mp.register_script_message("get-tx-event", function(cid, title, year, type_name,
     end)
 end)
 
-mp.register_script_message("add-tx-event", function(cid, vid, episodenum, title, year, type_name)
-    load_tencent_danmaku(cid, vid, episodenum, title, year, type_name)
+mp.register_script_message("add-tx-event",
+    function(cid, vid, episodenum, title, year, type_name, ep_title)
+    load_tencent_danmaku(cid, vid, episodenum, title, year, type_name, ep_title)
     mark_details_episode_added({ "script-message-to", mp.get_script_name(),
-        "add-tx-event", cid, vid, episodenum, title, year, type_name })
+        "add-tx-event", cid, vid, episodenum, title, year, type_name, ep_title })
 end)

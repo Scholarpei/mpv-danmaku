@@ -112,10 +112,12 @@ local function fetch_ako_episodes(subject_id, callback)
 end
 
 -- 选集后加载（菜单选集与历史续载共用）
-local function load_animeko_danmaku(subject_id, episode_id, episodenum, title, year)
+local function load_animeko_danmaku(subject_id, episode_id, episodenum, title, year, ep_display)
     ENABLED = true
     DANMAKU.anime = title .. " (" .. year .. ")"
-    DANMAKU.episode = "第" .. episodenum .. "话"
+    -- 源端真实分集标题（与选集菜单同款「第N话 标题」），缺失才回退序号
+    DANMAKU.episode = (ep_display ~= nil and ep_display ~= "")
+        and ep_display or ("第" .. episodenum .. "话")
     DANMAKU.source = "animeko"
     DANMAKU.extra = {
         kind = "animeko",
@@ -146,7 +148,11 @@ function resume_animeko_episode(extra, episodenum)
                 ("第 %d 话不存在（共 %d 话）"):format(episodenum, #episodes), "animeko 弹幕续载失败")
             return
         end
-        load_animeko_danmaku(extra.subject_id, ep.episode_id, episodenum, extra.title, extra.year)
+        -- 与选集菜单同款显示标题（菜单拼「第i话 标题」，此处按定位到的真实条目同式拼）
+        local ep_display = (ep.title ~= nil and ep.title ~= "")
+            and ("第" .. episodenum .. "话 " .. ep.title) or nil
+        load_animeko_danmaku(extra.subject_id, ep.episode_id, episodenum, extra.title,
+            extra.year, ep_display)
     end)
 end
 
@@ -290,7 +296,7 @@ mp.register_script_message("get-ako-event", function(subject_id, title, year)
             items[#items + 1] = {
                 title = ep_title,
                 value = { "script-message-to", mp.get_script_name(), "add-ako-event",
-                    subject_id, ep.episode_id, tostring(i), title, year },
+                    subject_id, ep.episode_id, tostring(i), title, year, ep_title },
                 keep_open = true,
             }
         end
@@ -306,8 +312,9 @@ mp.register_script_message("get-ako-event", function(subject_id, title, year)
     end)
 end)
 
-mp.register_script_message("add-ako-event", function(subject_id, episode_id, episodenum, title, year)
-    load_animeko_danmaku(subject_id, episode_id, episodenum, title, year)
+mp.register_script_message("add-ako-event",
+    function(subject_id, episode_id, episodenum, title, year, ep_display)
+    load_animeko_danmaku(subject_id, episode_id, episodenum, title, year, ep_display)
     mark_details_episode_added({ "script-message-to", mp.get_script_name(),
-        "add-ako-event", subject_id, episode_id, episodenum, title, year })
+        "add-ako-event", subject_id, episode_id, episodenum, title, year, ep_display })
 end)

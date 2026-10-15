@@ -133,10 +133,12 @@ local function fetch_mg_episodes(collection_id, stop_after, callback)
 end
 
 -- 选集后加载（菜单选集与历史续载共用）
-local function load_mgtv_danmaku(collection_id, video_id, episodenum, title, year, type_name)
+local function load_mgtv_danmaku(collection_id, video_id, episodenum, title, year, type_name, ep_title)
     ENABLED = true
     DANMAKU.anime = title .. " (" .. year .. ")"
-    DANMAKU.episode = "第" .. episodenum .. "集"
+    -- 源端真实分集标题（与选集菜单一致），缺失才回退序号
+    DANMAKU.episode = (ep_title ~= nil and ep_title ~= "")
+        and ep_title or ("第" .. episodenum .. "集")
     DANMAKU.source = "mgtv"
     DANMAKU.extra = {
         kind = "mgtv",
@@ -168,7 +170,8 @@ function resume_mgtv_episode(extra, episodenum)
                 ("第 %d 集不存在（共 %d 集）"):format(episodenum, #episodes), "芒果弹幕续载失败")
             return
         end
-        load_mgtv_danmaku(extra.collection_id, ep.video_id, episodenum, extra.title, extra.year, extra.type_name)
+        load_mgtv_danmaku(extra.collection_id, ep.video_id, episodenum, extra.title,
+            extra.year, extra.type_name, ep.title)
     end)
 end
 
@@ -278,7 +281,8 @@ mp.register_script_message("get-mg-event", function(clip_id, title, year, type_n
                 show_message("无结果", 3)
                 return
             end
-            load_mgtv_danmaku(clip_id, episodes[1].video_id, 1, title, year, type_name)
+            load_mgtv_danmaku(clip_id, episodes[1].video_id, 1, title, year, type_name,
+                episodes[1].title)
         end)
         return
     end
@@ -315,7 +319,8 @@ mp.register_script_message("get-mg-event", function(clip_id, title, year, type_n
             items[#items + 1] = {
                 title = ep.title,
                 value = { "script-message-to", mp.get_script_name(), "add-mg-event",
-                    clip_id, ep.video_id, tostring(i), title, year, type_name },
+                    clip_id, ep.video_id, tostring(i), title, year, type_name,
+                    tostring(ep.title or "") },
                 keep_open = true,
             }
         end
@@ -331,8 +336,9 @@ mp.register_script_message("get-mg-event", function(clip_id, title, year, type_n
     end)
 end)
 
-mp.register_script_message("add-mg-event", function(clip_id, video_id, episodenum, title, year, type_name)
-    load_mgtv_danmaku(clip_id, video_id, episodenum, title, year, type_name)
+mp.register_script_message("add-mg-event",
+    function(clip_id, video_id, episodenum, title, year, type_name, ep_title)
+    load_mgtv_danmaku(clip_id, video_id, episodenum, title, year, type_name, ep_title)
     mark_details_episode_added({ "script-message-to", mp.get_script_name(),
-        "add-mg-event", clip_id, video_id, episodenum, title, year, type_name })
+        "add-mg-event", clip_id, video_id, episodenum, title, year, type_name, ep_title })
 end)

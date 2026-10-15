@@ -41,17 +41,8 @@ end
 
 -- ============ 选集后加载（菜单选集与历史续载共用） ============
 
--- 集标题（站点 episodeTitle 为 "01"/"1" 等）→ 菜单与 OSD 展示：纯数字规整为「第N集」，
--- 非数字（剧场版"正片"等）原样展示
-local function episode_label(ep_title, episodenum)
-    if type(ep_title) == "string" and ep_title ~= "" then
-        if ep_title:match("^%d+$") then
-            return "第" .. tostring(tonumber(ep_title)) .. "集"
-        end
-        return ep_title
-    end
-    return "第" .. episodenum .. "集"
-end
+-- 集标题显示规整用全局 episode_label（modules/utils.lua，纯数字规整「第N集」、
+-- 非数字（剧场版"正片"等）原样、缺失回退序号）
 
 local function load_aiyifan_danmaku(media_key, episode_key, video_id, video_type,
                                      episodenum, title, ep_title)

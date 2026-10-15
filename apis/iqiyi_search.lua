@@ -91,10 +91,12 @@ local function fetch_iq_episodes(link_id, title, callback)
 end
 
 -- 选集后加载（菜单选集与历史续载共用）；url 为每集 pageUrl
-local function load_iqiyi_danmaku(link_id, url, episodenum, title, year, type_name)
+local function load_iqiyi_danmaku(link_id, url, episodenum, title, year, type_name, ep_title)
     ENABLED = true
     DANMAKU.anime = title .. " (" .. year .. ")"
-    DANMAKU.episode = "第" .. episodenum .. "集"
+    -- 源端真实分集标题（形如「狂飙第1集」，与选集菜单一致），缺失才回退序号
+    DANMAKU.episode = (ep_title ~= nil and ep_title ~= "")
+        and ep_title or ("第" .. episodenum .. "集")
     DANMAKU.source = "iqiyi"
     DANMAKU.extra = {
         kind = "iqiyi",
@@ -127,7 +129,7 @@ function resume_iqiyi_episode(extra, episodenum)
         end
         load_iqiyi_danmaku(extra.link_id,
             ("https://www.iqiyi.com/v_%s.html"):format(ep.link_id), episodenum,
-            extra.title, extra.year, extra.type_name)
+            extra.title, extra.year, extra.type_name, ep.title)
     end)
 end
 
@@ -260,10 +262,11 @@ mp.register_script_message("get-iq-event", function(link_id, title, year, type_n
         }
         for i, ep in ipairs(episodes) do
             -- 标题形如「狂飙第1集」，直接展示（集数序 = 列表序）
+            local ep_title = ep.title ~= "" and ep.title or ("第" .. i .. "集")
             items[#items + 1] = {
-                title = ep.title ~= "" and ep.title or ("第" .. i .. "集"),
+                title = ep_title,
                 value = { "script-message-to", mp.get_script_name(), "add-iq-event",
-                    link_id, ep.link_id, tostring(i), title, year, type_name },
+                    link_id, ep.link_id, tostring(i), title, year, type_name, ep_title },
                 keep_open = true,
             }
         end
@@ -279,10 +282,11 @@ mp.register_script_message("get-iq-event", function(link_id, title, year, type_n
     end)
 end)
 
-mp.register_script_message("add-iq-event", function(link_id, ep_link_id, episodenum, title, year, type_name)
+mp.register_script_message("add-iq-event",
+    function(link_id, ep_link_id, episodenum, title, year, type_name, ep_title)
     load_iqiyi_danmaku(link_id,
         ("https://www.iqiyi.com/v_%s.html"):format(ep_link_id), episodenum,
-        title, year, type_name)
+        title, year, type_name, ep_title)
     mark_details_episode_added({ "script-message-to", mp.get_script_name(),
-        "add-iq-event", link_id, ep_link_id, episodenum, title, year, type_name })
+        "add-iq-event", link_id, ep_link_id, episodenum, title, year, type_name, ep_title })
 end)

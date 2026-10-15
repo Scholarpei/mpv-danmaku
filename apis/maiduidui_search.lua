@@ -66,11 +66,13 @@ local function fetch_mdd_episodes(vod_uuid, callback)
     end)
 end
 
--- 选集后加载（菜单选集与历史续载共用）
-local function load_maiduidui_danmaku(vod_uuid, ep_uuid, episodenum, title, material_name)
+-- 选集后加载（菜单选集与历史续载共用；ep_name = 源端真实分集名，显示优先）
+local function load_maiduidui_danmaku(vod_uuid, ep_uuid, episodenum, title, material_name, ep_name)
     ENABLED = true
     DANMAKU.anime = title
-    DANMAKU.episode = "第" .. episodenum .. "集"
+    -- 源端真实分集名（如「法证先锋(粤)01」，与选集菜单一致），缺失才回退序号
+    DANMAKU.episode = (ep_name ~= nil and ep_name ~= "")
+        and ep_name or ("第" .. episodenum .. "集")
     DANMAKU.source = "maiduidui"
     DANMAKU.extra = {
         kind = "maiduidui",
@@ -101,7 +103,8 @@ function resume_maiduidui_episode(extra, episodenum)
                 ("第 %d 集不存在（共 %d 集）"):format(episodenum, #episodes), "埋堆堆弹幕续载失败")
             return
         end
-        load_maiduidui_danmaku(extra.vod_uuid, ep.uuid, episodenum, extra.title, extra.material_name)
+        load_maiduidui_danmaku(extra.vod_uuid, ep.uuid, episodenum, extra.title,
+            extra.material_name, ep.name)
     end)
 end
 
@@ -241,10 +244,11 @@ mp.register_script_message("get-mdd-event", function(vod_uuid, title, material_n
             },
         }
         for i, ep in ipairs(episodes) do
+            local ep_name = ep.name ~= "" and ep.name or ("第" .. i .. "集")
             items[#items + 1] = {
-                title = ep.name ~= "" and ep.name or ("第" .. i .. "集"),
+                title = ep_name,
                 value = { "script-message-to", mp.get_script_name(), "add-mdd-event",
-                    vod_uuid, ep.uuid, tostring(i), title, material_name },
+                    vod_uuid, ep.uuid, tostring(i), title, material_name, ep_name },
                 keep_open = true,
             }
         end
@@ -260,8 +264,9 @@ mp.register_script_message("get-mdd-event", function(vod_uuid, title, material_n
     end)
 end)
 
-mp.register_script_message("add-mdd-event", function(vod_uuid, ep_uuid, episodenum, title, material_name)
-    load_maiduidui_danmaku(vod_uuid, ep_uuid, episodenum, title, material_name)
+mp.register_script_message("add-mdd-event",
+    function(vod_uuid, ep_uuid, episodenum, title, material_name, ep_name)
+    load_maiduidui_danmaku(vod_uuid, ep_uuid, episodenum, title, material_name, ep_name)
     mark_details_episode_added({ "script-message-to", mp.get_script_name(),
-        "add-mdd-event", vod_uuid, ep_uuid, episodenum, title, material_name })
+        "add-mdd-event", vod_uuid, ep_uuid, episodenum, title, material_name, ep_name })
 end)

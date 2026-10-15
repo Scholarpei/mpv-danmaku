@@ -22,17 +22,8 @@ local PLAY_BASE = "https://lanerc.life/vod/"
 
 -- ============ 选集后加载（菜单选集与历史续载共用） ============
 
--- 集标题（详情 name/title）→ 菜单与 OSD 展示：纯数字规整为「第N集」（去前导零），
--- 非数字（剧场版名等）原样展示，缺失回退序号
-local function episode_label(ep_title, episodenum)
-    if type(ep_title) == "string" and ep_title ~= "" then
-        if ep_title:match("^%d+$") then
-            return "第" .. tostring(tonumber(ep_title)) .. "集"
-        end
-        return ep_title
-    end
-    return "第" .. episodenum .. "集"
-end
+-- 集标题显示规整用全局 episode_label（modules/utils.lua，纯数字规整「第N集」、
+-- 非数字原样、缺失回退序号）
 
 local function load_omofun_danmaku(vod_id, ep, title, year, ep_title)
     ENABLED = true

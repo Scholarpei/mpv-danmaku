@@ -50,10 +50,13 @@ end
 
 -- ============ 选集后加载（菜单选集与历史续载共用） ============
 
-local function load_cyc_danmaku(video_id, ep, title, year)
+local function load_cyc_danmaku(video_id, ep, title, year, ep_title)
     ENABLED = true
     DANMAKU.anime = title .. " (" .. (tonumber(year) or 0) .. ")"
-    DANMAKU.episode = "第" .. ep .. "集"
+    -- 源端真实分集标题（API sections[].title，如「第01集」，与选集菜单一致），
+    -- 缺失才回退序号
+    DANMAKU.episode = (ep_title ~= nil and ep_title ~= "")
+        and ep_title or ("第" .. ep .. "集")
     DANMAKU.source = "cyc"
     DANMAKU.extra = {
         kind = "cyc",
@@ -83,7 +86,8 @@ function resume_cyc_episode(extra, episodenum)
                 ("第 %d 集｜共 %d 集"):format(episodenum, #entry.episodes), "次元城弹幕续载失败")
             return
         end
-        load_cyc_danmaku(extra.video_id, episodenum, extra.title, extra.year)
+        local ep = entry.episodes[episodenum]
+        load_cyc_danmaku(extra.video_id, episodenum, extra.title, extra.year, ep and ep.title)
     end)
 end
 
@@ -226,7 +230,7 @@ mp.register_script_message("get-cyc-event", function(video_id, title, year)
             items[#items + 1] = {
                 title = ep_title,
                 value = { "script-message-to", mp.get_script_name(), "add-cyc-event",
-                    tostring(video_id), tostring(i), title, tostring(year) },
+                    tostring(video_id), tostring(i), title, tostring(year), ep_title },
                 keep_open = true,
             }
         end
@@ -242,8 +246,8 @@ mp.register_script_message("get-cyc-event", function(video_id, title, year)
     end)
 end)
 
-mp.register_script_message("add-cyc-event", function(video_id, ep, title, year)
-    load_cyc_danmaku(video_id, ep, title, year)
+mp.register_script_message("add-cyc-event", function(video_id, ep, title, year, ep_title)
+    load_cyc_danmaku(video_id, ep, title, year, ep_title)
     mark_details_episode_added({ "script-message-to", mp.get_script_name(),
-        "add-cyc-event", video_id, ep, title, year })
+        "add-cyc-event", video_id, ep, title, year, ep_title })
 end)
