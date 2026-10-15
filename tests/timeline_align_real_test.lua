@@ -104,32 +104,13 @@ local function compute_real(opts)
     }, opts)
 end
 
--- A1 默认门槛 0.3：基准=弹弹池（条数最多）；巴哈过门槛且漂移 0（本集两边天然同轴，
---    kksk/4hit/miomiomio 等共享文本两边时间戳逐字相同）→ 不平移；ako 重合 13/76 跳过
-local result = compute_real({ transform = to_simplified })
-local diag_by_url = {}
-for _, diag in ipairs(result.diag) do diag_by_url[diag.url] = diag end
-
-check("A1a 基准取弹弹池", result.baseline == DDP_URL)
-local baha_diag = diag_by_url[BAHA_URL]
-check("A1b 巴哈重合/漂移参考值（46% 重合、71% 集中投 0 秒）",
-    baha_diag and baha_diag.match_count == 552 and baha_diag.drift == 0 and baha_diag.votes == 391)
-check("A1c 巴哈漂移 0 无需平移",
-    result.shifts[BAHA_URL] == nil and baha_diag.applied == false)
-local ako_diag = diag_by_url[AKO_URL]
-check("A1d ako 小池跳过（重合 13/76）",
-    result.shifts[AKO_URL] == nil and ako_diag and not ako_diag.applied
-        and ako_diag.reason and ako_diag.reason:find("重合率", 1, true))
-
--- A2 严格门槛 0.8（danmu_api 原值）：巴哈 552/1210 被重合率整源挡下——默认值的校准依据
-local strict = compute_real({ transform = to_simplified, min_match_ratio = 0.8 })
-local strict_baha
-for _, diag in ipairs(strict.diag) do
-    if diag.url == BAHA_URL then strict_baha = diag end
-end
-check("A2 门槛 0.8 会跳过巴哈（默认 0.3 的校准依据）",
-    strict_baha and not strict_baha.applied
-        and strict_baha.reason and strict_baha.reason:find("重合率", 1, true))
+-- Relative relationships are independent of a video's assumed correctness.
+local result=compute_real({transform=to_simplified})
+check('A1 real common pool is connected',result.members[BAHA_URL]==result.members[DDP_URL])
+check('A1 sparse animeko remains independent',result.members[AKO_URL]~=result.members[DDP_URL])
+check('A1 real zero offset preserved',talign.coordinate(result,DDP_URL,590)==590)
+local strict=compute_real({transform=to_simplified,min_match_ratio=0.8})
+check('A2 strict overlap rejects weak relation',strict.members[BAHA_URL]~=strict.members[DDP_URL])
 
 -- ============ B. 真实数据 + 模拟片头差异（巴哈整体晚 90 秒）============
 
@@ -142,13 +123,8 @@ local shifted = talign.compute({
     { url = DDP_URL, provider = "ddp", entries = ddp },
     { url = BAHA_URL, provider = "巴哈姆特", entries = baha_plus90 },
 }, { transform = to_simplified })
-local shift_diag
-for _, diag in ipairs(shifted.diag) do
-    if diag.url == BAHA_URL then shift_diag = diag end
-end
-check("B1 检出 +90s 漂移并整源前移",
-    shifted.shifts[BAHA_URL] == -90 and shift_diag and shift_diag.applied
-        and shift_diag.drift == 90 and shift_diag.votes == 391)
+check('B1 real shifted sources converge relatively',
+    talign.coordinate(shifted,BAHA_URL,680)==talign.coordinate(shifted,DDP_URL,590))
 
 -- ============ C. 真实数据 e2e：管线收集期应用平移，共享文本双源收敛 ============
 
@@ -174,10 +150,12 @@ end
 -- C1 开启对齐（默认）：巴哈+90s 被校正回基准时间轴
 DANMAKU = { sources = build_sources(baha_plus90), count = 3 }
 COMMENTS = {}
+require('modules/timeline').prepare()
+require('modules/timeline').anchor(DDP_URL,590,590,'group')
 convert_danmaku_to_ass_events(true)
-check("C1a align_shift 写回（校正 -90 / 基准 0 / 跳过源 0）",
-    DANMAKU.sources[BAHA_URL].align_shift == -90
-        and DANMAKU.sources[DDP_URL].align_shift == 0
+check("C1a 相对组坐标不冒充本地校准",
+    DANMAKU.sources[BAHA_URL].align_shift == 0
+        and DANMAKU.sources[DDP_URL].align_shift == 90
         and DANMAKU.sources[AKO_URL].align_shift == 0)
 do
     local evs = kksk_events()
@@ -195,6 +173,8 @@ end
 do
     local tmp = ROOT .. "/tests/talign_real_tmp_export.xml"
     DANMAKU = { sources = build_sources(baha_plus90), count = 3 }
+    require('modules/timeline').prepare()
+    require('modules/timeline').anchor(DDP_URL,590,590,'group')
     local ok = convert_danmaku_to_xml(tmp)
     local content = ok and read_file(tmp) or ""
     os.remove(tmp)
@@ -264,9 +244,9 @@ do
     }, { transform = to_simplified })
     local diag09 = r.diag[1] -- ddp 为基准，仅 bilibili 一项诊断
     check("D1a E09 实抓条数", #ddp09 == 5384 and #bili09 == 3600)
-    check("D1b 基准取弹弹池", r.baseline == DDP_URL)
-    check("D1c bilibili 检出 -5s 漂移（2984 重合 / 1744 票）",
-        diag09 and diag09.drift == -5 and diag09.votes == 1744 and diag09.match_count == 2984)
+    check("D1b 两源建立可靠关系", r.members[DDP_URL] == r.members[BILI09_URL])
+    check("D1c bilibili 检出 -5s 稳定漂移且覆盖全片",
+        diag09 and diag09.drift == -5 and diag09.independent > 1000 and diag09.coverage > 0.9)
     check("D1d 应用 +5s 平移", r.shifts[BILI09_URL] == 5 and diag09.applied)
 end
 

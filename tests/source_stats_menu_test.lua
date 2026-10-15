@@ -123,7 +123,7 @@ do -- 详情子行：完整 URL / 延迟 / 时间轴校正 / 错误全文 / 屏�
         find_detail(d_done, "URL："))
     check("详情手动延迟", find_detail(d_done, "手动延迟：") == "手动延迟：+2.5 秒",
         find_detail(d_done, "手动延迟："))
-    check("详情时间轴校正", find_detail(d_done, "时间轴校正：") == "时间轴校正：-3 秒",
+    check("详情时间轴校正", find_detail(d_done, "时间轴校正：") == "时间轴校正：-3.00 秒",
         find_detail(d_done, "时间轴校正："))
     check("详情屏蔽否", find_detail(d_done, "屏蔽：") == "屏蔽：否")
     check("详情缓存来源未标注", find_detail(d_done, "缓存来源：") == "缓存来源：网络获取（未标注缓存命中）")

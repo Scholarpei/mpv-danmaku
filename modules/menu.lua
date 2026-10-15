@@ -1,6 +1,8 @@
 local msg = require('mp.msg')
 local utils = require("mp.utils")
 local source_duration = require("modules/source_duration")
+local timeline = require("modules/timeline")
+require("modules/timeline_menu")
 local unpack = unpack or table.unpack
 
 input_loaded, input = pcall(require, "mp.input")
@@ -1313,6 +1315,12 @@ function format_source_delay_hint(source)
             end
         end
     end
+    if source.timeline_status and DANMAKU and DANMAKU.sources then
+        for url, s in pairs(DANMAKU.sources) do if s==source then
+            local raw=timeline.raw_at(url,mp.get_property_number("time-pos",0))
+            if raw then return string.format("当前合计偏移:%+.2f秒 · %s",timeline.map(url,raw)-raw,source.timeline_status) end
+        end end
+    end
     local align = type(source.align_shift) == "number" and source.align_shift or 0
     if align ~= 0 then
         return string.format("当前弹幕源延迟:%.1f秒(对齐%+.1f/手动%+.1f)",
@@ -1530,6 +1538,10 @@ local function stats_source_details(r, current_duration)
     stats_detail_row(rows, "当前视频时长", source_duration.format(current_duration))
     local diff = source_duration.diff_text(r.duration_seconds, current_duration)
     stats_detail_row(rows, "时长差", diff == "无法比较" and diff or (diff .. "（源视频 − 当前视频）"))
+    if source_duration.valid(r.duration_seconds) and source_duration.valid(current_duration)
+        and math.abs(r.duration_seconds-current_duration)<=2 then
+        stats_detail_row(rows, "版本线索", "时长接近，疑似同版本；仍须内容验证")
+    end
     local info=r.duration_info
     if info and source_duration.valid(info.reference_seconds) then
         stats_detail_row(rows,"目录参考时长",source_duration.format(info.reference_seconds))
@@ -1554,8 +1566,11 @@ local function stats_source_details(r, current_duration)
             end
         end
         stats_detail_row(rows, "手动延迟", delay_text)
+        if s.timeline_relation_status then stats_detail_row(rows, "源间关联", s.timeline_relation_status) end
+        if s.timeline_local_status then stats_detail_row(rows, "本地视频", s.timeline_local_status) end
+        if s.timeline_relation_detail then stats_detail_row(rows, "关联依据", s.timeline_relation_detail) end
         if type(s.align_shift) == "number" and s.align_shift ~= 0 then
-            stats_detail_row(rows, "时间轴校正", string.format("%+d 秒", s.align_shift))
+            stats_detail_row(rows, "时间轴校正", string.format("%+.2f 秒", s.align_shift))
         else
             stats_detail_row(rows, "时间轴校正", "未介入")
         end
@@ -1809,6 +1824,7 @@ end
 local total_menu_items_config = {
     { title = "弹幕搜索", action = "open_search_danmaku_menu" },
     { title = "从源添加弹幕", action = "open_add_source_menu" },
+    { title = "时间轴校准", action = "open_timeline_calibration_menu" },
     { title = "弹幕源延迟设置", action = "open_source_delay_menu" },
     { title = "弹幕整体偏移", action = "open_global_danmaku_delay_menu" },
     { title = "弹幕样式", action = "open_danmaku_style_menu" },

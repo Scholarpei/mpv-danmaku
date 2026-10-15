@@ -280,8 +280,12 @@ local function entry_line(e)
     if type(DANMAKU) == "table" and type(DANMAKU.sources) == "table" then
         local s = DANMAKU.sources[e.key]
         if type(s) == "table" and type(s.align_shift) == "number" and s.align_shift ~= 0 then
-            line = line .. string.format(" 时间轴%+ds", s.align_shift)
+            line = line .. string.format(" 源间%+.2fs", s.align_shift)
         end
+    end
+    if type(DANMAKU)=='table' and DANMAKU.sources then
+        local s=DANMAKU.sources[e.key]
+        if s and s.timeline_status then line=line..' '..s.timeline_status end
     end
     return line
 end

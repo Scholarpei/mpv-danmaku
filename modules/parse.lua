@@ -20,7 +20,7 @@ local function get_s2t()
 end
 local pakku_merge = require("modules/pakku_merge")
 local pakku_density = require("modules/pakku_density")
-local talign = require("modules/timeline_align")
+local timeline = require("modules/timeline")
 
 -- mpv 的 Lua 环境不自动播种随机数（弹幕超限随机丢弃用）
 math.randomseed(os.time() + os.clock())
@@ -54,33 +54,6 @@ local function bake_render_body(raw_text, is_scrolling)
         end)
     end
     return t
-end
-
--- 构建 per-source 的延迟查询函数
-local function make_delay_lookup(source)
-    local segments = nil
-    local prefix = nil
-    if source and source.delay_segments and #source.delay_segments > 0 then
-        segments = {}
-        for i, v in ipairs(source.delay_segments) do segments[i] = v end
-        table.sort(segments, function(a, b) return (a.start or 0) < (b.start or 0) end)
-        prefix = {}
-        local s = 0
-        for i, v in ipairs(segments) do
-            s = s + (v.delay or 0)
-            prefix[i] = s
-        end
-    end
-
-    return function(t)
-        local segs = segments or {}
-        local pre = prefix or {}
-        if #segs == 0 then return 0 end
-        local idx = binary_search(segs, t, function(s) return (s and s.start) or 0 end)
-        local target = idx - 1
-        if target < 1 then return 0 end
-        return pre[target] or 0
-    end
 end
 
 local function xml_unescape(str)
@@ -309,85 +282,16 @@ local function ch_convert_cached(text)
     return converted
 end
 
--- 跨源时间轴对齐：按同文本弹幕出现时间差投票，把各源整体平移到弹幕数最多的基准源
--- （算法见 modules/timeline_align.lua）。投票输入为「生效时间」（orig_time + 手动
--- 延迟 + 已保留的对齐校正）：用户已手动补偿过的源检出漂移≈0，不会被二次平移；
--- 校正值每次管线重建从原始数据重算（瞬态、不落历史），源异步到达逐个收敛。
--- align_shift 写回源记录供收集/导出与状态行取用（数值 0=已对齐无需平移，
--- nil=未参与/功能关闭）。
--- align_pinned（main.lua set_danmaku_delay 置位）：对齐已介入后用户又手动设过延迟
--- 的源——若照常重投票，手动增量会被当成新漂移整源平移回基准（微调失效），故保留
--- 当前校正量不再重算、手动增量原样叠加生效；输入 0 清空延迟时 main.lua 同步清 pin
--- 恢复自动对齐
+-- Use identical normalization from the first menu analysis through playback.
+timeline.configure({transform = function(text)
+    if type(text) == 'string' and text ~= '' then
+        return ch_convert_cached(decode_html_entities(text))
+    end
+    return text
+end})
+
 local function compute_timeline_alignment()
-    local shifts = {}
-    if not options.timeline_align then
-        for _, source in pairs(DANMAKU.sources) do
-            source.align_shift = nil
-            source.align_pinned = nil -- 功能关闭全量复位，重开后重新投票
-        end
-        return shifts
-    end
-
-    local lists, skip = {}, {}
-    for url, source in pairs(DANMAKU.sources) do
-        local pinned = source.align_pinned == true and type(source.align_shift) == "number"
-        if not pinned then
-            source.align_shift = nil -- 先清残留，被门槛跳过的源不显示旧值
-        end
-        if not source.blocked and source.data and #source.data > 0 then
-            if pinned then skip[url] = true end
-            local get_cached_delay = make_delay_lookup(source)
-            -- pinned 源的投票时间须含保留的校正量（即其实际落点），供其他源
-            -- 以真实位置投票/选基准；非 pinned 源校正量本来就从生效时间重算
-            local stale = pinned and source.align_shift or 0
-            local entries = {}
-            for _, d in ipairs(source.data) do
-                local base_time = d.orig_time or d.time
-                entries[#entries + 1] = {
-                    time = base_time + stale + get_cached_delay(base_time),
-                    text = d.text,
-                }
-            end
-            lists[#lists + 1] = { url = url, provider = source.provider, entries = entries }
-        end
-    end
-
-    local result = talign.compute(lists, {
-        -- 与收集期同一条归一路径（ch_convert_cached 有缓存，双次转换廉价）
-        transform = function(text)
-            if type(text) == "string" and text ~= "" then
-                return ch_convert_cached(decode_html_entities(text))
-            end
-            return text
-        end,
-        min_match_ratio = options.timeline_align_min_match,
-        skip = skip,
-    })
-
-    for _, item in ipairs(lists) do
-        local src = DANMAKU.sources[item.url]
-        if skip[item.url] then
-            -- pin 源沿用保留校正量：手动延迟增量叠加其上原样生效
-            shifts[item.url] = src.align_shift
-            msg.info(string.format("时间轴对齐：%s 保持用户手动延迟（校正量 %+d 秒不再重算）",
-                src.provider or item.url, src.align_shift))
-        else
-            local shift = result.shifts[item.url] or 0
-            shifts[item.url] = shift
-            src.align_shift = shift
-        end
-    end
-    for _, diag in ipairs(result.diag) do
-        local label = diag.provider or diag.url
-        if diag.applied then
-            msg.info(string.format("时间轴对齐：%s 应用平移 %+d 秒（检出漂移 %+ds，%d 票，基准 %s）",
-                label, -diag.drift, diag.drift, diag.votes, result.baseline))
-        else
-            msg.info(string.format("时间轴对齐：%s 跳过（%s）", label, diag.reason))
-        end
-    end
-    return shifts
+    return timeline.prepare()
 end
 
 -- 合并重复弹幕
@@ -682,17 +586,14 @@ end
 -- 将弹幕转换为 XML 格式
 function convert_danmaku_to_xml(danmaku_out)
     local danmakus = {}
-    local align_shifts = compute_timeline_alignment()
+    compute_timeline_alignment()
     for url, source in pairs(DANMAKU.sources) do
         if not source.blocked and source.data then
-            local get_cached_delay = make_delay_lookup(source)
 
             for _, d in ipairs(source.data) do
                 local base_time = d.orig_time or d.time
-                local adjusted_time = base_time + get_cached_delay(base_time)
-                local shift = align_shifts[url] or 0
-                if shift ~= 0 then adjusted_time = math.max(0, adjusted_time + shift) end
-                table.insert(danmakus, {
+                local adjusted_time = timeline.map(url, base_time)
+                if adjusted_time then table.insert(danmakus, {
                     orig_time = d.orig_time,
                     time = adjusted_time,
                     type = d.type,
@@ -700,7 +601,7 @@ function convert_danmaku_to_xml(danmaku_out)
                     color = d.color,
                     text = d.text,
                     source = url,
-                })
+                }) end
             end
         end
     end
@@ -771,18 +672,15 @@ function convert_danmaku_to_ass_events(force)
     DENSITY_STATS = nil -- 同上，智能密度统计
     BLACKLIST_STATS = nil -- 同上，黑名单过滤统计
     local per_source_lists = {}
-    local align_shifts = compute_timeline_alignment()
+    compute_timeline_alignment()
     for url, source in pairs(DANMAKU.sources) do
         if not source.blocked and source.data then
-            local get_cached_delay = make_delay_lookup(source)
 
             local list = {}
             for _, d in ipairs(source.data) do
                 local base_time = d.orig_time or d.time
                 if d.orig_time == nil then d.orig_time = base_time end
-                local adjusted_time = base_time + get_cached_delay(base_time)
-                local shift = align_shifts[url] or 0
-                if shift ~= 0 then adjusted_time = math.max(0, adjusted_time + shift) end
+                local adjusted_time = timeline.map(url, base_time)
                 -- 实体解码 + 简繁转换提前到收集阶段（此前在布局输出阶段）：
                 -- ① 合并引擎比较转换后文本，繁简互为变体的弹幕（淚目/泪目）同文可合并，
                 --    不再依赖拼音字典恰好覆盖两种字形；② 黑名单匹配对象与显示文本一致，
@@ -792,7 +690,7 @@ function convert_danmaku_to_ass_events(force)
                 if type(text) == "string" and text ~= "" then
                     text = ch_convert_cached(decode_html_entities(text))
                 end
-                table.insert(list, {
+                if adjusted_time then table.insert(list, {
                     orig_time = d.orig_time,
                     time = adjusted_time,
                     type = d.type,
@@ -800,7 +698,7 @@ function convert_danmaku_to_ass_events(force)
                     color = d.color,
                     text = text,
                     source = url,
-                })
+                }) end
             end
 
             if #list > 0 then

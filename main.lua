@@ -319,94 +319,31 @@ function parse_delay_input(text)
     return nil
 end
 
+-- Compatibility script message: adjustments now use the same precise manual
+-- layer as calibration. Zero never clears or changes automatic analysis.
 local function set_danmaku_delay(dly, time, specific_source)
+    if dly == 0 then return end
+    local timeline = require('modules/timeline')
+    timeline.prepare()
+    local function adjust(url)
+        local raw = time and time > 0 and timeline.raw_at(url, time) or nil
+        if time and time > 0 and not raw then
+            show_message('该画面时刻没有唯一源时间，请从时间轴校准中选句', 4)
+            return
+        end
+        timeline.adjust(url, dly, 'source', raw)
+    end
     if specific_source then
         local source = DANMAKU.sources[specific_source]
-        if source and source.data and not source.blocked then
-            -- 时间轴对齐已介入的源（align_shift 为数字）被手动设延迟：置 pin 让后续
-            -- 管线重建保留当前校正量不再重投票——否则手动增量会被当成新漂移整源平移
-            -- 回基准、微调静默失效；输入 0 清空延迟同时解除 pin，恢复自动对齐
-            if dly == 0 then
-                source.align_pinned = nil
-            elseif type(source.align_shift) == "number" then
-                source.align_pinned = true
-            end
-            source.delay_segments = source.delay_segments or {}
-            if dly == 0 then
-                source.delay_segments = {}
-            elseif time then
-                table.insert(source.delay_segments, {start = time, delay = dly})
-            else
-                table.insert(source.delay_segments, {start = 0, delay = dly})
-            end
-            source.delay = nil
-            source.delay_segments = merge_delay_segments(source.delay_segments)
-            add_source_to_history(specific_source, source)
-            -- B站文件夹记忆：镜像延迟设置，跨集继承偏移
-            sync_bilibili_series_source(specific_source, { delay_segments = source.delay_segments })
-        end
+        if source and source.data and not source.blocked then adjust(specific_source) end
     else
         for url, source in pairs(DANMAKU.sources) do
-            if source.data and not source.blocked then
-                if dly == 0 then
-                    source.align_pinned = nil
-                elseif type(source.align_shift) == "number" then
-                    source.align_pinned = true
-                end
-                source.delay_segments = source.delay_segments or {}
-                if dly == 0 then
-                    source.delay_segments = {}
-                elseif time then
-                    table.insert(source.delay_segments, {start = time, delay = dly})
-                else
-                    table.insert(source.delay_segments, {start = 0, delay = dly})
-                end
-
-                source.delay = nil
-                source.delay_segments = merge_delay_segments(source.delay_segments)
-                add_source_to_history(url, source)
-                sync_bilibili_series_source(url, { delay_segments = source.delay_segments })
-            end
+            if source.data and not source.blocked then adjust(url) end
         end
-    end
-
-    if not specific_source then
-        if dly == 0 then
-            DELAY = 0
-        else
-            DELAY = DELAY + dly
-        end
-    end
-
-    if ENABLED and COMMENTS ~= nil then
-        render()
-    end
-
-    -- 防抖：批量重建 ASS 事件并渲染，避免频繁变更导致重复重建。
-    -- 走重建调度器与到货防抖共用 timer 槽：延迟调整与到货同时发生时
-    -- 后到请求覆盖先到 pending（两者都是全量重建+渲染），绝不双跑
-    sched.request({
-        window = 0.1,
-        run = function()
-            if convert_danmaku_to_ass_events then
-                convert_danmaku_to_ass_events(true)
-            end
-            render()
-        end,
-    })
-
-    if specific_source then
-        local source = DANMAKU.sources[specific_source]
-        local source_delay = get_delay_for_time(source and source.delay_segments, time or 0)
-        -- 与延迟菜单同口径：显示手动延迟 + 时间轴对齐校正量的合计（对齐介入时
-        -- 只报手动段会仍是 0.0 秒，看不出该源实际被整体平移过）
-        local align = (source and type(source.align_shift) == "number") and source.align_shift or 0
-        local suffix = align ~= 0 and string.format('（含时间轴对齐%+.1f）', align) or ''
-        show_message('设置弹幕源延迟: ' .. string.format("%.1f", source_delay + align + 1e-10) .. ' s' .. suffix)
-    else
-        show_message('设置弹幕延迟: ' .. string.format("%.1f", DELAY + 1e-10) .. ' s')
+        DELAY = DELAY + dly
         mp.set_property_native(DELAY_PROPERTY, DELAY)
     end
+    show_message((specific_source and '单源' or '全部源') .. (dly < 0 and '提前 ' or '推迟 ') .. math.abs(dly) .. ' 秒')
 end
 
 local function clear_source()
@@ -419,6 +356,8 @@ local function clear_source()
     if history[path] == nil then return end
 
     history[path] = nil
+    DANMAKU.timeline_calibration = nil
+    require('modules/timeline').reset()
     write_json_file(HISTORY_PATH, history)
 
     for url, source in pairs(DANMAKU.sources) do
@@ -586,6 +525,7 @@ function add_source_to_history(add_url, add_source)
         record.delay_segments = nil
     end
 
+    record.timeline_legacy_total = add_source.timeline_legacy_total
     record.delay = nil
     write_json_file(HISTORY_PATH, history)
 end
@@ -629,6 +569,7 @@ function read_danmaku_source_record(path)
                 from = from,
                 blocked = blocked,
                 delay_segments = delay_segments,
+                timeline_legacy_total = data.timeline_legacy_total,
                 from_history = true,
                 provider = data.provider,
                 anime_title = data.anime_title,
