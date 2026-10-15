@@ -2,6 +2,7 @@ local msg = require('mp.msg')
 local utils = require("mp.utils")
 local dcache = require("modules/danmaku_cache")
 local source_status = require("modules/source_status")
+local ddp_resume = require("modules/ddp_resume")
 
 local function extract_url(url)
     local path = url:match("^https?://[^/]+(/[^%?]*)")
@@ -26,6 +27,10 @@ end
 -- meta: {anime=, episode=} 标题快照（调用方同步段捕获，供源状态汇总显示）
 function set_episode_id(input, from_menu, api_server, meta)
     from_menu = from_menu or false
+    meta = meta or {}
+    -- 台账占位换键：续载会话 begin() 预登记的 "extra:ddp" 等待行在 fetch_danmaku 的
+    -- ensure 处换键为真实 comment URL；各调用方不传 kind，统一在此注入避免逐点遗漏
+    if meta.kind == nil then meta.kind = "ddp" end
     DANMAKU.source = "dandanplay"
     local selected_server = api_server
     for url, source in pairs(DANMAKU.sources) do
@@ -341,6 +346,7 @@ local function match_episode(animeTitle, bangumiId, episode_num, api_server)
             return
         end
 
+        local found = false
         for _, episode in ipairs(data.bangumi.episodes) do
             local ep_num = tonumber(episode.episodeNumber)
             if ep_num and ep_num == tonumber(episode_num) then
@@ -348,9 +354,165 @@ local function match_episode(animeTitle, bangumiId, episode_num, api_server)
                 DANMAKU.episode = episode.episodeTitle
                 set_episode_id(episode.episodeId, nil, api_server,
                     {anime = DANMAKU.anime, episode = DANMAKU.episode})
+                found = true
                 break
             end
         end
+        -- 集数超出源分集表：如实上报并走兜底搜索（原先静默无操作——matched 已前置，
+        -- final_cb 不再触发，用户无从发现匹配失败）
+        if not found then
+            local reason = ("第%s话不存在（该源共%d话）")
+                :format(tostring(episode_num), #data.bangumi.episodes)
+            show_message(reason, 5)
+            msg.warn("match_episode: " .. reason)
+            mp.commandv("script-message", "auto_load_fallback")
+        end
+    end)
+end
+
+-- ---------------------------------------------------------------------------
+-- 历史续载校验：服务器分集表定位真实 episodeId/episodeTitle（替代 episodeId 盲算）
+-- 盲算（history_id + 集数差）会把 episodeId 落到全局 ID 空间里其他条目（如源 25 集的
+-- 番播到本地第 26 集），加载错误内容却显示本地拼的「第N话」成功。此处经
+-- /api/v2/bangumi/{id} 分集表按锚点定位（modules/ddp_resume.lua 纯函数），显示源端
+-- 真实标题；越界如实失败，绝不拿猜测值冒充。
+-- ---------------------------------------------------------------------------
+
+-- 会话级分集表缓存（换集/预取共用，键含 server——各镜像库不一致）
+local bangumi_cache = {}
+
+-- 拉取分集表；callback(ok, entry)，entry = { episodes=, anime_title= }
+-- 成功才缓存（失败可重试：网络恢复/镜像恢复后下一集续载即自愈）
+local function fetch_bangumi_episodes(api_server, bangumi_id, callback)
+    local key = ddp_resume.cache_key(api_server, bangumi_id)
+    local hit = bangumi_cache[key]
+    if hit ~= nil then
+        callback(true, hit)
+        return
+    end
+    local url = api_server .. "/api/v2/bangumi/" .. bangumi_id
+    local args = make_danmaku_request_args("GET", url)
+    if args == nil then
+        callback(false, nil)
+        return
+    end
+    call_cmd_async(args, function(error, json)
+        local entry = nil
+        if not error then
+            local data = utils.parse_json(json)
+            if data and data.bangumi and type(data.bangumi.episodes) == "table"
+                and #data.bangumi.episodes > 0 then
+                entry = { episodes = data.bangumi.episodes }
+                -- 详情接口无 animeTitle 单字段，titles[] 取「主标题」（缺失回退首项）
+                local titles = data.bangumi.titles
+                if type(titles) == "table" then
+                    for _, t in ipairs(titles) do
+                        if type(t) == "table" and t.language == "主标题"
+                            and t.title and t.title ~= "" then
+                            entry.anime_title = t.title
+                            break
+                        end
+                    end
+                    if entry.anime_title == nil and type(titles[1]) == "table"
+                        and titles[1].title and titles[1].title ~= "" then
+                        entry.anime_title = titles[1].title
+                    end
+                end
+            end
+        end
+        if entry ~= nil then
+            bangumi_cache[key] = entry
+            callback(true, entry)
+        else
+            msg.verbose("分集表获取失败：" .. url)
+            callback(false, nil)
+        end
+    end)
+end
+
+-- 续载校验入口：main.lua dandanplay_flow 的 history_id 分支调入
+-- fallback_display：分集表拿不到时回退旧算术的显示底子（本地拼「第N话」/历史标题）
+-- expected_path：迟到回调防护——bangumi 响应到达时已换集则放弃（异步边界比旧链路前移）
+function resume_dandanplay_episode(history_id, delta, api_server, fallback_display, expected_path)
+    local function stale_guard()
+        return expected_path ~= nil and mp.get_property("path") ~= expected_path
+    end
+
+    -- 无可用服务器：回退旧算术（与旧版行为一致，显示标注未校验）
+    local server = api_server or DANMAKU.api_server
+    if server == nil then
+        local servers = get_api_server_list(options.api_server)
+        server = servers and servers[1] or nil
+    end
+    if server == nil then
+        DANMAKU.episode = (fallback_display or "") .. "（未校验）"
+        set_episode_id(tonumber(history_id) + delta, nil, nil, { episode = DANMAKU.episode })
+        return
+    end
+
+    -- 锚 episodeId 异常（非数字，历史记录损坏）：无法算术也无法校验，如实失败
+    local bangumi_id = ddp_resume.split_episode_id(history_id)
+    if bangumi_id == nil then
+        local reason = "锚 episodeId 非数字（历史记录异常）"
+        source_status.mark_failed("extra:ddp", reason, "弹弹play续载失败")
+        show_message(reason, 5)
+        msg.warn("resume_dandanplay_episode: " .. reason)
+        return
+    end
+
+    fetch_bangumi_episodes(server, bangumi_id, function(ok, entry)
+        if stale_guard() then
+            msg.verbose("续载校验回调到达时已换集，放弃")
+            return
+        end
+        if ok then
+            local ep, reason = ddp_resume.select_episode(entry.episodes, history_id, delta)
+            if ep then
+                -- 源端真实标题：显示、meta、history 全链一致
+                if entry.anime_title then DANMAKU.anime = entry.anime_title end
+                DANMAKU.episode = ep.episodeTitle
+                set_episode_id(ep.episodeId, nil, server,
+                    { anime = DANMAKU.anime, episode = DANMAKU.episode })
+                msg.verbose(("续载校验命中（via=%s）：%s")
+                    :format(tostring(ep.via), tostring(DANMAKU.episode)))
+            else
+                -- 诚实失败：不调 set_episode_id（不写错误 history），台账留痕，兜底搜索
+                source_status.mark_failed("extra:ddp", reason, "弹弹play续载失败")
+                show_message(reason, 5)
+                msg.warn("dandanplay 续载校验失败：" .. tostring(reason))
+                mp.commandv("script-message", "auto_load_fallback")
+            end
+        else
+            -- 分集表拿不到（网络失败/404 不细分）：回退旧算术保可用，显示标注未校验
+            DANMAKU.episode = (fallback_display or "") .. "（未校验）"
+            set_episode_id(tonumber(history_id) + delta, nil, server, { episode = DANMAKU.episode })
+        end
+    end)
+end
+
+-- 预取共用：只解析不加载；callback(真实 episodeId | nil)（越界/校验失败不盲预取）
+function resolve_ddp_episode_id(anchor_id, delta, api_server, callback)
+    local bangumi_id = ddp_resume.split_episode_id(anchor_id)
+    if bangumi_id == nil then
+        callback(nil)
+        return
+    end
+    local server = api_server or DANMAKU.api_server
+    if server == nil then
+        local servers = get_api_server_list(options.api_server)
+        server = servers and servers[1] or nil
+    end
+    if server == nil then
+        callback(nil)
+        return
+    end
+    fetch_bangumi_episodes(server, bangumi_id, function(ok, entry)
+        if not ok then
+            callback(nil)
+            return
+        end
+        local ep = ddp_resume.select_episode(entry.episodes, anchor_id, delta)
+        callback(ep and ep.episodeId or nil)
     end)
 end
 

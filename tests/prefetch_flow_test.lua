@@ -102,6 +102,18 @@ call_cmd_async = function(args, cb)
         end
         if url:find("/api/v2/extcomment") then
             cb(nil, '{"count":1,"comments":[{"p":"3.00,1,16777215","m":"ext"}]}')
+        elseif url:find("/api/v2/bangumi/") then
+            -- 分集表（续载校验/预取共用）：episodeId=100101..100116 对应集号 1..16
+            --（用例 E 目标集 13 须在表内；断网用例 F 目标 15 由 fail_all 拦截）
+            local eps = {}
+            for i = 1, 16 do
+                eps[#eps + 1] = string.format(
+                    '{"episodeId":1001%02d,"episodeTitle":"第%d话","episodeNumber":"%d"}',
+                    i, i, i)
+            end
+            cb(nil, '{"errorCode":0,"success":true,"bangumi":{"titles":'
+                .. '[{"language":"主标题","title":"Show"}],"episodes":['
+                .. table.concat(eps, ",") .. ']}}')
         elseif url:find("/api/v2/comment/") then
             cb(nil, '{"count":2,"comments":[{"p":"1.00,1,16777215","m":"a"},'
                 .. '{"p":"2.00,4,9830415","m":"b"}]}')

@@ -837,7 +837,10 @@ function auto_load_danmaku(path, dir, filename, number)
                 return hmerge.anchor_delta(get_episode_number, filename, anchor_fname, x)
             end
             local x_ddp = anchor_delta(history_dir.episodeId_fname)
-            DANMAKU.episode = episode_number and string.format("第%s话", episode_number + x_ddp) or history_dir.episodeTitle
+            -- 回退显示底子：仅当 bangumi 分集表拿不到（网络失败等）走旧算术时使用；
+            -- 主路径显示由 resume_dandanplay_episode 用服务器真实 episodeTitle（不再
+            -- 顶层赋值 DANMAKU.episode——未验证前不显示猜测标题）
+            local fallback_display = episode_number and string.format("第%s话", episode_number + x_ddp) or history_dir.episodeTitle
             DANMAKU.api_server = history_api_server or nil
 
             -- 多源并行续载：extras 表（各直连源一条）+ dandanplay 的 episodeId 同时恢复；
@@ -857,12 +860,23 @@ function auto_load_danmaku(path, dir, filename, number)
                         anime = ex.title,
                     }
                 end
+                if history_id then
+                    -- ddp 等待行占位（不带猜测集数）：续载校验失败的 mark_failed 留痕依赖
+                    -- 此键（live 会话未知键不新建）；成功路径 fetch_danmaku 的 ensure 按
+                    -- meta.kind 把本占位换键为真实 comment URL
+                    pending[#pending + 1] = {
+                        key = "extra:ddp",
+                        provider = "ddp",
+                        anime = history_dir.animeTitle,
+                    }
+                end
                 source_status.begin(pending)
                 msg.verbose("自动加载上次匹配的弹幕")
                 if history_id then
-                    local tmp_id = tostring(x_ddp + history_id)
-                    set_episode_id(tmp_id, nil, nil,
-                        {anime = DANMAKU.anime, episode = DANMAKU.episode})
+                    -- 续载校验：服务器分集表按锚点定位真实 episodeId/episodeTitle
+                    --（替代 episodeId 盲算；越界如实失败不写错误 history）
+                    resume_dandanplay_episode(history_id, x_ddp, history_api_server,
+                        fallback_display, path)
                 end
                 for _, ex in ipairs(extras_list) do
                     local episodenum = ex.episodenum + anchor_delta(ex.fname)
